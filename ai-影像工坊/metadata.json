@@ -1,0 +1,7 @@
+{
+  "name": "AI 影像工坊",
+  "description": "重构光影与叙事。专业级一致性影像生成系统。",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
