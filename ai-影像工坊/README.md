@@ -15,11 +15,24 @@
   - `image.models.<provider>[]`
   - `providerOrder`
 
-## 2. 厂商、模型、密钥关系
+## 2. 超简配置模型（你要的模式）
 
-- `模型 -> 厂商`：由 `config/ai-routing.json` 决定，并由后端返回给前端。
-- `厂商 -> 密钥池`：由 Vercel 环境变量决定（每家可配置多个 key）。
-- `请求 -> 使用哪个 key`：后端按 round-robin 从该厂商 key 池选取，失败会冷却并重试下一个 key/厂商。
+Vercel 只需要配置 6 个变量（每个厂商 1 个）：
+
+- `OPENAI_KEY`
+- `GOOGLE_KEY`
+- `ALI_KEY`
+- `BYTE_KEY`
+- `MINIMAX_KEY`
+- `ZHIPU_KEY`
+
+后端会自动：
+
+- 按模型路由到对应厂商
+- 用内置默认 Base URL 调用
+- 自动重试与厂商降级
+
+如果某家厂商有特殊网关地址，再额外填 `*_BASE_URL` 覆盖即可（可选，不是必填）。
 
 ## 3. 本地开发
 
@@ -53,33 +66,54 @@ npm run dev
 
 2. Project Settings -> Environment Variables（Production + Preview 都勾上）
 
-- 公共前端：
-  - `VITE_USE_BACKEND=1`
+必填（建议）：
 
-- 多厂商 Key（支持逗号分隔多个）：
-  - `OPENAI_KEYS`
-  - `GOOGLE_KEYS`
-  - `ALI_KEYS`
-  - `BYTE_KEYS`
-  - `MINIMAX_KEYS`
-  - `ZHIPU_KEYS`
+- `OPENAI_KEY`
+- `GOOGLE_KEY`
+- `ALI_KEY`
+- `BYTE_KEY`
+- `MINIMAX_KEY`
+- `ZHIPU_KEY`
 
-- OpenAI 兼容 Base URL（按需填）：
-  - `OPENAI_BASE_URL=https://api.openai.com/v1`
-  - `ALI_BASE_URL`
-  - `BYTE_BASE_URL`
-  - `MINIMAX_BASE_URL`
-  - `ZHIPU_BASE_URL`
+可选（高级）：
 
-- 网关稳定性/安全参数（建议）：
-  - `AI_UPSTREAM_TIMEOUT_MS=25000`
-  - `AI_GOOGLE_TIMEOUT_MS`（可空，默认跟上面一致）
-  - `AI_RATE_LIMIT_RPM=120`
-  - `AI_GATEWAY_TOKEN`（可选，不填则不启用鉴权）
+- `AI_UPSTREAM_TIMEOUT_MS=25000`
+- `AI_GOOGLE_TIMEOUT_MS=25000`
+- `AI_RATE_LIMIT_RPM=120`
+- `AI_GATEWAY_TOKEN=`（不填则不开鉴权）
+- `OPENAI_BASE_URL / ALI_BASE_URL / BYTE_BASE_URL / MINIMAX_BASE_URL / ZHIPU_BASE_URL`
 
 3. 重新部署（Redeploy）
 
-## 5. 关键文件
+## 5. 代表性模型（默认已内置）
+
+文本模型：
+
+- OpenAI: `gpt-5.1`
+- Google: `gemini-2.5-flash`
+- 阿里: `qwen-plus`
+- 字节: `doubao-1-5-pro-32k-250115`
+- MiniMax: `MiniMax-M2.5`
+- 智谱: `glm-4.5-flash`
+
+生图模型：
+
+- OpenAI: `gpt-image-1`
+- Google: `gemini-3-pro-image-preview`
+- 其他厂商可在 `config/ai-routing.json` 自定义
+
+## 6. 后端接口参数（最小集）
+
+`POST /api/ai`
+
+- 文本对话：`{ "action":"chat", "model":"gpt-5.1", "messages":[{"role":"user","content":"..."}] }`
+- 生图：`{ "action":"image", "model":"gpt-image-1", "prompt":"..." }`
+- 通用生成：`{ "action":"generate", "model":"...", "contents":"..." }`
+
+`GET /api/ai?action=models` 返回当前可用模型。  
+`GET /api/ai?action=health` 返回各厂商就绪状态。
+
+## 7. 关键文件
 
 - `api/ai.js`：后端统一网关（多厂商/多 key/重试）
 - `config/ai-routing.json`：模型路由策略（文本与生图分离）

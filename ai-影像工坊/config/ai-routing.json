@@ -13,14 +13,14 @@
     "zhipu": { "enabled": true }
   },
   "text": {
-    "providerOrder": ["openai", "google", "zhipu", "minimax", "byte", "ali"],
+    "providerOrder": ["openai", "google", "ali", "byte", "minimax", "zhipu"],
     "models": {
-      "openai": ["gpt-5.2", "gpt-5.1", "gpt-5"],
-      "google": ["gemini-2.5-flash", "gemini-3-flash-preview", "gemini-3-pro-preview"],
-      "ali": ["qwen-max"],
-      "byte": ["doubao-seed-1-6"],
-      "minimax": ["MiniMax-Text-01"],
-      "zhipu": ["glm-4.5"]
+      "openai": ["gpt-5.1", "gpt-5"],
+      "google": ["gemini-2.5-flash", "gemini-3-pro-preview"],
+      "ali": ["qwen-plus"],
+      "byte": ["doubao-1-5-pro-32k-250115"],
+      "minimax": ["MiniMax-M2.5"],
+      "zhipu": ["glm-4.5-flash"]
     },
     "defaultModel": "gpt-5.1"
   },
@@ -30,9 +30,9 @@
       "openai": ["gpt-image-1"],
       "google": ["gemini-3-pro-image-preview", "gemini-2.5-flash-image"],
       "ali": ["wanx-v1"],
-      "byte": ["doubao-seedream-3.0"],
+      "byte": ["doubao-seedream-3-0-t2i-250415"],
       "minimax": ["MiniMax-Image-01"],
-      "zhipu": ["cogview-4"]
+      "zhipu": ["cogview-3-flash"]
     },
     "defaultModel": "gpt-image-1"
   }

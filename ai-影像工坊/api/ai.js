@@ -36,29 +36,34 @@ const DEFAULT_ROUTING = {
 
 const PROVIDER_ENV = {
   openai: {
-    keyVars: ["OPENAI_KEYS", "OPENAI_API_KEY"],
+    keyVars: ["OPENAI_KEY", "OPENAI_API_KEY", "OPENAI_KEYS"],
     baseVars: ["OPENAI_BASE_URL", "PROXY_BASE_URL"],
     defaultBase: "https://api.openai.com/v1",
   },
   google: {
-    keyVars: ["GOOGLE_KEYS", "GEMINI_KEYS", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
+    keyVars: ["GOOGLE_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_KEYS", "GEMINI_KEYS"],
     baseVars: ["GOOGLE_BASE_URL"],
+    defaultBase: "",
   },
   ali: {
-    keyVars: ["ALI_KEYS", "ALI_API_KEY"],
+    keyVars: ["ALI_KEY", "ALI_API_KEY", "ALI_KEYS"],
     baseVars: ["ALI_BASE_URL"],
+    defaultBase: "https://dashscope.aliyuncs.com/compatible-mode/v1",
   },
   byte: {
-    keyVars: ["BYTE_KEYS", "BYTE_API_KEY", "DOUBAO_KEYS", "DOUBAO_API_KEY"],
+    keyVars: ["BYTE_KEY", "BYTE_API_KEY", "BYTE_KEYS", "DOUBAO_API_KEY", "DOUBAO_KEYS"],
     baseVars: ["BYTE_BASE_URL", "DOUBAO_BASE_URL"],
+    defaultBase: "https://ark.cn-beijing.volces.com/api/v3",
   },
   minimax: {
-    keyVars: ["MINIMAX_KEYS", "MINIMAX_API_KEY"],
+    keyVars: ["MINIMAX_KEY", "MINIMAX_API_KEY", "MINIMAX_KEYS"],
     baseVars: ["MINIMAX_BASE_URL"],
+    defaultBase: "https://api.minimaxi.com/v1",
   },
   zhipu: {
-    keyVars: ["ZHIPU_KEYS", "ZHIPU_API_KEY"],
+    keyVars: ["ZHIPU_KEY", "ZHIPU_API_KEY", "ZHIPU_KEYS"],
     baseVars: ["ZHIPU_BASE_URL"],
+    defaultBase: "https://open.bigmodel.cn/api/paas/v4",
   },
 };
 
