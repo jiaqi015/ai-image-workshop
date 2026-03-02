@@ -7,6 +7,7 @@ const DEFAULT_ROUTING = {
     keyStrategy: "round_robin",
     cooldownMs: 60000,
     maxRetries: 2,
+    pinnedModelFallback: "same_provider",
   },
   providers: {
     openai: { enabled: true },
@@ -88,6 +89,40 @@ const GOOGLE_UPSTREAM_TIMEOUT_MS = toPositiveInt(process.env.AI_GOOGLE_TIMEOUT_M
 const RATE_LIMIT_RPM = toPositiveInt(process.env.AI_RATE_LIMIT_RPM, 120);
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const GATEWAY_TOKEN = String(process.env.AI_GATEWAY_TOKEN || "").trim();
+
+const parseJsonObjectEnv = (name) => {
+  const raw = process.env[name];
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+// Optional alias map for provider-specific runtime IDs (e.g. Byte endpoint ids)
+// Example:
+// AI_MODEL_ALIASES_JSON='{"byte":{"doubao-seed-2-0-pro":"ep-2026xxx","doubao-seedream-5-0-lite":"ep-2026yyy"}}'
+const MODEL_ALIASES = parseJsonObjectEnv("AI_MODEL_ALIASES_JSON");
+
+const resolveRuntimeModel = (provider, model) => {
+  const normalizedProvider = String(provider || "").trim();
+  const normalizedModel = String(model || "").trim();
+  if (!normalizedModel) return normalizedModel;
+
+  const providerMap =
+    MODEL_ALIASES?.[normalizedProvider] && typeof MODEL_ALIASES[normalizedProvider] === "object"
+      ? MODEL_ALIASES[normalizedProvider]
+      : {};
+  const byProvider = providerMap?.[normalizedModel];
+  if (typeof byProvider === "string" && byProvider.trim()) return byProvider.trim();
+
+  const topLevel = MODEL_ALIASES?.[normalizedModel];
+  if (typeof topLevel === "string" && topLevel.trim()) return topLevel.trim();
+
+  return normalizedModel;
+};
 
 const normalizeBaseUrl = (baseUrl) => {
   if (!baseUrl) return "";
@@ -349,14 +384,21 @@ const resolveTaskConfig = (taskType, requestedModel) => {
   const section = routingConfig?.[taskType] || {};
   const providerOrder = Array.isArray(section.providerOrder) ? section.providerOrder : [];
   const modelsByProvider = section.models || {};
+  const pinnedFallbackPolicy = String(routingConfig?.policy?.pinnedModelFallback || "same_provider");
 
   const requestedProvider = requestedModel ? inferProviderByModel(taskType, requestedModel) : null;
+  const pinnedProviderOnly = Boolean(requestedProvider && pinnedFallbackPolicy !== "cross_provider");
 
-  const providers = [];
-  if (requestedProvider) providers.push(requestedProvider);
-  for (const p of providerOrder) {
-    if (!providers.includes(p)) providers.push(p);
-  }
+  const providers = pinnedProviderOnly
+    ? [requestedProvider]
+    : (() => {
+        const list = [];
+        if (requestedProvider) list.push(requestedProvider);
+        for (const p of providerOrder) {
+          if (!list.includes(p)) list.push(p);
+        }
+        return list;
+      })();
 
   const dedupeModels = (models = []) => {
     const unique = [];
@@ -591,6 +633,7 @@ const runWithProviderFallback = async ({ taskType, requestedModel, run }) => {
   const cooldownMs = Number(routingConfig?.policy?.cooldownMs ?? 60000);
 
   let lastError = null;
+  const errors = [];
 
   for (const candidate of candidates) {
     const provider = candidate.provider;
@@ -608,6 +651,12 @@ const runWithProviderFallback = async ({ taskType, requestedModel, run }) => {
         return { provider, model, result };
       } catch (error) {
         lastError = error;
+        errors.push({
+          provider,
+          model,
+          status: Number(error?.status || 0),
+          message: error instanceof Error ? error.message : String(error || "Unknown"),
+        });
         const status = Number(error?.status || 0);
         if (isRetryableStatus(status)) {
           cooldownKey(provider, key, cooldownMs);
@@ -618,7 +667,17 @@ const runWithProviderFallback = async ({ taskType, requestedModel, run }) => {
     }
   }
 
-  if (lastError) throw lastError;
+  if (lastError) {
+    const compact = errors
+      .slice(-5)
+      .map((e) => `${e.provider}/${e.model}:${e.status || "-"} ${String(e.message || "").slice(0, 80)}`)
+      .join(" | ");
+    const merged = Object.assign(
+      new Error(`模型路由失败。最近尝试: ${compact || "无"}`),
+      { status: Number(lastError?.status || 500) }
+    );
+    throw merged;
+  }
   throw Object.assign(new Error("没有可用的厂商或 Key，请检查 Vercel 环境变量"), { status: 500 });
 };
 
@@ -627,7 +686,13 @@ const runTextChat = async ({ model, messages }) => {
     taskType: "text",
     requestedModel: model,
     run: async ({ provider, model: resolvedModel, key, baseUrl }) =>
-      getProviderAdapter(provider).chat({ provider, model: resolvedModel, messages, key, baseUrl }),
+      getProviderAdapter(provider).chat({
+        provider,
+        model: resolveRuntimeModel(provider, resolvedModel),
+        messages,
+        key,
+        baseUrl,
+      }),
   });
 };
 
@@ -638,7 +703,7 @@ const runTextGenerate = async ({ model, contents, config, messages }) => {
     run: async ({ provider, model: resolvedModel, key, baseUrl }) =>
       getProviderAdapter(provider).generate({
         provider,
-        model: resolvedModel,
+        model: resolveRuntimeModel(provider, resolvedModel),
         contents,
         config,
         messages,
@@ -653,7 +718,13 @@ const runImageGenerate = async ({ model, prompt }) => {
     taskType: "image",
     requestedModel: model,
     run: async ({ provider, model: resolvedModel, key, baseUrl }) =>
-      getProviderAdapter(provider).image({ provider, model: resolvedModel, prompt, key, baseUrl }),
+      getProviderAdapter(provider).image({
+        provider,
+        model: resolveRuntimeModel(provider, resolvedModel),
+        prompt,
+        key,
+        baseUrl,
+      }),
   });
 };
 

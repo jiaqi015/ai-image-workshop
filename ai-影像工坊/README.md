@@ -81,7 +81,15 @@ npm run dev
 - `AI_GOOGLE_TIMEOUT_MS=25000`
 - `AI_RATE_LIMIT_RPM=120`
 - `AI_GATEWAY_TOKEN=`（不填则不开鉴权）
+- `AI_MODEL_ALIASES_JSON=`（可选：模型名 -> 真实运行时 ID 的映射）
 - `OPENAI_BASE_URL / ALI_BASE_URL / BYTE_BASE_URL / MINIMAX_BASE_URL / ZHIPU_BASE_URL`
+
+字节（Ark）建议：
+
+- 如果报 `InvalidEndpointOrModel.NotFound`，通常需要用「接入点 ID（ep-xxx）」而不是展示名。
+- 可在 `AI_MODEL_ALIASES_JSON` 里配置映射，例如：
+  - `{"byte":{"doubao-seed-2-0-pro":"ep-2026xxxx","doubao-seedream-5-0-lite":"ep-2026yyyy"}}`
+  - 前端仍显示 `doubao-seed-2-0-pro`，后端会自动替换成 `ep-...` 调用。
 
 3. 重新部署（Redeploy）
 
