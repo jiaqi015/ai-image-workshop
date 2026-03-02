@@ -38,9 +38,10 @@ export const useStudioArchitect = () => {
     const [keyConfigured, setKeyConfigured] = useState(true); 
     const [connectionMode, setConnectionMode] = useState(getConnectionStatus()); 
     const [strategy, setStrategy] = useState<ShootStrategy>('flash'); 
-    const [directorModel, setDirectorModel] = useState<DirectorModel>('gpt-5.2'); 
     const [textModel, setTextModel] = useState<TextModel>(() => getModelPreferences().textModel as TextModel);
     const [imageModel, setImageModel] = useState<ImageModel>(() => getModelPreferences().imageModel as ImageModel);
+    const directorModel = textModel as DirectorModel;
+    const setDirectorModel = (model: DirectorModel) => setTextModel(model as TextModel);
     const [availableModels, setAvailableModels] = useState(() => getAvailableModels());
     const [streamingPlanText, setStreamingPlanText] = useState(''); 
     const [logs, setLogs] = useState<LogEntry[]>([]); 
@@ -199,7 +200,7 @@ export const useStudioArchitect = () => {
                 const microCasting = generatedPlan.continuity?.character?.details?.join(", ") || generateMicroCasting();
                 return {
                     id: -1 - index, description: variantDesc, status: 'pending',
-                    metadata: { model: 'gemini-2.5-flash', provider: 'Hybrid', strategy: 'Concept', resolution: 'Std', variant: variantDesc, variantType: vType, type: 'reference', castingTraits: microCasting }
+                    metadata: { model: imageModel, provider: 'Hybrid', strategy: 'Concept', resolution: 'Std', variant: variantDesc, variantType: vType, type: 'reference', castingTraits: microCasting }
                 };
             });
             generatedPlan.conceptFrames = proposalFrames;
@@ -218,18 +219,18 @@ export const useStudioArchitect = () => {
                 addLog("任务已中断", 'info');
             }
         }
-    }, [userInput, keyConfigured, appState, directorModel, connectionMode.mode, addLog, addToHistory, executeFrameBatch]);
+    }, [userInput, keyConfigured, appState, directorModel, connectionMode.mode, addLog, addToHistory, executeFrameBatch, imageModel]);
 
     const handleExpandUniverse = async () => {
         if (!plan) return;
         setIsExpandingUniverse(true); isShootingRef.current = true;
         addLog("🚀 正在探测新的平行时空 (Expanding Universe)...", 'info');
         try {
-            const newVariants = await expandParallelUniverses(plan, 6);
+            const newVariants = await expandParallelUniverses(plan, 6, textModel);
             const startIdx = frames.length;
             const newFrames: Frame[] = newVariants.map((desc, i) => ({
                 id: -1 - (startIdx + i), description: desc, status: 'pending',
-                metadata: { model: 'gemini-2.5-flash', provider: 'Hybrid', strategy: 'Concept', resolution: 'Std', variant: desc, variantType: 'creative', type: 'reference' }
+                metadata: { model: imageModel, provider: 'Hybrid', strategy: 'Concept', resolution: 'Std', variant: desc, variantType: 'creative', type: 'reference' }
             }));
             setFrames(prev => [...prev, ...newFrames]);
             setPlan(prev => prev ? { ...prev, conceptFrames: [...(prev.conceptFrames || []), ...newFrames] } : null);
@@ -258,7 +259,7 @@ export const useStudioArchitect = () => {
                 id: i + 1,
                 description: desc,
                 status: 'pending',
-                metadata: { ...selectedFrame.metadata, model: strategy === 'pro' ? 'gemini-3-pro' : 'gemini-2.5-flash', resolution: strategy === 'pro' ? '4K' : 'Std', type: 'shot' as const, variant: lockedVariant, castingTraits: lockedCasting }
+                metadata: { ...selectedFrame.metadata, model: imageModel, resolution: strategy === 'pro' ? '4K' : 'Std', type: 'shot' as const, variant: lockedVariant, castingTraits: lockedCasting }
              });
         });
         const needed = TARGET_COUNT - framesToShoot.length;
@@ -267,7 +268,7 @@ export const useStudioArchitect = () => {
                 id: framesToShoot.length + 1,
                 description: "正在等待导演分镜指令...", 
                 status: 'scripting', 
-                metadata: { ...selectedFrame.metadata, model: strategy === 'pro' ? 'gemini-3-pro' : 'gemini-2.5-flash', resolution: strategy === 'pro' ? '4K' : 'Std', type: 'shot' as const, variant: lockedVariant, castingTraits: lockedCasting }
+                metadata: { ...selectedFrame.metadata, model: imageModel, resolution: strategy === 'pro' ? '4K' : 'Std', type: 'shot' as const, variant: lockedVariant, castingTraits: lockedCasting }
              });
         }
         setFrames(framesToShoot);
@@ -286,7 +287,7 @@ export const useStudioArchitect = () => {
                         id: realId,
                         description: desc,
                         status: 'pending', 
-                        metadata: { ...selectedFrame.metadata, model: strategy === 'pro' ? 'gemini-3-pro' : 'gemini-2.5-flash', resolution: strategy === 'pro' ? '4K' : 'Std', type: 'shot' as const, variant: lockedVariant, castingTraits: lockedCasting }
+                        metadata: { ...selectedFrame.metadata, model: imageModel, resolution: strategy === 'pro' ? '4K' : 'Std', type: 'shot' as const, variant: lockedVariant, castingTraits: lockedCasting }
                      };
                 });
                 setFrames(prev => {
@@ -304,7 +305,7 @@ export const useStudioArchitect = () => {
                 const allDescriptions = await generateMoreFrames(
                     plan, 
                     needed, 
-                    directorModel, 
+                    textModel, 
                     (msg) => addLog(msg, 'network'), 
                     lockedVariant,
                     onChunkReady 
@@ -323,7 +324,7 @@ export const useStudioArchitect = () => {
     const handleGenerateMore = async (count: number) => { 
         if (!plan) return;
         setIsExtending(true); isShootingRef.current = true;
-        const activeVariantMetadata: FrameMetadata = frames[0]?.metadata || { model: 'gemini-2.5-flash', provider: 'Hybrid', strategy: 'Concept', resolution: 'Std' };
+        const activeVariantMetadata: FrameMetadata = frames[0]?.metadata || { model: imageModel, provider: 'Hybrid', strategy: 'Concept', resolution: 'Std' };
         const activeStyle = activeVariantMetadata.variant;
         addLog(`[编剧部] 正在构思 ${count} 个新分镜 (Extending)...`, 'network');
         const startId = frames.length + 1;
@@ -342,7 +343,7 @@ export const useStudioArchitect = () => {
           await generateMoreFrames(
               plan, 
               count, 
-              directorModel, 
+              textModel, 
               (msg) => addLog(msg, 'network'), 
               activeStyle,
               onChunkReady

@@ -294,10 +294,19 @@ export const withTimeout = async <T>(promise: Promise<T>, ms: number, errorMsg: 
 
 const apiUrl = (path: string) => `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
 
+const withGatewayHeaders = (headers: Record<string, string> = {}) => {
+    const merged: Record<string, string> = { ...headers };
+    if (storedKey) {
+        merged["x-gateway-token"] = storedKey;
+        merged.Authorization = `Bearer ${storedKey}`;
+    }
+    return merged;
+};
+
 async function callBackend(payload: any, signal?: AbortSignal) {
     const response = await fetch(apiUrl("/api/ai"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: withGatewayHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(payload),
         signal,
     });
@@ -327,7 +336,7 @@ class BackendStrategy implements IGenAIProvider {
     public label = "Backend Gateway";
 
     async generateText(model: string, messages: any[], onChunk?: (text: string) => void, signal?: AbortSignal): Promise<string> {
-        const targetModel = selectedTextModel || model;
+        const targetModel = model || selectedTextModel;
         const data = await callBackend({ action: "chat", model: targetModel, messages }, signal);
         const fullText = data?.text || "";
 
@@ -344,7 +353,9 @@ class BackendStrategy implements IGenAIProvider {
     }
 
     async validateConnection(): Promise<boolean> {
-        const response = await fetch(apiUrl("/api/ai?action=health"));
+        const response = await fetch(apiUrl("/api/ai?action=health"), {
+            headers: withGatewayHeaders(),
+        });
         if (!response.ok) throw new Error(`Backend Health Error: ${response.status}`);
         const data = await response.json();
         if (data?.ok === false) throw new Error(data?.error || "Backend health failed");
@@ -497,7 +508,9 @@ export const Infrastructure = {
     refreshModels: async () => {
         if (!backendEnabled) return Infrastructure.getAvailableModels();
         try {
-            const response = await fetch(apiUrl("/api/ai?action=models"));
+            const response = await fetch(apiUrl("/api/ai?action=models"), {
+                headers: withGatewayHeaders(),
+            });
             if (!response.ok) throw new Error(`Model Catalog Error: ${response.status}`);
             const data = await response.json();
 

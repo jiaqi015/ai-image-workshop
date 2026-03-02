@@ -48,7 +48,7 @@ const pLimit = (concurrency: number) => {
 export const LocalizationService = {
     
     // 核心方法：将简短描述扩写为“中文电影文学脚本”
-    enrichToChinese: async (text: string, context: string = "Cinematic Shot"): Promise<string> => {
+    enrichToChinese: async (text: string, context: string = "Cinematic Shot", model?: string): Promise<string> => {
         // 资源节约检查
         if ((text.match(/[\u4e00-\u9fa5]/g)?.length || 0) > 30) return text;
 
@@ -67,12 +67,9 @@ export const LocalizationService = {
         `;
 
         try {
-            const ai = Infrastructure.getGoogleClient();
-            const result = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: prompt,
-            });
-            return result.text ? result.text.trim() : text;
+            const targetModel = model || Infrastructure.getModelPreferences().textModel;
+            const result = await Infrastructure.routeRequest(targetModel, [{ role: "user", content: prompt }]);
+            return result ? result.trim() : text;
         } catch (e) {
             console.warn("Localization failed, returning original:", e);
             return text;
@@ -80,14 +77,14 @@ export const LocalizationService = {
     },
 
     // 批量处理计划中的列表 - 升级：并发限流
-    processPlanFrames: async (items: string[], context: string = "Movie Frame"): Promise<string[]> => {
+    processPlanFrames: async (items: string[], context: string = "Movie Frame", model?: string): Promise<string[]> => {
         if (!items || items.length === 0) return [];
         
         // 限制并发数为 3，平滑 API 调用曲线
         const limit = pLimit(3);
         
         const promises = items.map(item => 
-            limit(() => LocalizationService.enrichToChinese(item, context))
+            limit(() => LocalizationService.enrichToChinese(item, context, model))
         );
         
         return Promise.all(promises);

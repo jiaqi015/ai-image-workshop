@@ -136,14 +136,46 @@ export default function App() {
                      </div>
                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                          <div className="flex flex-col gap-2">
+                            <label className="text-[10px] text-zinc-500 uppercase font-mono">文本厂商</label>
+                            <select
+                              className="w-full bg-black/20 border border-white/10 p-3 rounded text-sm text-white focus:outline-none focus:border-amber-500/50"
+                              value={selectedTextProvider}
+                              onChange={(e) => {
+                                const provider = e.target.value;
+                                const list = textModelsByProvider[provider] || [];
+                                if (list.length > 0) studio.setTextModel(list[0] as any);
+                              }}
+                            >
+                              {textProviderList.map((provider: string) => (
+                                <option key={provider} value={provider}>{providerOptionLabel(provider)}</option>
+                              ))}
+                            </select>
+                         </div>
+                         <div className="flex flex-col gap-2">
                             <label className="text-[10px] text-zinc-500 uppercase font-mono">文本模型</label>
                             <select
                               className="w-full bg-black/20 border border-white/10 p-3 rounded text-sm text-white focus:outline-none focus:border-amber-500/50 font-mono"
                               value={studio.textModel}
                               onChange={(e) => studio.setTextModel(e.target.value as any)}
                             >
-                              {studio.availableModels.textModels.map((model: string) => (
+                              {textModelOptions.map((model: string) => (
                                 <option key={model} value={model}>{model}</option>
+                              ))}
+                            </select>
+                         </div>
+                         <div className="flex flex-col gap-2">
+                            <label className="text-[10px] text-zinc-500 uppercase font-mono">生图厂商</label>
+                            <select
+                              className="w-full bg-black/20 border border-white/10 p-3 rounded text-sm text-white focus:outline-none focus:border-amber-500/50"
+                              value={selectedImageProvider}
+                              onChange={(e) => {
+                                const provider = e.target.value;
+                                const list = imageModelsByProvider[provider] || [];
+                                if (list.length > 0) studio.setImageModel(list[0] as any);
+                              }}
+                            >
+                              {imageProviderList.map((provider: string) => (
+                                <option key={provider} value={provider}>{providerOptionLabel(provider)}</option>
                               ))}
                             </select>
                          </div>
@@ -154,7 +186,7 @@ export default function App() {
                               value={studio.imageModel}
                               onChange={(e) => studio.setImageModel(e.target.value as any)}
                             >
-                              {studio.availableModels.imageModels.map((model: string) => (
+                              {imageModelOptions.map((model: string) => (
                                 <option key={model} value={model}>{model}</option>
                               ))}
                             </select>

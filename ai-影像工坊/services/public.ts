@@ -19,6 +19,7 @@ import { PromptEngine } from "./capabilities/engines/promptEngine";
 
 // --- Domain Services ---
 import { DirectorEngine } from "./features/director";
+import { CameraEngine } from "./features/camera";
 
 // --- Exports ---
 export { Infrastructure, dbService, voiceService, LocalizationService, MemoryManager };
@@ -36,23 +37,13 @@ export const generateShootPlan = async (...args: Parameters<typeof DirectorEngin
 
 // 2. Render Shot
 export const generateFrameImage = async (plan: ShootPlan, description: string, modelType: 'pro' | 'flash', metadata: FrameMetadata, signal?: AbortSignal) => {
-    // 1. Construct Prompt using the Renderer
-    const prompt = PromptRenderer.renderFallback(
-        plan, 
-        description, 
-        metadata.variant || "Cinematic", 
-        metadata.castingTraits || ""
-    );
-
-    // 2. Execute via Infrastructure with Retry
-    return Infrastructure.runWithRetry(
-        () => Infrastructure.generateImage(prompt, modelType, signal),
-        signal
-    );
+    return CameraEngine.shootFrame(plan, description, modelType, metadata, signal);
 };
 
 // 3. Expand Universes
-export const expandParallelUniverses = DirectorEngine.proposeNewVariants;
+export const expandParallelUniverses = async (plan: ShootPlan, count: number = 6, model?: string) => {
+    return DirectorEngine.proposeNewVariants(plan, count, model);
+};
 
 // 4. Generate More Frames (Robust Pipeline)
 export const generateMoreFrames = async (
@@ -94,6 +85,6 @@ export const generateMicroCasting = PromptEngine.generateMicroCasting;
 export const generateRandomPrompt = () => InspirationEngine.generateHighTensionPrompt();
 export const generateProRandomPrompt = () => InspirationProEngine.generateMasterpiece();
 
-export const regenerateSingleVariant = async (plan: any, current: string) => {
-    return (await DirectorEngine.proposeNewVariants(plan, 1))[0];
+export const regenerateSingleVariant = async (plan: any, current: string, model?: string) => {
+    return (await DirectorEngine.proposeNewVariants(plan, 1, model))[0];
 };

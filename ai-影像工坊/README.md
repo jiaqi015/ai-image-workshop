@@ -81,13 +81,12 @@ npm run dev
 - `AI_GOOGLE_TIMEOUT_MS=25000`
 - `AI_RATE_LIMIT_RPM=120`
 - `AI_GATEWAY_TOKEN=`（不填则不开鉴权）
-- `AI_MODEL_ALIASES_JSON=`（可选：模型名 -> 真实运行时 ID 的映射）
 - `OPENAI_BASE_URL / ALI_BASE_URL / BYTE_BASE_URL / MINIMAX_BASE_URL / ZHIPU_BASE_URL`
 
 字节（Ark）建议：
 
 - 如果报 `InvalidEndpointOrModel.NotFound`，通常需要用「接入点 ID（ep-xxx）」而不是展示名。
-- 可在 `AI_MODEL_ALIASES_JSON` 里配置映射，例如：
+- 在仓库文件 `config/ai-runtime-aliases.json` 里配置映射，例如：
   - `{"byte":{"doubao-seed-2-0-pro":"ep-2026xxxx","doubao-seedream-5-0-lite":"ep-2026yyyy"}}`
   - 前端仍显示 `doubao-seed-2-0-pro`，后端会自动替换成 `ep-...` 调用。
 
@@ -128,5 +127,6 @@ npm run dev
 
 - `api/ai.js`：后端统一网关（多厂商/多 key/重试）
 - `config/ai-routing.json`：模型路由策略（文本与生图分离）
+- `config/ai-runtime-aliases.json`：运行时模型别名（展示模型名 -> 厂商真实调用 ID）
 - `services/api/client.ts`：前端基础设施层（后端优先、可选前端兜底）
 - `vercel.json`：Function Runtime + SPA 路由重写

@@ -1,8 +1,6 @@
 
 import { ShootPlan, FrameMetadata, RuntimeBlueprint, OptionBlueprint } from "../../types";
 import { Infrastructure } from "../api/client";
-import { SafetySentinel } from "../capabilities/guardrails/safetySentinel";
-import { HarmCategory, HarmBlockThreshold } from "@google/genai";
 
 // ==========================================
 // 领域：摄影执行 (Camera Domain)
@@ -219,65 +217,6 @@ Avoid: ${negativePromptBlock}.
     },
 
     _executeRequest: async (prompt: string, modelType: 'pro' | 'flash', signal?: AbortSignal): Promise<string> => {
-        if (signal?.aborted) throw new Error("Aborted");
-
-        if (Infrastructure.isProxy()) {
-            const resp = await fetch("https://xh.v1api.cc/v1/images/generations", {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Infrastructure.getApiKey()}` },
-                body: JSON.stringify({
-                    model: "gpt-image-1",
-                    prompt: prompt,
-                    n: 1,
-                    size: "1024x1024",
-                    response_format: "b64_json"
-                }),
-                signal 
-            });
-
-            if (!resp.ok) {
-                if (resp.status === 429) throw new Error(`Proxy 429 Rate Limit`);
-                const errText = await resp.text();
-                throw new Error(`Proxy HTTP ${resp.status}: ${errText.substring(0, 50)}`);
-            }
-            const data = await resp.json();
-            if (!data.data?.[0]?.b64_json) throw new Error("Empty response from Proxy");
-            return `data:image/png;base64,${data.data[0].b64_json}`;
-        }
-
-        const ai = Infrastructure.getGoogleClient();
-        const modelName = modelType === 'pro' ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
-        
-        const config: any = {
-            imageConfig: { aspectRatio: "3:4" }, 
-            safetySettings: [
-                { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-                { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-            ]
-        };
-        if (modelName.includes('pro')) config.imageConfig.imageSize = "1K";
-
-        try {
-            const response = await ai.models.generateContent({
-                model: modelName,
-                contents: { parts: [{ text: prompt }] },
-                config
-            });
-            
-            const candidate = response.candidates?.[0];
-            if (!candidate) throw new Error("No candidates returned from AI provider.");
-
-            const imagePart = candidate.content?.parts?.find(p => p.inlineData);
-            if (imagePart) return `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`;
-
-            const textResponse = response.text;
-            if (textResponse) throw new Error(`AI Refusal: ${textResponse.substring(0, 200)}`);
-
-            throw new Error(`Generation failed (Reason: ${candidate.finishReason || 'Empty Content'})`);
-        } catch (e: any) {
-            throw new Error(e.message || "Unknown Google API Error");
-        }
+        return Infrastructure.generateImage(prompt, modelType, signal);
     }
 };

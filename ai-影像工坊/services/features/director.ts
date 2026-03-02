@@ -5,7 +5,6 @@ import { ScriptAnalyzer, ScriptAnalysis } from "../capabilities/engines/scriptAn
 import { AssetRecaller } from "../capabilities/engines/assetRecaller"; 
 import { LocalizationService } from "../capabilities/infra/localizationService";
 import { JSONHealer } from "../capabilities/guardrails/jsonHealer"; 
-import { ExecutionPolicy } from "../policies/executionPolicy"; 
 
 // ==========================================
 // 领域：导演统筹 (Director Domain)
@@ -188,16 +187,11 @@ ${styleDirective}
         const userPrompt = `PROJECT: ${analysis.coreSubject}${genderInstruction}\n[Instruction]: Interpret this with ORGANIC, HUMAN, FILM texture. No digital art feel. Casting Default: CHINESE (Dyed hair OK). Micro-casting Inspiration: "${creativeBrief.microCasting}"`;
 
         const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }];
-        const policy = ExecutionPolicy.resolve('pro', model, Infrastructure.isProxy());
+        const targetModel = model || Infrastructure.getModelPreferences().textModel;
 
         try {
-            let fullText = "";
-            if (Infrastructure.isProxy()) {
-                 if (model === 'gpt-5.2' && onChunk) onChunk("正在接入 GPT-5.2 高算力矩阵 (Thinking)...\n");
-                 fullText = await Infrastructure.routeRequest(policy.directorModelId, messages, onChunk, signal);
-            } else {
-                 fullText = await Infrastructure.routeRequest(policy.directorModelId, messages, onChunk, signal);
-            }
+            if (onChunk) onChunk(`正在接入文本模型: ${targetModel}\n`);
+            const fullText = await Infrastructure.routeRequest(targetModel, messages, onChunk, signal);
             
             const rawData = JSONHealer.heal(fullText, FALLBACK_PLAN);
             
@@ -213,9 +207,9 @@ ${styleDirective}
             rawData.continuity.character.details.unshift(blueprintToken);
 
             try {
-                 if (rawData.frames) rawData.frames = await LocalizationService.processPlanFrames(rawData.frames, "Movie Frame");
-                 if (rawData.visualVariants) rawData.visualVariants = await LocalizationService.processPlanFrames(rawData.visualVariants, "Visual Style");
-                 if (rawData.shootGuide?.keyPoses) rawData.shootGuide.keyPoses = await LocalizationService.processPlanFrames(rawData.shootGuide.keyPoses, "Acting Pose");
+                 if (rawData.frames) rawData.frames = await LocalizationService.processPlanFrames(rawData.frames, "Movie Frame", targetModel);
+                 if (rawData.visualVariants) rawData.visualVariants = await LocalizationService.processPlanFrames(rawData.visualVariants, "Visual Style", targetModel);
+                 if (rawData.shootGuide?.keyPoses) rawData.shootGuide.keyPoses = await LocalizationService.processPlanFrames(rawData.shootGuide.keyPoses, "Acting Pose", targetModel);
             } catch (e) {
                  console.warn("Localization failed", e);
             }
@@ -230,7 +224,7 @@ ${styleDirective}
         }
     },
 
-    proposeNewVariants: async (plan: ShootPlan, count: number = 6): Promise<string[]> => {
+    proposeNewVariants: async (plan: ShootPlan, count: number = 6, model?: string): Promise<string[]> => {
         const prompt = `
         Role: Art Director.
         Task: Create ${count} NEW visual style variants for "${plan.title}".
@@ -240,9 +234,10 @@ ${styleDirective}
         `;
 
         try {
-            const res = await Infrastructure.routeRequest('gpt-5.1', [{role:'user', content: prompt}]);
+            const targetModel = model || Infrastructure.getModelPreferences().textModel;
+            const res = await Infrastructure.routeRequest(targetModel, [{role:'user', content: prompt}]);
             const json = JSONHealer.heal(res, { variants: [] });
-            return await LocalizationService.processPlanFrames(json.variants || [], "Visual Style");
+            return await LocalizationService.processPlanFrames(json.variants || [], "Visual Style", targetModel);
         } catch (e) {
             return Array(count).fill("新平行宇宙方案 (生成失败)");
         }
@@ -260,9 +255,7 @@ ${styleDirective}
         onLog?: (msg: string) => void,
         onChunkReady?: (scripts: string[], chunkIndex: number) => void
     ): Promise<string[]> => {
-        // 1. Force Fast Model (Speed over IQ for expansion)
-        const isProxy = Infrastructure.isProxy();
-        const targetModelId = isProxy ? 'gpt-5.1' : 'gemini-2.5-flash'; 
+        const targetModelId = model || Infrastructure.getModelPreferences().textModel;
 
         // 2. Parallel Chunking
         const CHUNK_SIZE = 5;
@@ -281,13 +274,13 @@ ${styleDirective}
                  const t0 = Date.now();
                  
                  // Step A: Generate English Scripts
-                 const rawScripts = await DirectorEngine._batchGenerateScripts(plan, batchSize, targetModelId, isProxy, referenceStyle);
+                 const rawScripts = await DirectorEngine._batchGenerateScripts(plan, batchSize, targetModelId, referenceStyle);
                  
                  if (rawScripts.length > 0) {
                      if (onLog) onLog(`  ↳ 线程 #${threadId}: 构思完成，正在极速润色...`);
                      
                      // Step B: Localize IMMEDIATELY (Pipeline)
-                     const localizedScripts = await LocalizationService.processPlanFrames(rawScripts, "Movie Frame");
+                     const localizedScripts = await LocalizationService.processPlanFrames(rawScripts, "Movie Frame", targetModelId);
                      
                      const duration = ((Date.now() - t0) / 1000).toFixed(1);
                      
@@ -311,7 +304,7 @@ ${styleDirective}
     },
 
     // Internal helper for extendScript
-    _batchGenerateScripts: async (plan: ShootPlan, count: number, policyModelId: string, isProxy: boolean, referenceStyle?: string): Promise<string[]> => {
+    _batchGenerateScripts: async (plan: ShootPlan, count: number, policyModelId: string, referenceStyle?: string): Promise<string[]> => {
         const context = `
         [Project]: ${plan.title || 'Untitled'}
         [Subject]: ${plan.continuity?.character?.description || 'Main Character'} (KEEP CONSISTENT)
@@ -331,18 +324,9 @@ ${styleDirective}
         `;
 
         try {
-            if (isProxy) {
-                 const res = await Infrastructure.callProxy([policyModelId, 'gpt-5.1'], [{role:'user', content: prompt}]);
-                 return JSON.parse(res).frames || [];
-            } else {
-                 const ai = Infrastructure.getGoogleClient();
-                 const res = await ai.models.generateContent({ 
-                     model: policyModelId, 
-                     contents: prompt, 
-                     config: { responseMimeType: 'application/json' } 
-                 });
-                 return JSON.parse(res.text || "{}").frames || [];
-            }
+            const res = await Infrastructure.routeRequest(policyModelId, [{ role: 'user', content: prompt }]);
+            const json = JSONHealer.heal(res, { frames: [] as string[] });
+            return Array.isArray(json?.frames) ? json.frames : [];
         } catch (e) {
             console.warn(`Script batch generation failed for count ${count}`, e);
             return [];

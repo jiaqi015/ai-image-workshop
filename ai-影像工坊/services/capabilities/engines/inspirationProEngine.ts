@@ -93,32 +93,14 @@ export const InspirationProEngine = {
         `;
 
         try {
-            // 3. 调用 Gemini 3 Pro (优先) 或 Flash
-            // 随机灵感需要高质量推理，尝试使用 Pro 模型，如果是在 Proxy 模式下则自动降级或路由
-            let resultText = "";
-            
-            if (Infrastructure.isProxy()) {
-                // 代理模式: Upgrade to gpt-5.2 (Intelligence) or gpt-5.1 (Speed)
-                resultText = await Infrastructure.callProxy(['gpt-5.2', 'gpt-5.1'], [{ role: 'system', content: systemPrompt }], false, undefined, signal);
-            } else {
-                // 直连模式，优先尝试 Gemini 3 Pro
-                try {
-                    const ai = Infrastructure.getGoogleClient();
-                    const resp = await ai.models.generateContent({
-                        model: 'gemini-3-pro-preview', // 追求最高质量灵感
-                        contents: systemPrompt
-                    });
-                    resultText = resp.text || "";
-                } catch (e) {
-                    // 降级回 Flash
-                    const ai = Infrastructure.getGoogleClient();
-                    const resp = await ai.models.generateContent({
-                        model: 'gemini-2.5-flash',
-                        contents: systemPrompt
-                    });
-                    resultText = resp.text || "";
-                }
-            }
+            // 3. 统一文本路由：使用当前用户选择的文本模型
+            const targetModel = Infrastructure.getModelPreferences().textModel;
+            const resultText = await Infrastructure.routeRequest(
+                targetModel,
+                [{ role: "system", content: systemPrompt }],
+                undefined,
+                signal
+            );
 
             // 4. 安全过筛 (Final Safety Check)
             const safePrompt = SafetySentinel.sanitize(resultText);

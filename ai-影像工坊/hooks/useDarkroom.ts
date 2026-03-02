@@ -91,7 +91,7 @@ export const useDarkroom = (
         }
         abortControllerRef.current = new AbortController();
         const signal = abortControllerRef.current.signal;
-        const policy = ExecutionPolicy.resolve(currentStrategy, 'gpt-5.1', isProxy);
+        const policy = ExecutionPolicy.resolve(currentStrategy, isProxy);
 
         const queue = [...framesToProcess];
         const totalFrames = framesToProcess.length;

@@ -80,24 +80,12 @@ export const SafetySentinel = {
     optimizeWithAI: async (riskyPrompt: string): Promise<string> => {
         console.warn("SafetySentinel: Triggering AI Optimization (Level 2)...");
         try {
-            if (Infrastructure.isProxy()) {
-                // Upgrade: Use GPT-5.1 for fast and smart optimization
-                const optimized = await Infrastructure.callProxy(
-                    ['gpt-5.1', 'gpt-5.2'], 
-                    [
-                        { role: 'system', content: SAFETY_OPTIMIZER_SYSTEM_PROMPT },
-                        { role: 'user', content: riskyPrompt }
-                    ]
-                );
-                return optimized.trim();
-            } else {
-                const ai = Infrastructure.getGoogleClient();
-                const result = await ai.models.generateContent({
-                    model: 'gemini-2.5-flash',
-                    contents: `System: ${SAFETY_OPTIMIZER_SYSTEM_PROMPT}\nUser: ${riskyPrompt}`
-                });
-                return result.text ? result.text.trim() : riskyPrompt;
-            }
+            const targetModel = Infrastructure.getModelPreferences().textModel;
+            const optimized = await Infrastructure.routeRequest(targetModel, [
+                { role: 'system', content: SAFETY_OPTIMIZER_SYSTEM_PROMPT },
+                { role: 'user', content: riskyPrompt }
+            ]);
+            return optimized.trim();
         } catch (e) {
             console.error("SafetySentinel: AI Optimization failed.", e);
             return SafetySentinel.sanitize(riskyPrompt);
@@ -127,24 +115,12 @@ export const SafetySentinel = {
 
         // Fallback to basic AI Sublimation
         try {
-            if (Infrastructure.isProxy()) {
-                // Upgrade: Use GPT-5.1
-                const sublimated = await Infrastructure.callProxy(
-                    ['gpt-5.1'], 
-                    [
-                        { role: 'system', content: SAFETY_SUBLIMATION_SYSTEM_PROMPT },
-                        { role: 'user', content: eroticPrompt }
-                    ]
-                );
-                return sublimated.trim();
-            } else {
-                const ai = Infrastructure.getGoogleClient();
-                const result = await ai.models.generateContent({
-                    model: 'gemini-2.5-flash',
-                    contents: `System: ${SAFETY_SUBLIMATION_SYSTEM_PROMPT}\nUser: ${eroticPrompt}`
-                });
-                return result.text ? result.text.trim() : eroticPrompt;
-            }
+            const targetModel = Infrastructure.getModelPreferences().textModel;
+            const sublimated = await Infrastructure.routeRequest(targetModel, [
+                { role: 'system', content: SAFETY_SUBLIMATION_SYSTEM_PROMPT },
+                { role: 'user', content: eroticPrompt }
+            ]);
+            return sublimated.trim();
         } catch (e) {
             return SafetySentinel.sanitize(eroticPrompt);
         }

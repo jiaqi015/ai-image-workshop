@@ -90,35 +90,19 @@ const RATE_LIMIT_RPM = toPositiveInt(process.env.AI_RATE_LIMIT_RPM, 120);
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const GATEWAY_TOKEN = String(process.env.AI_GATEWAY_TOKEN || "").trim();
 
-const parseJsonObjectEnv = (name) => {
-  const raw = process.env[name];
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-};
-
-// Optional alias map for provider-specific runtime IDs (e.g. Byte endpoint ids)
-// Example:
-// AI_MODEL_ALIASES_JSON='{"byte":{"doubao-seed-2-0-pro":"ep-2026xxx","doubao-seedream-5-0-lite":"ep-2026yyy"}}'
-const MODEL_ALIASES = parseJsonObjectEnv("AI_MODEL_ALIASES_JSON");
-
 const resolveRuntimeModel = (provider, model) => {
   const normalizedProvider = String(provider || "").trim();
   const normalizedModel = String(model || "").trim();
   if (!normalizedModel) return normalizedModel;
 
   const providerMap =
-    MODEL_ALIASES?.[normalizedProvider] && typeof MODEL_ALIASES[normalizedProvider] === "object"
-      ? MODEL_ALIASES[normalizedProvider]
+    runtimeModelAliases?.[normalizedProvider] && typeof runtimeModelAliases[normalizedProvider] === "object"
+      ? runtimeModelAliases[normalizedProvider]
       : {};
   const byProvider = providerMap?.[normalizedModel];
   if (typeof byProvider === "string" && byProvider.trim()) return byProvider.trim();
 
-  const topLevel = MODEL_ALIASES?.[normalizedModel];
+  const topLevel = runtimeModelAliases?.[normalizedModel];
   if (typeof topLevel === "string" && topLevel.trim()) return topLevel.trim();
 
   return normalizedModel;
@@ -299,7 +283,19 @@ const loadRoutingConfig = () => {
   }
 };
 
+const loadRuntimeAliasConfig = () => {
+  try {
+    const file = path.join(process.cwd(), "config", "ai-runtime-aliases.json");
+    if (!fs.existsSync(file)) return {};
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
 const routingConfig = loadRoutingConfig();
+const runtimeModelAliases = loadRuntimeAliasConfig();
 
 const providerEnabled = (provider) => Boolean(routingConfig?.providers?.[provider]?.enabled);
 
@@ -447,13 +443,44 @@ const extractGeminiText = (resp) => {
     .join("");
 };
 
+const tryParseJson = (value) => {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+};
+
+const extractErrorMessage = (raw) => {
+  const parsed = tryParseJson(raw);
+  const message =
+    parsed?.error?.message ||
+    parsed?.error?.msg ||
+    parsed?.message ||
+    parsed?.msg ||
+    parsed?.detail ||
+    parsed?.error_description;
+  if (typeof message === "string" && message.trim()) return message.trim();
+  return String(raw || "").trim();
+};
+
 const isModelNotOpenError = (raw) => {
-  const text = String(raw || "");
-  return text.includes("ModelNotOpen");
+  const text = String(raw || "").toLowerCase();
+  return (
+    text.includes("modelnotopen") ||
+    text.includes("invalidendpointormodel") ||
+    text.includes("model not found") ||
+    text.includes("model_not_found") ||
+    text.includes("no such model") ||
+    text.includes("has not activated the model") ||
+    text.includes("model service")
+  );
 };
 
 const buildOpenAICompatibleError = (taskLabel, status, txt, provider, model) => {
-  if (isModelNotOpenError(txt)) {
+  const cleanMessage = extractErrorMessage(txt);
+  if (isModelNotOpenError(cleanMessage)) {
     const providerName =
       provider === "byte"
         ? "字节/豆包"
@@ -467,64 +494,214 @@ const buildOpenAICompatibleError = (taskLabel, status, txt, provider, model) => 
                 ? "OpenAI"
                 : provider || "该厂商";
     return Object.assign(
-      new Error(`${providerName} 模型未开通: ${model}。请先在厂商控制台开通该模型，或切换同厂商其他模型。`),
+      new Error(`${providerName} 模型未开通或不存在: ${model}。请先在厂商控制台开通该模型，或在 config/ai-runtime-aliases.json 配置真实调用ID。`),
       { status }
     );
   }
 
-  return Object.assign(new Error(`${taskLabel} Error ${status}: ${String(txt || "").slice(0, 220)}`), { status });
+  return Object.assign(new Error(`${taskLabel} Error ${status}: ${cleanMessage.slice(0, 220)}`), { status });
+};
+
+const OPENAI_COMPAT_ENDPOINTS = {
+  openai: {
+    chat: ["/chat/completions"],
+    image: ["/images/generations"],
+  },
+  ali: {
+    chat: ["/chat/completions"],
+    image: ["/images/generations"],
+  },
+  byte: {
+    chat: ["/chat/completions"],
+    image: ["/images/generations"],
+  },
+  minimax: {
+    chat: ["/chat/completions", "/text/chatcompletion_v2"],
+    image: ["/images/generations", "/image_generation"],
+  },
+  zhipu: {
+    chat: ["/chat/completions"],
+    image: ["/images/generations"],
+  },
+};
+
+const buildOpenAICompatUrl = (baseUrl, endpointPath) =>
+  `${String(baseUrl || "").replace(/\/$/, "")}${endpointPath.startsWith("/") ? endpointPath : `/${endpointPath}`}`;
+
+const extractTextFromNode = (node) => {
+  if (!node) return "";
+  if (typeof node === "string") return node;
+  if (Array.isArray(node)) return node.map(extractTextFromNode).filter(Boolean).join("");
+  if (typeof node === "object") {
+    if (typeof node.text === "string") return node.text;
+    if (typeof node?.text?.value === "string") return node.text.value;
+    if (typeof node.content === "string") return node.content;
+    if (typeof node.output_text === "string") return node.output_text;
+    if (Array.isArray(node.content)) return node.content.map(extractTextFromNode).filter(Boolean).join("");
+    if (Array.isArray(node.parts)) return node.parts.map(extractTextFromNode).filter(Boolean).join("");
+  }
+  return "";
+};
+
+const extractOpenAICompatibleText = (data) => {
+  const candidates = [
+    data?.choices?.[0]?.message?.content,
+    data?.choices?.[0]?.delta?.content,
+    data?.output_text,
+    data?.output?.[0]?.content,
+    data?.data?.[0]?.text,
+  ];
+  for (const candidate of candidates) {
+    const text = extractTextFromNode(candidate).trim();
+    if (text) return text;
+  }
+  return "";
+};
+
+const extractOpenAICompatibleImageUrl = (data) => {
+  const listCandidates = [
+    data?.data,
+    data?.images,
+    data?.output,
+  ];
+
+  for (const candidate of listCandidates) {
+    if (!Array.isArray(candidate) || !candidate.length) continue;
+    for (const item of candidate) {
+      const base64 = item?.b64_json || item?.base64 || item?.image_base64 || item?.image;
+      if (typeof base64 === "string" && base64.trim()) return `data:image/png;base64,${base64}`;
+      const url = item?.url || item?.image_url;
+      if (typeof url === "string" && url.trim()) return url;
+    }
+  }
+
+  if (typeof data?.image_base64 === "string" && data.image_base64.trim()) {
+    return `data:image/png;base64,${data.image_base64}`;
+  }
+  if (typeof data?.image_url === "string" && data.image_url.trim()) return data.image_url;
+  return "";
+};
+
+const shouldTryAlternateEndpoint = (error) => {
+  const status = Number(error?.status || 0);
+  const text = String(error?.message || "").toLowerCase();
+  return (
+    status === 404 ||
+    status === 405 ||
+    text.includes("not found") ||
+    text.includes("unsupported") ||
+    text.includes("unknown url")
+  );
+};
+
+const buildOpenAICompatibleChatPayload = ({ provider, model, messages, endpointPath }) => {
+  const payload = { model, messages, stream: false };
+  if (provider === "minimax" && endpointPath.includes("chatcompletion_v2")) {
+    return {
+      model,
+      messages,
+      stream: false,
+      temperature: 0.7,
+    };
+  }
+  return payload;
+};
+
+const buildOpenAICompatibleImagePayload = ({ provider, model, prompt, endpointPath }) => {
+  if (provider === "minimax" && endpointPath.includes("image_generation")) {
+    return { model, prompt };
+  }
+  return {
+    model,
+    prompt,
+    n: 1,
+    size: "1024x1024",
+    response_format: "b64_json",
+  };
 };
 
 const callOpenAICompatibleChat = async ({ baseUrl, apiKey, model, messages, provider }) => {
   if (!baseUrl) throw Object.assign(new Error("BASE_URL 未配置"), { status: 500 });
-  const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({ model, messages, stream: false }),
-  });
+  const endpointPaths = OPENAI_COMPAT_ENDPOINTS?.[provider]?.chat || ["/chat/completions"];
+  let lastError = null;
 
-  if (!response.ok) {
-    const txt = await response.text();
-    throw buildOpenAICompatibleError("Chat", response.status, txt, provider, model);
+  for (let i = 0; i < endpointPaths.length; i++) {
+    const endpointPath = endpointPaths[i];
+    const response = await fetchWithTimeout(buildOpenAICompatUrl(baseUrl, endpointPath), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(buildOpenAICompatibleChatPayload({ provider, model, messages, endpointPath })),
+    });
+
+    if (!response.ok) {
+      const txt = await response.text();
+      const error = buildOpenAICompatibleError("Chat", response.status, txt, provider, model);
+      if (i < endpointPaths.length - 1 && shouldTryAlternateEndpoint(error)) {
+        lastError = error;
+        continue;
+      }
+      throw error;
+    }
+
+    const data = await response.json();
+    const text = extractOpenAICompatibleText(data);
+    if (text) {
+      return { text, raw: data };
+    }
+
+    const emptyError = Object.assign(new Error(`Chat 返回为空 (${provider}/${model})`), { status: 502 });
+    if (i < endpointPaths.length - 1) {
+      lastError = emptyError;
+      continue;
+    }
+    throw emptyError;
   }
 
-  const data = await response.json();
-  return {
-    text: data?.choices?.[0]?.message?.content || "",
-    raw: data,
-  };
+  throw lastError || Object.assign(new Error("Chat 调用失败"), { status: 500 });
 };
 
 const callOpenAICompatibleImage = async ({ baseUrl, apiKey, model, prompt, provider }) => {
   if (!baseUrl) throw Object.assign(new Error("BASE_URL 未配置"), { status: 500 });
-  const response = await fetchWithTimeout(`${baseUrl}/images/generations`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      prompt,
-      n: 1,
-      size: "1024x1024",
-      response_format: "b64_json",
-    }),
-  });
+  const endpointPaths = OPENAI_COMPAT_ENDPOINTS?.[provider]?.image || ["/images/generations"];
+  let lastError = null;
 
-  if (!response.ok) {
-    const txt = await response.text();
-    throw buildOpenAICompatibleError("Image", response.status, txt, provider, model);
+  for (let i = 0; i < endpointPaths.length; i++) {
+    const endpointPath = endpointPaths[i];
+    const response = await fetchWithTimeout(buildOpenAICompatUrl(baseUrl, endpointPath), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(buildOpenAICompatibleImagePayload({ provider, model, prompt, endpointPath })),
+    });
+
+    if (!response.ok) {
+      const txt = await response.text();
+      const error = buildOpenAICompatibleError("Image", response.status, txt, provider, model);
+      if (i < endpointPaths.length - 1 && shouldTryAlternateEndpoint(error)) {
+        lastError = error;
+        continue;
+      }
+      throw error;
+    }
+
+    const data = await response.json();
+    const imageUrl = extractOpenAICompatibleImageUrl(data);
+    if (imageUrl) return imageUrl;
+
+    const emptyError = Object.assign(new Error(`Image 返回为空 (${provider}/${model})`), { status: 502 });
+    if (i < endpointPaths.length - 1) {
+      lastError = emptyError;
+      continue;
+    }
+    throw emptyError;
   }
 
-  const data = await response.json();
-  const item = data?.data?.[0] || {};
-  if (item?.b64_json) return `data:image/png;base64,${item.b64_json}`;
-  if (item?.url) return item.url;
-  throw Object.assign(new Error("Image 返回为空"), { status: 500 });
+  throw lastError || Object.assign(new Error("Image 调用失败"), { status: 500 });
 };
 
 const callGoogleChat = async ({ apiKey, model, messages }) => {
