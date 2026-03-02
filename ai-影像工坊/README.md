@@ -89,19 +89,21 @@ npm run dev
 
 文本模型：
 
-- OpenAI: `gpt-5.1`
-- Google: `gemini-2.5-flash`
-- 阿里: `qwen-plus`
-- 字节: `doubao-seed-1-6-250615`
-- MiniMax: `MiniMax-M2.5`
-- 智谱: `glm-4.5-flash`
+- OpenAI: `gpt-5.1` / `gpt-5` / `gpt-5-mini`
+- Google: `gemini-2.5-pro` / `gemini-2.5-flash` / `gemini-3-pro-preview`
+- 阿里: `qwen-max` / `qwen-plus` / `qwen-turbo`
+- 字节: `doubao-seed-1-8-251228` / `doubao-seed-1-6-251015` / `doubao-seed-1-6-250615`
+- MiniMax: `MiniMax-M2.5` / `MiniMax-M2.5-highspeed` / `MiniMax-M2.1`
+- 智谱: `glm-4.7` / `glm-4.6` / `glm-4.5-flash`
 
 生图模型：
 
-- OpenAI: `gpt-image-1`
-- Google: `gemini-3-pro-image-preview`
-- 字节: `doubao-seedream-4-0-250828`
-- 其他厂商可在 `config/ai-routing.json` 自定义
+- OpenAI: `gpt-image-1` / `dall-e-3` / `dall-e-2`
+- Google: `gemini-3-pro-image-preview` / `gemini-2.5-flash-image`
+- 阿里: `wan2.2-t2i-plus` / `wan2.2-t2i-flash` / `wanx2.1-t2i-plus`
+- 字节: `doubao-seedream-4-5-251128` / `doubao-seedream-4-0-250828` / `doubao-seedream-3-0-t2i-250415`
+- MiniMax: `image-01`
+- 智谱: `glm-image` / `cogview-4` / `cogview-3-flash`
 
 ## 6. 后端接口参数（最小集）
 

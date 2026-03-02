@@ -12,16 +12,18 @@ const LEGACY_PROXY_BASE = ((import.meta as any).env?.VITE_PROXY_BASE_URL || "htt
 
 // --- Model Catalog ---
 const DEFAULT_TEXT_MODELS = [
-    "gpt-5.2",
     "gpt-5.1",
     "gpt-5",
-    "gemini-3-pro-preview",
-    "gemini-3-flash-preview",
+    "gpt-5-mini",
+    "gemini-2.5-pro",
     "gemini-2.5-flash",
+    "gemini-3-pro-preview",
 ];
 
 const DEFAULT_IMAGE_MODELS = [
     "gpt-image-1",
+    "dall-e-3",
+    "dall-e-2",
     "gemini-3-pro-image-preview",
     "gemini-2.5-flash-image",
 ];
@@ -49,13 +51,15 @@ let backendEnabled = USE_BACKEND_BY_DEFAULT;
 let availableTextModels = [...DEFAULT_TEXT_MODELS];
 let availableImageModels = [...DEFAULT_IMAGE_MODELS];
 const DEFAULT_PROVIDER_BY_MODEL: Record<string, string> = {
-    "gpt-5.2": "openai",
     "gpt-5.1": "openai",
     "gpt-5": "openai",
+    "gpt-5-mini": "openai",
     "gpt-image-1": "openai",
-    "gemini-3-pro-preview": "google",
-    "gemini-3-flash-preview": "google",
+    "dall-e-3": "openai",
+    "dall-e-2": "openai",
+    "gemini-2.5-pro": "google",
     "gemini-2.5-flash": "google",
+    "gemini-3-pro-preview": "google",
     "gemini-3-pro-image-preview": "google",
     "gemini-2.5-flash-image": "google",
 };
@@ -78,10 +82,10 @@ const inferProviderByModelName = (model: string): string => {
     const normalized = normalizeModel(model);
     if (!normalized) return "unknown";
     if (normalized.startsWith("gemini")) return "google";
-    if (normalized.startsWith("gpt")) return "openai";
-    if (normalized.includes("qwen") || normalized.includes("wanx")) return "ali";
+    if (normalized.startsWith("gpt") || normalized.startsWith("dall-e")) return "openai";
+    if (normalized.includes("qwen") || normalized.startsWith("wan")) return "ali";
     if (normalized.includes("doubao") || normalized.includes("seedream")) return "byte";
-    if (normalized.includes("minimax")) return "minimax";
+    if (normalized.includes("minimax") || normalized === "image-01") return "minimax";
     if (normalized.includes("glm") || normalized.includes("cogview")) return "zhipu";
     return "unknown";
 };

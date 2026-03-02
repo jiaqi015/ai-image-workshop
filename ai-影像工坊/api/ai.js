@@ -17,18 +17,26 @@ const DEFAULT_ROUTING = {
     zhipu: { enabled: true },
   },
   text: {
-    providerOrder: ["openai", "google"],
+    providerOrder: ["openai", "google", "ali", "byte", "minimax", "zhipu"],
     models: {
-      openai: ["gpt-5.1"],
-      google: ["gemini-2.5-flash"],
+      openai: ["gpt-5.1", "gpt-5", "gpt-5-mini"],
+      google: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-pro-preview"],
+      ali: ["qwen-max", "qwen-plus", "qwen-turbo"],
+      byte: ["doubao-seed-1-8-251228", "doubao-seed-1-6-251015", "doubao-seed-1-6-250615"],
+      minimax: ["MiniMax-M2.5", "MiniMax-M2.5-highspeed", "MiniMax-M2.1"],
+      zhipu: ["glm-4.7", "glm-4.6", "glm-4.5-flash"],
     },
     defaultModel: "gpt-5.1",
   },
   image: {
-    providerOrder: ["openai", "google"],
+    providerOrder: ["openai", "google", "byte", "ali", "minimax", "zhipu"],
     models: {
-      openai: ["gpt-image-1"],
-      google: ["gemini-3-pro-image-preview"],
+      openai: ["gpt-image-1", "dall-e-3", "dall-e-2"],
+      google: ["gemini-3-pro-image-preview", "gemini-2.5-flash-image"],
+      ali: ["wan2.2-t2i-plus", "wan2.2-t2i-flash", "wanx2.1-t2i-plus"],
+      byte: ["doubao-seedream-4-5-251128", "doubao-seedream-4-0-250828", "doubao-seedream-3-0-t2i-250415"],
+      minimax: ["image-01"],
+      zhipu: ["glm-image", "cogview-4", "cogview-3-flash"],
     },
     defaultModel: "gpt-image-1",
   },
@@ -58,7 +66,7 @@ const PROVIDER_ENV = {
   minimax: {
     keyVars: ["MINIMAX_KEY", "MINIMAX_API_KEY", "MINIMAX_KEYS"],
     baseVars: ["MINIMAX_BASE_URL"],
-    defaultBase: "https://api.minimaxi.com/v1",
+    defaultBase: "https://api.minimax.io/v1",
   },
   zhipu: {
     keyVars: ["ZHIPU_KEY", "ZHIPU_API_KEY", "ZHIPU_KEYS"],
@@ -321,13 +329,18 @@ const cooldownKey = (provider, key, ms) => {
 const inferProviderByModel = (taskType, model) => {
   const section = routingConfig?.[taskType] || {};
   const modelsByProvider = section.models || {};
+  const normalized = String(model || "").trim().toLowerCase();
 
   for (const [provider, models] of Object.entries(modelsByProvider)) {
     if (Array.isArray(models) && models.includes(model)) return provider;
   }
 
-  if (String(model).startsWith("gemini")) return "google";
-  if (String(model).startsWith("gpt")) return "openai";
+  if (normalized.startsWith("gemini")) return "google";
+  if (normalized.startsWith("gpt") || normalized.startsWith("dall-e")) return "openai";
+  if (normalized.includes("qwen") || normalized.startsWith("wan")) return "ali";
+  if (normalized.includes("doubao") || normalized.includes("seedream")) return "byte";
+  if (normalized.includes("minimax") || normalized === "image-01") return "minimax";
+  if (normalized.includes("glm") || normalized.includes("cogview")) return "zhipu";
 
   return null;
 };
