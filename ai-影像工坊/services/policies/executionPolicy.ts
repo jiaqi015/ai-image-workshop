@@ -61,7 +61,7 @@ export class ExecutionPolicy {
         if (isProxy) {
             // --- Proxy Mode Strategies ---
             // 代理模式下通常并发限制较宽松，但模型调用贵
-            cameraModelId = 'dall-e-3'; 
+            cameraModelId = 'gpt-image-1'; 
             
             switch (strategy) {
                 case 'pro':

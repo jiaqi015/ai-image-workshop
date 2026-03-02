@@ -5,7 +5,7 @@ import { Gallery } from './components/Gallery';
 import { HistorySidebar } from './components/HistorySidebar';
 import { ConsoleLog } from './components/ConsoleLog';
 import { DirectorThinking } from './components/DirectorThinking'; 
-import { ShootStrategy, AppState, DirectorModel } from './types';
+import { ShootStrategy, AppState } from './types';
 import { useStudioArchitect } from './hooks/useStudioArchitect';
 
 /**
@@ -21,12 +21,12 @@ export default function App() {
   // 核心架构师 Hook：接管所有状态、副作用和业务流程
   const studio = useStudioArchitect();
 
-  // 导演模型切换逻辑
-  const cycleDirectorModel = () => {
-      const models: DirectorModel[] = ['gemini', 'gpt-5.1', 'gpt-5.2'];
-      const currentIndex = models.indexOf(studio.directorModel);
+  const cycleTextModel = () => {
+      const models = studio.availableModels.textModels || [];
+      if (!models.length) return;
+      const currentIndex = Math.max(0, models.indexOf(studio.textModel));
       const nextIndex = (currentIndex + 1) % models.length;
-      studio.setDirectorModel(models[nextIndex]);
+      studio.setTextModel(models[nextIndex] as any);
   };
 
   return (
@@ -56,15 +56,44 @@ export default function App() {
          <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
              <div className="bg-[#0f0f12] border border-white/10 p-8 rounded-lg w-full max-w-md shadow-2xl animate-in fade-in zoom-in-95">
                  <div className="flex justify-between items-center mb-6">
-                     <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-300">通道配置 API Settings</h3>
+                     <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-300">网关配置 Gateway Settings</h3>
                      <button onClick={() => studio.setShowSettingsModal(false)} className="text-zinc-500 hover:text-white"><XIcon className="w-5 h-5"/></button>
                  </div>
                  <form onSubmit={studio.handleManualKeySubmit} className="flex flex-col gap-4">
                      <div className="flex flex-col gap-2">
-                         <label className="text-[10px] text-zinc-500 uppercase font-mono">Gemini API Key / Proxy Key</label>
+                         <label className="text-[10px] text-zinc-500 uppercase font-mono">前端 Key 覆盖 (可选)</label>
                          <div className="relative">
-                            <input type="text" className="w-full bg-black/20 border border-white/10 p-3 rounded text-sm text-white focus:outline-none focus:border-amber-500/50 font-mono" placeholder="sk-..." value={studio.manualKeyInput} onChange={(e) => studio.setManualKeyInput(e.target.value)} />
-                            <button type="button" onClick={studio.handleAutoFillKey} className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-amber-500 hover:text-amber-400 px-2 py-1 bg-amber-500/10 rounded">填入测试卡</button>
+                            <input type="text" className="w-full bg-black/20 border border-white/10 p-3 rounded text-sm text-white focus:outline-none focus:border-amber-500/50 font-mono" placeholder="通常留空，生产环境推荐后端托管" value={studio.manualKeyInput} onChange={(e) => studio.setManualKeyInput(e.target.value)} />
+                            {studio.hasDemoKey && (
+                                <button type="button" onClick={studio.handleAutoFillKey} className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-amber-500 hover:text-amber-400 px-2 py-1 bg-amber-500/10 rounded">填入测试卡</button>
+                            )}
+                         </div>
+                         <p className="text-[10px] text-zinc-500">推荐在 Vercel 环境变量中配置模型 Key，前端无需暴露敏感信息。</p>
+                     </div>
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                         <div className="flex flex-col gap-2">
+                            <label className="text-[10px] text-zinc-500 uppercase font-mono">文本模型</label>
+                            <select
+                              className="w-full bg-black/20 border border-white/10 p-3 rounded text-sm text-white focus:outline-none focus:border-amber-500/50 font-mono"
+                              value={studio.textModel}
+                              onChange={(e) => studio.setTextModel(e.target.value as any)}
+                            >
+                              {studio.availableModels.textModels.map((model: string) => (
+                                <option key={model} value={model}>{model}</option>
+                              ))}
+                            </select>
+                         </div>
+                         <div className="flex flex-col gap-2">
+                            <label className="text-[10px] text-zinc-500 uppercase font-mono">生图模型</label>
+                            <select
+                              className="w-full bg-black/20 border border-white/10 p-3 rounded text-sm text-white focus:outline-none focus:border-amber-500/50 font-mono"
+                              value={studio.imageModel}
+                              onChange={(e) => studio.setImageModel(e.target.value as any)}
+                            >
+                              {studio.availableModels.imageModels.map((model: string) => (
+                                <option key={model} value={model}>{model}</option>
+                              ))}
+                            </select>
                          </div>
                      </div>
                      <div className="flex gap-2 justify-end mt-4 pt-4 border-t border-white/5">
@@ -180,13 +209,13 @@ export default function App() {
                          <div className="hidden md:flex flex-col items-end gap-1.5 text-[10px] text-zinc-500 font-mono tracking-wider">
                              <div className="flex items-center gap-2"><div className={`w-1.5 h-1.5 rounded-full ${studio.keyConfigured ? 'bg-green-500 shadow-[0_0_5px_rgba(34,197,94,0.5)]' : 'bg-red-500'}`}></div><span>影棚就绪 STUDIO READY</span></div>
                              <button 
-                                onClick={cycleDirectorModel} 
+                                onClick={cycleTextModel} 
                                 className="flex items-center gap-1 opacity-70 hover:opacity-100 transition-opacity cursor-pointer group"
-                                title="点击切换导演模型 / Click to Switch Model"
+                                title="点击切换文本模型 / Click to Switch Text Model"
                              >
-                                <span className="text-[9px] uppercase group-hover:text-zinc-300">Director:</span>
-                                <span className={`text-[9px] font-bold ${studio.directorModel.startsWith('gpt') ? 'text-amber-500' : 'text-blue-400'}`}>
-                                    {studio.directorModel === 'gemini' ? 'GEMINI 2.5' : studio.directorModel.toUpperCase()}
+                                <span className="text-[9px] uppercase group-hover:text-zinc-300">Text:</span>
+                                <span className={`text-[9px] font-bold ${studio.connectionMode.mode === 'proxy' ? 'text-amber-500' : 'text-blue-400'}`}>
+                                    {studio.textModel}
                                 </span>
                              </button>
                          </div>

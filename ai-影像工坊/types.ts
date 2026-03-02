@@ -204,6 +204,8 @@ export enum AppState {
 
 export type ShootStrategy = 'pro' | 'flash' | 'hybrid';
 export type DirectorModel = 'gemini' | 'gpt-5.1' | 'gpt-5.2';
+export type TextModel = string;
+export type ImageModel = string;
 export type TensionLevel = 'dramatic' | 'minimalist' | 'surreal';
 
 export interface LogEntry {

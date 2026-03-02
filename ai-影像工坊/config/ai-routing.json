@@ -1,0 +1,39 @@
+{
+  "policy": {
+    "keyStrategy": "round_robin",
+    "cooldownMs": 60000,
+    "maxRetries": 2
+  },
+  "providers": {
+    "openai": { "enabled": true },
+    "google": { "enabled": true },
+    "ali": { "enabled": true },
+    "byte": { "enabled": true },
+    "minimax": { "enabled": true },
+    "zhipu": { "enabled": true }
+  },
+  "text": {
+    "providerOrder": ["openai", "google", "zhipu", "minimax", "byte", "ali"],
+    "models": {
+      "openai": ["gpt-5.2", "gpt-5.1", "gpt-5"],
+      "google": ["gemini-2.5-flash", "gemini-3-flash-preview", "gemini-3-pro-preview"],
+      "ali": ["qwen-max"],
+      "byte": ["doubao-seed-1-6"],
+      "minimax": ["MiniMax-Text-01"],
+      "zhipu": ["glm-4.5"]
+    },
+    "defaultModel": "gpt-5.1"
+  },
+  "image": {
+    "providerOrder": ["openai", "google", "byte", "ali", "minimax", "zhipu"],
+    "models": {
+      "openai": ["gpt-image-1"],
+      "google": ["gemini-3-pro-image-preview", "gemini-2.5-flash-image"],
+      "ali": ["wanx-v1"],
+      "byte": ["doubao-seedream-3.0"],
+      "minimax": ["MiniMax-Image-01"],
+      "zhipu": ["cogview-4"]
+    },
+    "defaultModel": "gpt-image-1"
+  }
+}

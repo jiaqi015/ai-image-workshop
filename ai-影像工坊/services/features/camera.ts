@@ -226,7 +226,7 @@ Avoid: ${negativePromptBlock}.
                 method: "POST",
                 headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Infrastructure.getApiKey()}` },
                 body: JSON.stringify({
-                    model: "dall-e-3",
+                    model: "gpt-image-1",
                     prompt: prompt,
                     n: 1,
                     size: "1024x1024",

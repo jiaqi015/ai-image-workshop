@@ -80,6 +80,10 @@ export const toggleProxyMode = Infrastructure.toggleProxy;
 export const setProxyMode = Infrastructure.setProxyMode;
 export const getConnectionStatus = Infrastructure.getStatus;
 export const validateApiKey = Infrastructure.validate;
+export const setModelPreferences = Infrastructure.setModelPreferences;
+export const getModelPreferences = Infrastructure.getModelPreferences;
+export const getAvailableModels = Infrastructure.getAvailableModels;
+export const refreshAvailableModels = Infrastructure.refreshModels;
 
 export const constructFullPrompt = (plan: any, desc: string, meta: any) => 
     PromptRenderer.renderFallback(plan, desc, meta.variant || "Cinematic", meta.castingTraits || "");

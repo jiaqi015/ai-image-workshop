@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { AppState, ShootPlan, Frame, ShootStrategy, DirectorModel, LogEntry, FrameMetadata } from '../types';
+import { AppState, ShootPlan, Frame, ShootStrategy, DirectorModel, LogEntry, FrameMetadata, TextModel, ImageModel } from '../types';
 import { 
     generateShootPlan, 
     generateMicroCasting, 
@@ -9,17 +9,21 @@ import {
     generateMoreFrames,
     validateApiKey, 
     toggleProxyMode, 
-    setProxyMode, 
     getCustomApiKey, 
     getConnectionStatus, 
     setCustomApiKey,
+    setModelPreferences,
+    getModelPreferences,
+    getAvailableModels,
+    refreshAvailableModels,
     voiceService
 } from '../services/public'; 
 
 import { useDarkroom } from './useDarkroom';
 import { useHistory } from './useHistory';
 
-const TEST_KEY = "sk-qewH4GcfwYRJXiI1ixMBRqJmAQklX512PzZtc0Co9ykDB1ai"; 
+const DEMO_PROXY_KEY = "";
+const hasDemoProxyKey = DEMO_PROXY_KEY.startsWith("sk-");
 
 export const useStudioArchitect = () => {
     
@@ -31,10 +35,13 @@ export const useStudioArchitect = () => {
     const [plan, setPlan] = useState<ShootPlan | null>(null); 
     const [frames, setFrames] = useState<Frame[]>([]); 
     const [selectedConceptUrl, setSelectedConceptUrl] = useState<string | undefined>(undefined); 
-    const [keyConfigured, setKeyConfigured] = useState(() => !!getCustomApiKey()); 
+    const [keyConfigured, setKeyConfigured] = useState(true); 
     const [connectionMode, setConnectionMode] = useState(getConnectionStatus()); 
     const [strategy, setStrategy] = useState<ShootStrategy>('flash'); 
     const [directorModel, setDirectorModel] = useState<DirectorModel>('gpt-5.2'); 
+    const [textModel, setTextModel] = useState<TextModel>(() => getModelPreferences().textModel as TextModel);
+    const [imageModel, setImageModel] = useState<ImageModel>(() => getModelPreferences().imageModel as ImageModel);
+    const [availableModels, setAvailableModels] = useState(() => getAvailableModels());
     const [streamingPlanText, setStreamingPlanText] = useState(''); 
     const [logs, setLogs] = useState<LogEntry[]>([]); 
     const [elapsedTime, setElapsedTime] = useState(0); 
@@ -73,23 +80,19 @@ export const useStudioArchitect = () => {
     const { activeRequests, isShootingRef, executeFrameBatch, shootStreamBatch, abortAll: abortDarkroom } = useDarkroom(addLog);
     const { history, addToHistory, updateHistoryItem, deleteHistoryItem } = useHistory(addLog);
 
-    // --- 修改初始化副作用 (移除 Telemetry) ---
+    // --- 初始化副作用 ---
     useEffect(() => {
         const initSystem = async () => {
-            const aistudio = (window as any).aistudio;
-            if (aistudio && await aistudio.hasSelectedApiKey()) {
-                setKeyConfigured(true); return;
-            }
-            if (!getCustomApiKey()) {
-                addLog("系统初始化: 检测到未配置通行证，正在接入公共测试频段...", "info");
-                try {
-                    if (TEST_KEY.startsWith('sk-')) {
-                        setProxyMode(true);
-                    }
-                    await validateApiKey(TEST_KEY, (msg) => {});
-                    setKeyConfigured(true); setConnectionMode(getConnectionStatus());
-                    addLog("自动连接成功: 已接入 AI 影像工坊代理节点。", "success");
-                } catch (e: any) { addLog(`自动连接失败: ${e.message}`, "error"); }
+            try {
+                await refreshAvailableModels();
+                setAvailableModels(getAvailableModels());
+                await validateApiKey(DEMO_PROXY_KEY);
+                setKeyConfigured(true);
+                setConnectionMode(getConnectionStatus());
+                addLog("系统初始化完成: 已连接后端 AI 网关。", "success");
+            } catch (e: any) {
+                setKeyConfigured(false);
+                addLog(`后端网关不可用: ${e.message}`, "error");
             }
         };
         initSystem();
@@ -117,8 +120,14 @@ export const useStudioArchitect = () => {
         }
     }, [frames, activeRequests, currentHistoryId, updateHistoryItem, appState]);
     
+    // 模型偏好同步到 Infrastructure
+    useEffect(() => {
+        setModelPreferences({ textModel, imageModel });
+        setConnectionMode(getConnectionStatus());
+    }, [textModel, imageModel]);
+
     // 连接状态同步
-    useEffect(() => { setConnectionMode(getConnectionStatus()); }, [keyConfigured, showSettingsModal]);
+    useEffect(() => { setConnectionMode(getConnectionStatus()); }, [keyConfigured, showSettingsModal, textModel, imageModel]);
 
     const handleReset = useCallback(() => {
         if (planningAbortController.current) {
@@ -344,14 +353,20 @@ export const useStudioArchitect = () => {
 
     const handleManualKeySubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (manualKeyInput.trim()) {
-          setIsValidating(true); setValidationLogs([]); 
-          try {
+        setIsValidating(true);
+        setValidationLogs([]);
+        try {
+            if (manualKeyInput.trim()) {
+                setCustomApiKey(manualKeyInput.trim());
+            }
             await validateApiKey(manualKeyInput.trim(), addValidationLog);
-            setKeyConfigured(true); setTimeout(() => setShowSettingsModal(false), 500); setConnectionMode(getConnectionStatus());
-          } catch (error: any) { addValidationLog(`❌ ${error.message}`); } finally { setIsValidating(false); }
-        } else { 
-            setCustomApiKey(null); setManualKeyInput(''); setConnectionMode(getConnectionStatus()); setValidationLogs([]); 
+            setKeyConfigured(true);
+            setConnectionMode(getConnectionStatus());
+            setTimeout(() => setShowSettingsModal(false), 300);
+        } catch (error: any) {
+            addValidationLog(`❌ ${error.message}`);
+        } finally {
+            setIsValidating(false);
         }
     };
     
@@ -371,6 +386,9 @@ export const useStudioArchitect = () => {
         connectionMode,
         strategy, setStrategy,
         directorModel, setDirectorModel,
+        textModel, setTextModel,
+        imageModel, setImageModel,
+        availableModels,
         streamingPlanText,
         isValidating, validationLogs,
         isHistoryOpen, setIsHistoryOpen,
@@ -384,15 +402,25 @@ export const useStudioArchitect = () => {
         isListening,
         history,
         isGeneratingRandom,
+        hasDemoKey: hasDemoProxyKey,
         mainContentRef,
         handleStartPlanning,
         handleReset,
         handleVoiceInput,
         handleRandomPrompt,
         handleClearInput, 
-        handleAutoFillKey: () => setManualKeyInput(TEST_KEY),
+        handleAutoFillKey: () => {
+            if (hasDemoProxyKey) setManualKeyInput(DEMO_PROXY_KEY);
+            else addValidationLog("后端网关模式下通常无需前端 Key（可留空）。");
+        },
         handleClearKey: () => { setCustomApiKey(null); setManualKeyInput(''); setConnectionMode(getConnectionStatus()); setValidationLogs([]); },
-        handleToggleConnectionMode: () => { if(getCustomApiKey()){ toggleProxyMode(); setConnectionMode(getConnectionStatus()); } else { setManualKeyInput(''); setShowSettingsModal(true); } },
+        handleToggleConnectionMode: () => {
+            toggleProxyMode();
+            const prefs = getModelPreferences();
+            setTextModel(prefs.textModel as TextModel);
+            setImageModel(prefs.imageModel as ImageModel);
+            setConnectionMode(getConnectionStatus());
+        },
         handleOpenSettings: () => { setManualKeyInput(getCustomApiKey() || ''); setShowSettingsModal(true); },
         handleManualKeySubmit,
         restoreSession,

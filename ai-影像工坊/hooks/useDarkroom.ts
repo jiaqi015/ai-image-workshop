@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Frame, ShootPlan, ShootStrategy, FrameMetadata } from '../types';
-import { generateFrameImage, MemoryManager, ExecutionPolicy } from '../services/public'; // Updated Import
+import { generateFrameImage, MemoryManager, ExecutionPolicy, getModelPreferences } from '../services/public'; // Updated Import
 
 // ==========================================
 // Darkroom Hook (Core Execution Logic)
@@ -108,7 +108,7 @@ export const useDarkroom = (
             else targetModel = 'pro';
 
             const metadata: FrameMetadata = {
-                model: targetModel === 'pro' ? 'gemini-3-pro' : 'gemini-2.5-flash',
+                model: getModelPreferences().imageModel,
                 provider: isProxy ? 'Proxy' : 'Direct',
                 strategy: targetModel === 'pro' ? 'Pro' : 'Flash',
                 resolution: targetModel === 'pro' ? '4K' : 'Std',
@@ -167,7 +167,7 @@ export const useDarkroom = (
              if (strategy === 'hybrid') targetModel = 'flash'; 
 
              const metadata: FrameMetadata = {
-                model: targetModel === 'pro' ? 'gemini-3-pro' : 'gemini-2.5-flash',
+                model: getModelPreferences().imageModel,
                 provider: isProxy ? 'Proxy' : 'Direct',
                 strategy: strategy,
                 resolution: targetModel === 'pro' ? '4K' : 'Std',

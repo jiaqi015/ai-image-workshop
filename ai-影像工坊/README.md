@@ -1,20 +1,80 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# AI 影像工坊
 
-# Run and deploy your AI Studio app
+前后端分离版本（Vite 前端 + Vercel Functions 后端网关）。
 
-This contains everything you need to run your app locally.
+## 1. 现在的核心架构
 
-View your app in AI Studio: https://ai.studio/apps/drive/1ErZ2w0zq6ry2gALkWx_5ZlerlbuviJL0
+- 前端只负责 UI、工作流、模型选择，不持有生产密钥。
+- 后端 `api/ai.js` 负责：
+  - 厂商路由（OpenAI / Google / 阿里 / 字节 / MiniMax / 智谱）
+  - 文本模型和生图模型分离路由
+  - 多 Key 轮询 + 降级重试
+- 路由策略在 `config/ai-routing.json` 维护：
+  - `text.models.<provider>[]`
+  - `image.models.<provider>[]`
+  - `providerOrder`
 
-## Run Locally
+## 2. 厂商、模型、密钥关系
 
-**Prerequisites:**  Node.js
+- `模型 -> 厂商`：由 `config/ai-routing.json` 决定，并由后端返回给前端。
+- `厂商 -> 密钥池`：由 Vercel 环境变量决定（每家可配置多个 key）。
+- `请求 -> 使用哪个 key`：后端按 round-robin 从该厂商 key 池选取，失败会冷却并重试下一个 key/厂商。
 
+## 3. 本地开发
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+1. 安装依赖
+
+```bash
+npm install
+```
+
+2. 复制环境变量
+
+```bash
+cp .env.example .env.local
+```
+
+3. 至少填一家的 key（建议先填 OpenAI 或 Google）
+
+4. 启动
+
+```bash
+npm run dev
+```
+
+## 4. Vercel 部署（傻瓜步骤）
+
+1. Project Settings -> Build & Deployment
+- Node.js Version: `22.x`
+- Install Command: `npm ci`（不行再用 `npm install`）
+- Build Command: `npm run build`
+- Output Directory: `dist`
+
+2. Project Settings -> Environment Variables（Production + Preview 都勾上）
+
+- 公共前端：
+  - `VITE_USE_BACKEND=1`
+
+- 多厂商 Key（支持逗号分隔多个）：
+  - `OPENAI_KEYS`
+  - `GOOGLE_KEYS`
+  - `ALI_KEYS`
+  - `BYTE_KEYS`
+  - `MINIMAX_KEYS`
+  - `ZHIPU_KEYS`
+
+- OpenAI 兼容 Base URL（按需填）：
+  - `OPENAI_BASE_URL=https://api.openai.com/v1`
+  - `ALI_BASE_URL`
+  - `BYTE_BASE_URL`
+  - `MINIMAX_BASE_URL`
+  - `ZHIPU_BASE_URL`
+
+3. 重新部署（Redeploy）
+
+## 5. 关键文件
+
+- `api/ai.js`：后端统一网关（多厂商/多 key/重试）
+- `config/ai-routing.json`：模型路由策略（文本与生图分离）
+- `services/api/client.ts`：前端基础设施层（后端优先、可选前端兜底）
+- `vercel.json`：Function Runtime + SPA 路由重写
