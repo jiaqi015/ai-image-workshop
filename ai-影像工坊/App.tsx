@@ -1,5 +1,5 @@
 import React from 'react';
-import { CameraIcon, SparklesIcon, FilmIcon, RefreshIcon, SettingsIcon, ClockIcon, ActivityIcon, XIcon, MicIcon, DiceIcon, ZoomInIcon } from './components/Icons';
+import { CameraIcon, SparklesIcon, FilmIcon, RefreshIcon, ClockIcon, ActivityIcon, XIcon, MicIcon, DiceIcon, ZoomInIcon } from './components/Icons';
 import { ContractCard } from './components/ContractCard';
 import { Gallery } from './components/Gallery';
 import { HistorySidebar } from './components/HistorySidebar';
@@ -127,13 +127,32 @@ export default function App() {
                 <div className={`transition-all duration-500 flex flex-col ${studio.appState === AppState.SHOOTING ? 'text-white scale-105' : 'opacity-50'}`}><span>正片拍摄</span><span className="text-[8px] opacity-60 font-serif mt-0.5">PRINCIPAL PHOTOGRAPHY</span></div>
              </div>
 
-             {/* Connection Status */}
-             <div className="hidden lg:flex flex-col ml-8 pl-8 border-l border-zinc-800/50 justify-center h-10">
-                <span className="text-[10px] uppercase text-zinc-500 tracking-widest mb-1">通道状态 Status</span>
-                <button onClick={studio.handleToggleConnectionMode} className={`text-xs font-mono tracking-wide hover:text-white transition-colors text-left flex items-center gap-2 ${studio.connectionMode.mode === 'proxy' ? 'text-amber-500' : 'text-blue-400'}`}>
-                    <div className={`w-1.5 h-1.5 rounded-full shadow-[0_0_8px_currentColor] ${studio.connectionMode.mode === 'proxy' ? 'bg-amber-500' : 'bg-blue-400'}`}></div>
-                    {studio.connectionMode.label}
-                </button>
+             {/* Model Selector */}
+             <div className="hidden lg:flex items-end gap-3 ml-8 pl-8 border-l border-zinc-800/50">
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] uppercase text-zinc-500 tracking-widest">文本模型</span>
+                  <select
+                    className="min-w-[220px] h-8 bg-black/30 border border-white/10 rounded px-2 text-[12px] text-zinc-200 focus:outline-none focus:border-amber-500/50 font-mono"
+                    value={studio.textModel}
+                    onChange={(e) => studio.setTextModel(e.target.value as any)}
+                  >
+                    {studio.availableModels.textModels.map((model: string) => (
+                      <option key={model} value={model}>{model}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] uppercase text-zinc-500 tracking-widest">生图模型</span>
+                  <select
+                    className="min-w-[220px] h-8 bg-black/30 border border-white/10 rounded px-2 text-[12px] text-zinc-200 focus:outline-none focus:border-amber-500/50 font-mono"
+                    value={studio.imageModel}
+                    onChange={(e) => studio.setImageModel(e.target.value as any)}
+                  >
+                    {studio.availableModels.imageModels.map((model: string) => (
+                      <option key={model} value={model}>{model}</option>
+                    ))}
+                  </select>
+                </div>
              </div>
 
              {/* Stats (Render Time / Active Requests) */}
@@ -152,10 +171,6 @@ export default function App() {
                     <RefreshIcon className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" /><span className="text-xs tracking-wide font-medium hidden sm:inline">重置</span>
                  </button>
              )}
-             <div className="h-6 w-px bg-zinc-800 mx-2"></div>
-             <button onClick={studio.handleOpenSettings} className={`p-2.5 rounded-full hover:bg-zinc-800 transition-all ${studio.showSettingsModal ? 'text-amber-500 bg-zinc-800' : 'text-zinc-400'}`} title="Settings">
-                <SettingsIcon className="w-5 h-5" />
-             </button>
           </div>
         </header>
         
