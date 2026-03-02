@@ -92,7 +92,7 @@ npm run dev
 - OpenAI: `gpt-5.1`
 - Google: `gemini-2.5-flash`
 - 阿里: `qwen-plus`
-- 字节: `doubao-1-5-pro-32k-250115`
+- 字节: `doubao-seed-1-6-250615`
 - MiniMax: `MiniMax-M2.5`
 - 智谱: `glm-4.5-flash`
 
@@ -100,6 +100,7 @@ npm run dev
 
 - OpenAI: `gpt-image-1`
 - Google: `gemini-3-pro-image-preview`
+- 字节: `doubao-seedream-4-0-250828`
 - 其他厂商可在 `config/ai-routing.json` 自定义
 
 ## 6. 后端接口参数（最小集）
