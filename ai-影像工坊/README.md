@@ -9,6 +9,7 @@
   - 厂商路由（OpenAI / Google / 阿里 / 字节 / MiniMax / 智谱）
   - 文本模型和生图模型分离路由
   - 多 Key 轮询 + 降级重试
+  - 上游超时控制 + IP 维度限流（可选鉴权）
 - 路由策略在 `config/ai-routing.json` 维护：
   - `text.models.<provider>[]`
   - `image.models.<provider>[]`
@@ -69,6 +70,12 @@ npm run dev
   - `BYTE_BASE_URL`
   - `MINIMAX_BASE_URL`
   - `ZHIPU_BASE_URL`
+
+- 网关稳定性/安全参数（建议）：
+  - `AI_UPSTREAM_TIMEOUT_MS=25000`
+  - `AI_GOOGLE_TIMEOUT_MS`（可空，默认跟上面一致）
+  - `AI_RATE_LIMIT_RPM=120`
+  - `AI_GATEWAY_TOKEN`（可选，不填则不启用鉴权）
 
 3. 重新部署（Redeploy）
 

@@ -63,10 +63,148 @@ const PROVIDER_ENV = {
 };
 
 const keyRuntimeState = new Map();
+const rateLimitState = new Map();
+
+const toPositiveInt = (value, fallback) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+};
+
+const UPSTREAM_TIMEOUT_MS = toPositiveInt(process.env.AI_UPSTREAM_TIMEOUT_MS, 25000);
+const GOOGLE_UPSTREAM_TIMEOUT_MS = toPositiveInt(process.env.AI_GOOGLE_TIMEOUT_MS, UPSTREAM_TIMEOUT_MS);
+const RATE_LIMIT_RPM = toPositiveInt(process.env.AI_RATE_LIMIT_RPM, 120);
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const GATEWAY_TOKEN = String(process.env.AI_GATEWAY_TOKEN || "").trim();
 
 const normalizeBaseUrl = (baseUrl) => {
   if (!baseUrl) return "";
   return String(baseUrl).replace(/\/$/, "");
+};
+
+const readHeader = (req, name) => {
+  const headers = req?.headers || {};
+  return headers[name] || headers[name.toLowerCase()] || headers[name.toUpperCase()] || "";
+};
+
+const getClientIp = (req) => {
+  const forwardedFor = readHeader(req, "x-forwarded-for");
+  if (typeof forwardedFor === "string" && forwardedFor.trim()) {
+    return forwardedFor.split(",")[0].trim();
+  }
+  return (
+    readHeader(req, "x-real-ip") ||
+    req?.socket?.remoteAddress ||
+    req?.connection?.remoteAddress ||
+    "unknown"
+  );
+};
+
+const extractGatewayToken = (req) => {
+  const byHeader = readHeader(req, "x-gateway-token");
+  if (typeof byHeader === "string" && byHeader.trim()) return byHeader.trim();
+
+  const authorization = readHeader(req, "authorization");
+  if (typeof authorization === "string" && authorization.toLowerCase().startsWith("bearer ")) {
+    return authorization.slice(7).trim();
+  }
+  return "";
+};
+
+const isAuthorized = (req) => {
+  if (!GATEWAY_TOKEN) return true;
+  return extractGatewayToken(req) === GATEWAY_TOKEN;
+};
+
+const checkRateLimit = (req, action = "unknown") => {
+  const now = Date.now();
+  const ip = getClientIp(req);
+  const key = `${ip}:${action}`;
+
+  let bucket = rateLimitState.get(key);
+  if (!bucket || now >= bucket.resetAt) {
+    bucket = { count: 0, resetAt: now + RATE_LIMIT_WINDOW_MS };
+    rateLimitState.set(key, bucket);
+  }
+
+  if (bucket.count >= RATE_LIMIT_RPM) {
+    return {
+      ok: false,
+      limit: RATE_LIMIT_RPM,
+      remaining: 0,
+      resetAt: bucket.resetAt,
+    };
+  }
+
+  bucket.count += 1;
+  return {
+    ok: true,
+    limit: RATE_LIMIT_RPM,
+    remaining: Math.max(0, RATE_LIMIT_RPM - bucket.count),
+    resetAt: bucket.resetAt,
+  };
+};
+
+const maybePruneRateLimitState = () => {
+  if (rateLimitState.size < 3000) return;
+  const now = Date.now();
+  for (const [key, bucket] of rateLimitState) {
+    if (bucket.resetAt <= now) rateLimitState.delete(key);
+  }
+};
+
+const setRateLimitHeaders = (res, rateInfo) => {
+  if (!res?.setHeader || !rateInfo) return;
+  res.setHeader("X-RateLimit-Limit", String(rateInfo.limit));
+  res.setHeader("X-RateLimit-Remaining", String(rateInfo.remaining));
+  res.setHeader("X-RateLimit-Reset", String(Math.ceil(rateInfo.resetAt / 1000)));
+};
+
+const fetchWithTimeout = async (url, options = {}, timeoutMs = UPSTREAM_TIMEOUT_MS) => {
+  const timeoutController = new AbortController();
+  const externalSignal = options?.signal;
+
+  const timeoutId = setTimeout(() => {
+    timeoutController.abort();
+  }, timeoutMs);
+
+  let detachExternalAbort = null;
+  if (externalSignal && typeof externalSignal.addEventListener === "function") {
+    if (externalSignal.aborted) timeoutController.abort();
+    const onExternalAbort = () => timeoutController.abort();
+    externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+    detachExternalAbort = () => externalSignal.removeEventListener("abort", onExternalAbort);
+  }
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: timeoutController.signal,
+    });
+  } catch (error) {
+    if (timeoutController.signal.aborted) {
+      throw Object.assign(new Error(`上游请求超时 (${timeoutMs}ms)`), { status: 504 });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+    if (detachExternalAbort) detachExternalAbort();
+  }
+};
+
+const withTimeout = async (promise, timeoutMs, message) => {
+  let timer = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          reject(Object.assign(new Error(message), { status: 504 }));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 };
 
 const parseKeys = (...rawValues) => {
@@ -129,6 +267,16 @@ const buildProviderCredentials = () => {
 };
 
 const providerCredentials = buildProviderCredentials();
+
+const providerNeedsBaseUrl = (provider) => provider !== "google";
+
+const providerUsable = (provider) => {
+  const creds = providerCredentials?.[provider] || { keys: [], baseUrl: "" };
+  if (!providerEnabled(provider)) return false;
+  if (!Array.isArray(creds.keys) || creds.keys.length === 0) return false;
+  if (providerNeedsBaseUrl(provider) && !creds.baseUrl) return false;
+  return true;
+};
 
 const getProviderState = (provider) => {
   if (!keyRuntimeState.has(provider)) {
@@ -225,7 +373,7 @@ const extractGeminiText = (resp) => {
 
 const callOpenAICompatibleChat = async ({ baseUrl, apiKey, model, messages }) => {
   if (!baseUrl) throw Object.assign(new Error("BASE_URL 未配置"), { status: 500 });
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -248,7 +396,7 @@ const callOpenAICompatibleChat = async ({ baseUrl, apiKey, model, messages }) =>
 
 const callOpenAICompatibleImage = async ({ baseUrl, apiKey, model, prompt }) => {
   if (!baseUrl) throw Object.assign(new Error("BASE_URL 未配置"), { status: 500 });
-  const response = await fetch(`${baseUrl}/images/generations`, {
+  const response = await fetchWithTimeout(`${baseUrl}/images/generations`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -280,21 +428,29 @@ const callGoogleChat = async ({ apiKey, model, messages }) => {
   const systemInstruction = firstSystemMessage(messages);
   const userMessage = firstUserMessage(messages) || messageText(messages);
 
-  const resp = await client.models.generateContent({
-    model,
-    contents: userMessage,
-    config: {
-      ...(systemInstruction ? { systemInstruction } : {}),
-      responseMimeType: "application/json",
-    },
-  });
+  const resp = await withTimeout(
+    client.models.generateContent({
+      model,
+      contents: userMessage,
+      config: {
+        ...(systemInstruction ? { systemInstruction } : {}),
+        responseMimeType: "application/json",
+      },
+    }),
+    GOOGLE_UPSTREAM_TIMEOUT_MS,
+    `Google 请求超时 (${GOOGLE_UPSTREAM_TIMEOUT_MS}ms)`
+  );
 
   return { text: extractGeminiText(resp), raw: resp };
 };
 
 const callGoogleGenerate = async ({ apiKey, model, contents, config }) => {
   const client = new GoogleGenAI({ apiKey });
-  const resp = await client.models.generateContent({ model, contents, config: config || {} });
+  const resp = await withTimeout(
+    client.models.generateContent({ model, contents, config: config || {} }),
+    GOOGLE_UPSTREAM_TIMEOUT_MS,
+    `Google 请求超时 (${GOOGLE_UPSTREAM_TIMEOUT_MS}ms)`
+  );
   return { text: extractGeminiText(resp), raw: resp };
 };
 
@@ -311,11 +467,15 @@ const callGoogleImage = async ({ apiKey, model, prompt }) => {
   };
   if (String(model).includes("pro")) config.imageConfig.imageSize = "1K";
 
-  const resp = await client.models.generateContent({
-    model,
-    contents: { parts: [{ text: prompt }] },
-    config,
-  });
+  const resp = await withTimeout(
+    client.models.generateContent({
+      model,
+      contents: { parts: [{ text: prompt }] },
+      config,
+    }),
+    GOOGLE_UPSTREAM_TIMEOUT_MS,
+    `Google 生图超时 (${GOOGLE_UPSTREAM_TIMEOUT_MS}ms)`
+  );
 
   const imagePart = resp?.candidates?.[0]?.content?.parts?.find((p) => p?.inlineData);
   if (imagePart?.inlineData) {
@@ -338,7 +498,7 @@ const runWithProviderFallback = async ({ taskType, requestedModel, run }) => {
     const model = candidate.model || fallbackModel;
     const creds = providerCredentials[provider] || { keys: [], baseUrl: "" };
 
-    if (!creds.keys.length) continue;
+    if (!providerUsable(provider)) continue;
 
     for (let i = 0; i <= retryCount; i++) {
       const key = pickKey(provider);
@@ -422,9 +582,7 @@ const flattenModels = (taskType) => {
   const providerByModel = {};
 
   for (const provider of section.providerOrder || []) {
-    if (!providerEnabled(provider)) continue;
-    const hasKeys = (providerCredentials?.[provider]?.keys || []).length > 0;
-    if (!hasKeys) continue;
+    if (!providerUsable(provider)) continue;
     const list = Array.isArray(section?.models?.[provider]) ? section.models[provider] : [];
     for (const model of list) {
       if (!result.includes(model)) result.push(model);
@@ -438,10 +596,12 @@ const flattenModels = (taskType) => {
 const healthPayload = () => {
   const providers = {};
   for (const provider of Object.keys(PROVIDER_ENV)) {
+    const creds = providerCredentials?.[provider] || { keys: [], baseUrl: "" };
     providers[provider] = {
       enabled: providerEnabled(provider),
-      keyCount: (providerCredentials?.[provider]?.keys || []).length,
-      hasBaseUrl: Boolean(providerCredentials?.[provider]?.baseUrl),
+      ready: providerUsable(provider),
+      hasKey: Boolean((creds.keys || []).length),
+      hasBaseUrl: providerNeedsBaseUrl(provider) ? Boolean(creds.baseUrl) : true,
     };
   }
 
@@ -464,9 +624,30 @@ export default async function handler(req, res) {
     return;
   }
 
+  maybePruneRateLimitState();
+
   try {
+    const actionFromGet = req.query?.action || "health";
+    const bodyFromPost = req.method === "POST" ? parseBody(req) : {};
+    const actionFromPost = bodyFromPost.action || "health";
+    const action = req.method === "POST" ? actionFromPost : actionFromGet;
+
+    if (!isAuthorized(req)) {
+      res.status(401).json({ ok: false, error: "Unauthorized" });
+      return;
+    }
+
+    const rate = checkRateLimit(req, action);
+    setRateLimitHeaders(res, rate);
+    if (!rate.ok) {
+      res.status(429).json({
+        ok: false,
+        error: `Rate limit exceeded (${RATE_LIMIT_RPM}/min)`,
+      });
+      return;
+    }
+
     if (req.method === "GET") {
-      const action = req.query?.action || "health";
       if (action === "models") {
         const text = flattenModels("text");
         const image = flattenModels("image");
@@ -493,8 +674,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    const body = parseBody(req);
-    const action = body.action || "health";
+    const body = bodyFromPost;
 
     if (action === "health" || action === "validate") {
       res.status(200).json(healthPayload());
