@@ -20,6 +20,70 @@ import { useStudioArchitect } from './hooks/useStudioArchitect';
 export default function App() {
   // 核心架构师 Hook：接管所有状态、副作用和业务流程
   const studio = useStudioArchitect();
+  const catalog = studio.availableModels as any;
+
+  const providerLabel = (provider: string) => {
+      switch (provider) {
+          case 'openai': return 'OpenAI';
+          case 'google': return 'Google';
+          case 'ali': return '阿里';
+          case 'byte': return '字节';
+          case 'minimax': return 'MiniMax';
+          case 'zhipu': return '智谱';
+          default: return provider || '未知厂商';
+      }
+  };
+
+  const textModelsByProvider: Record<string, string[]> = catalog?.textModelsByProvider || {};
+  const imageModelsByProvider: Record<string, string[]> = catalog?.imageModelsByProvider || {};
+  const providerByModel: Record<string, string> = catalog?.providerByModel || {};
+  const providerStatus: Record<string, { ready?: boolean }> = catalog?.providers || {};
+
+  const resolveProviderFromGroups = (model: string, groups: Record<string, string[]>) => {
+      for (const [provider, models] of Object.entries(groups)) {
+          if (Array.isArray(models) && models.includes(model)) return provider;
+      }
+      return '';
+  };
+
+  const textProviderList = React.useMemo(() => {
+      const ordered = Array.isArray(catalog?.providerOrder?.text) ? catalog.providerOrder.text : [];
+      const keys = Object.keys(textModelsByProvider);
+      const merged = [...ordered, ...keys.filter((p) => !ordered.includes(p))];
+      return merged.filter((provider) => (textModelsByProvider[provider] || []).length > 0);
+  }, [catalog, textModelsByProvider]);
+
+  const imageProviderList = React.useMemo(() => {
+      const ordered = Array.isArray(catalog?.providerOrder?.image) ? catalog.providerOrder.image : [];
+      const keys = Object.keys(imageModelsByProvider);
+      const merged = [...ordered, ...keys.filter((p) => !ordered.includes(p))];
+      return merged.filter((provider) => (imageModelsByProvider[provider] || []).length > 0);
+  }, [catalog, imageModelsByProvider]);
+
+  const selectedTextProvider =
+      providerByModel[studio.textModel] ||
+      resolveProviderFromGroups(studio.textModel, textModelsByProvider) ||
+      textProviderList[0] ||
+      '';
+  const selectedImageProvider =
+      providerByModel[studio.imageModel] ||
+      resolveProviderFromGroups(studio.imageModel, imageModelsByProvider) ||
+      imageProviderList[0] ||
+      '';
+
+  const textModelOptions = selectedTextProvider
+      ? (textModelsByProvider[selectedTextProvider] || [])
+      : (studio.availableModels.textModels || []);
+  const imageModelOptions = selectedImageProvider
+      ? (imageModelsByProvider[selectedImageProvider] || [])
+      : (studio.availableModels.imageModels || []);
+
+  const providerOptionLabel = (provider: string) => {
+      const label = providerLabel(provider);
+      const status = providerStatus[provider];
+      if (!status) return label;
+      return status.ready ? label : `${label} (未配Key)`;
+  };
 
   const cycleTextModel = () => {
       const models = studio.availableModels.textModels || [];
@@ -127,28 +191,60 @@ export default function App() {
                 <div className={`transition-all duration-500 flex flex-col ${studio.appState === AppState.SHOOTING ? 'text-white scale-105' : 'opacity-50'}`}><span>正片拍摄</span><span className="text-[8px] opacity-60 font-serif mt-0.5">PRINCIPAL PHOTOGRAPHY</span></div>
              </div>
 
-             {/* Model Selector */}
-             <div className="hidden lg:flex items-end gap-3 ml-8 pl-8 border-l border-zinc-800/50">
+             {/* Model Selector: Provider -> Model */}
+             <div className="hidden lg:flex items-end gap-2 ml-8 pl-8 border-l border-zinc-800/50">
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] uppercase text-zinc-500 tracking-widest">文本厂商</span>
+                  <select
+                    className="min-w-[128px] h-8 bg-black/30 border border-white/10 rounded px-2 text-[12px] text-zinc-200 focus:outline-none focus:border-amber-500/50"
+                    value={selectedTextProvider}
+                    onChange={(e) => {
+                      const provider = e.target.value;
+                      const list = textModelsByProvider[provider] || [];
+                      if (list.length > 0) studio.setTextModel(list[0] as any);
+                    }}
+                  >
+                    {textProviderList.map((provider: string) => (
+                      <option key={provider} value={provider}>{providerOptionLabel(provider)}</option>
+                    ))}
+                  </select>
+                </div>
                 <div className="flex flex-col gap-1">
                   <span className="text-[10px] uppercase text-zinc-500 tracking-widest">文本模型</span>
                   <select
-                    className="min-w-[220px] h-8 bg-black/30 border border-white/10 rounded px-2 text-[12px] text-zinc-200 focus:outline-none focus:border-amber-500/50 font-mono"
+                    className="min-w-[210px] h-8 bg-black/30 border border-white/10 rounded px-2 text-[12px] text-zinc-200 focus:outline-none focus:border-amber-500/50 font-mono"
                     value={studio.textModel}
                     onChange={(e) => studio.setTextModel(e.target.value as any)}
                   >
-                    {studio.availableModels.textModels.map((model: string) => (
+                    {textModelOptions.map((model: string) => (
                       <option key={model} value={model}>{model}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] uppercase text-zinc-500 tracking-widest">生图厂商</span>
+                  <select
+                    className="min-w-[128px] h-8 bg-black/30 border border-white/10 rounded px-2 text-[12px] text-zinc-200 focus:outline-none focus:border-amber-500/50"
+                    value={selectedImageProvider}
+                    onChange={(e) => {
+                      const provider = e.target.value;
+                      const list = imageModelsByProvider[provider] || [];
+                      if (list.length > 0) studio.setImageModel(list[0] as any);
+                    }}
+                  >
+                    {imageProviderList.map((provider: string) => (
+                      <option key={provider} value={provider}>{providerOptionLabel(provider)}</option>
                     ))}
                   </select>
                 </div>
                 <div className="flex flex-col gap-1">
                   <span className="text-[10px] uppercase text-zinc-500 tracking-widest">生图模型</span>
                   <select
-                    className="min-w-[220px] h-8 bg-black/30 border border-white/10 rounded px-2 text-[12px] text-zinc-200 focus:outline-none focus:border-amber-500/50 font-mono"
+                    className="min-w-[210px] h-8 bg-black/30 border border-white/10 rounded px-2 text-[12px] text-zinc-200 focus:outline-none focus:border-amber-500/50 font-mono"
                     value={studio.imageModel}
                     onChange={(e) => studio.setImageModel(e.target.value as any)}
                   >
-                    {studio.availableModels.imageModels.map((model: string) => (
+                    {imageModelOptions.map((model: string) => (
                       <option key={model} value={model}>{model}</option>
                     ))}
                   </select>

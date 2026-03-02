@@ -594,21 +594,38 @@ const parseBody = (req) => {
   return req.body;
 };
 
-const flattenModels = (taskType) => {
+const flattenModels = (taskType, options = {}) => {
   const section = routingConfig?.[taskType] || {};
+  const onlyUsable = options.onlyUsable !== false;
   const result = [];
   const providerByModel = {};
+  const byProvider = {};
+  const providerOrder = Array.isArray(section.providerOrder) ? section.providerOrder : [];
 
-  for (const provider of section.providerOrder || []) {
-    if (!providerUsable(provider)) continue;
+  for (const provider of providerOrder) {
+    if (!providerEnabled(provider)) continue;
+    if (onlyUsable && !providerUsable(provider)) continue;
+
     const list = Array.isArray(section?.models?.[provider]) ? section.models[provider] : [];
+    if (!Array.isArray(byProvider[provider])) byProvider[provider] = [];
+
     for (const model of list) {
       if (!result.includes(model)) result.push(model);
       providerByModel[model] = provider;
+      if (!byProvider[provider].includes(model)) byProvider[provider].push(model);
     }
   }
 
-  return { list: result, providerByModel };
+  return { list: result, providerByModel, byProvider, providerOrder };
+};
+
+const pickDefaultModel = (taskType, allCatalog, usableCatalog) => {
+  const configured = routingConfig?.[taskType]?.defaultModel || null;
+  if (configured && allCatalog?.list?.includes(configured)) {
+    const provider = inferProviderByModel(taskType, configured);
+    if (!provider || providerUsable(provider)) return configured;
+  }
+  return usableCatalog?.list?.[0] || configured || allCatalog?.list?.[0] || null;
 };
 
 const healthPayload = () => {
@@ -623,15 +640,17 @@ const healthPayload = () => {
     };
   }
 
-  const text = flattenModels("text");
-  const image = flattenModels("image");
+  const textAll = flattenModels("text", { onlyUsable: false });
+  const imageAll = flattenModels("image", { onlyUsable: false });
+  const text = flattenModels("text", { onlyUsable: true });
+  const image = flattenModels("image", { onlyUsable: true });
 
   return {
     ok: true,
     providers,
     defaults: {
-      textModel: routingConfig?.text?.defaultModel || text.list[0] || null,
-      imageModel: routingConfig?.image?.defaultModel || image.list[0] || null,
+      textModel: pickDefaultModel("text", textAll, text),
+      imageModel: pickDefaultModel("image", imageAll, image),
     },
   };
 };
@@ -667,17 +686,31 @@ export default async function handler(req, res) {
 
     if (req.method === "GET") {
       if (action === "models") {
-        const text = flattenModels("text");
-        const image = flattenModels("image");
+        const text = flattenModels("text", { onlyUsable: false });
+        const image = flattenModels("image", { onlyUsable: false });
+        const textUsable = flattenModels("text", { onlyUsable: true });
+        const imageUsable = flattenModels("image", { onlyUsable: true });
+        const health = healthPayload();
 
         res.status(200).json({
           ok: true,
           textModels: text.list,
           imageModels: image.list,
           providerByModel: { ...text.providerByModel, ...image.providerByModel },
+          textModelsByProvider: text.byProvider,
+          imageModelsByProvider: image.byProvider,
+          providerOrder: {
+            text: text.providerOrder,
+            image: image.providerOrder,
+          },
+          available: {
+            textModels: textUsable.list,
+            imageModels: imageUsable.list,
+          },
+          providers: health.providers,
           defaults: {
-            textModel: routingConfig?.text?.defaultModel || text.list[0] || null,
-            imageModel: routingConfig?.image?.defaultModel || image.list[0] || null,
+            textModel: pickDefaultModel("text", text, textUsable),
+            imageModel: pickDefaultModel("image", image, imageUsable),
           },
         });
         return;

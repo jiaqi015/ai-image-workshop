@@ -11,22 +11,75 @@ const USE_BACKEND_BY_DEFAULT = (((import.meta as any).env?.VITE_USE_BACKEND ?? "
 const LEGACY_PROXY_BASE = ((import.meta as any).env?.VITE_PROXY_BASE_URL || "https://xh.v1api.cc/v1").replace(/\/$/, "");
 
 // --- Model Catalog ---
-const DEFAULT_TEXT_MODELS = [
-    "gpt-5.1",
-    "gpt-5",
-    "gpt-5-mini",
-    "gemini-2.5-pro",
-    "gemini-2.5-flash",
-    "gemini-3-pro-preview",
-];
+const DEFAULT_PROVIDER_ORDER = {
+    text: ["openai", "google", "ali", "byte", "minimax", "zhipu"],
+    image: ["openai", "google", "byte", "ali", "minimax", "zhipu"],
+};
 
-const DEFAULT_IMAGE_MODELS = [
-    "gpt-image-1",
-    "dall-e-3",
-    "dall-e-2",
-    "gemini-3-pro-image-preview",
-    "gemini-2.5-flash-image",
-];
+const DEFAULT_TEXT_MODELS_BY_PROVIDER: Record<string, string[]> = {
+    openai: ["gpt-5.1", "gpt-5", "gpt-5-mini"],
+    google: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-pro-preview"],
+    ali: ["qwen-max", "qwen-plus", "qwen-turbo"],
+    byte: ["doubao-seed-1-8-251228", "doubao-seed-1-6-251015", "doubao-seed-1-6-flash-250828"],
+    minimax: ["MiniMax-M2.5", "MiniMax-M2.5-highspeed", "MiniMax-M2.1"],
+    zhipu: ["glm-4.7", "glm-4.6", "glm-4.5-flash"],
+};
+
+const DEFAULT_IMAGE_MODELS_BY_PROVIDER: Record<string, string[]> = {
+    openai: ["gpt-image-1", "dall-e-3", "dall-e-2"],
+    google: ["gemini-3-pro-image-preview", "gemini-2.5-flash-image"],
+    byte: ["doubao-seedream-4-5-251128", "doubao-seedream-4-0-250828", "doubao-seedream-3-0-t2i-250415"],
+    ali: ["wan2.2-t2i-plus", "wan2.2-t2i-flash", "wanx2.1-t2i-plus"],
+    minimax: ["image-01"],
+    zhipu: ["glm-image", "cogview-4", "cogview-3-flash"],
+};
+
+const cloneModelsByProvider = (input: Record<string, string[]>) => {
+    const output: Record<string, string[]> = {};
+    for (const [provider, models] of Object.entries(input)) {
+        output[provider] = Array.isArray(models) ? [...models] : [];
+    }
+    return output;
+};
+
+const flattenByProvider = (input: Record<string, string[]>, providerOrder: string[]) => {
+    const output: string[] = [];
+    for (const provider of providerOrder) {
+        const models = Array.isArray(input[provider]) ? input[provider] : [];
+        for (const model of models) {
+            if (!output.includes(model)) output.push(model);
+        }
+    }
+    return output;
+};
+
+const makeProviderByModel = (...catalogs: Array<Record<string, string[]>>) => {
+    const output: Record<string, string> = {};
+    for (const catalog of catalogs) {
+        for (const [provider, models] of Object.entries(catalog)) {
+            for (const model of models || []) {
+                output[model] = provider;
+            }
+        }
+    }
+    return output;
+};
+
+const normalizeProviderOrder = (input: any, fallback: string[]) => {
+    if (!Array.isArray(input)) return [...fallback];
+    const seen = new Set<string>();
+    const output: string[] = [];
+    for (const item of input) {
+        const provider = String(item || "").trim();
+        if (!provider || seen.has(provider)) continue;
+        seen.add(provider);
+        output.push(provider);
+    }
+    return output.length ? output : [...fallback];
+};
+
+const DEFAULT_TEXT_MODELS = flattenByProvider(DEFAULT_TEXT_MODELS_BY_PROVIDER, DEFAULT_PROVIDER_ORDER.text);
+const DEFAULT_IMAGE_MODELS = flattenByProvider(DEFAULT_IMAGE_MODELS_BY_PROVIDER, DEFAULT_PROVIDER_ORDER.image);
 
 const DEFAULT_TEXT_MODEL = "gpt-5.1";
 const DEFAULT_IMAGE_MODEL = "gpt-image-1";
@@ -34,6 +87,13 @@ const DEFAULT_IMAGE_MODEL = "gpt-image-1";
 type ModelPreferences = {
     textModel: string;
     imageModel: string;
+};
+
+type ProviderRuntimeStatus = {
+    enabled?: boolean;
+    ready?: boolean;
+    hasKey?: boolean;
+    hasBaseUrl?: boolean;
 };
 
 const readLS = (key: string, fallback: string) => {
@@ -50,20 +110,18 @@ const writeLS = (key: string, value: string) => {
 let backendEnabled = USE_BACKEND_BY_DEFAULT;
 let availableTextModels = [...DEFAULT_TEXT_MODELS];
 let availableImageModels = [...DEFAULT_IMAGE_MODELS];
-const DEFAULT_PROVIDER_BY_MODEL: Record<string, string> = {
-    "gpt-5.1": "openai",
-    "gpt-5": "openai",
-    "gpt-5-mini": "openai",
-    "gpt-image-1": "openai",
-    "dall-e-3": "openai",
-    "dall-e-2": "openai",
-    "gemini-2.5-pro": "google",
-    "gemini-2.5-flash": "google",
-    "gemini-3-pro-preview": "google",
-    "gemini-3-pro-image-preview": "google",
-    "gemini-2.5-flash-image": "google",
-};
+const DEFAULT_PROVIDER_BY_MODEL: Record<string, string> = makeProviderByModel(
+    DEFAULT_TEXT_MODELS_BY_PROVIDER,
+    DEFAULT_IMAGE_MODELS_BY_PROVIDER
+);
 let providerByModel: Record<string, string> = { ...DEFAULT_PROVIDER_BY_MODEL };
+let textModelsByProvider: Record<string, string[]> = cloneModelsByProvider(DEFAULT_TEXT_MODELS_BY_PROVIDER);
+let imageModelsByProvider: Record<string, string[]> = cloneModelsByProvider(DEFAULT_IMAGE_MODELS_BY_PROVIDER);
+let modelProviderOrder = {
+    text: [...DEFAULT_PROVIDER_ORDER.text],
+    image: [...DEFAULT_PROVIDER_ORDER.image],
+};
+let providerStatusByName: Record<string, ProviderRuntimeStatus> = {};
 
 let selectedTextModel = readLS("studio_text_model", DEFAULT_TEXT_MODEL);
 let selectedImageModel = readLS("studio_image_model", DEFAULT_IMAGE_MODEL);
@@ -88,6 +146,46 @@ const inferProviderByModelName = (model: string): string => {
     if (normalized.includes("minimax") || normalized === "image-01") return "minimax";
     if (normalized.includes("glm") || normalized.includes("cogview")) return "zhipu";
     return "unknown";
+};
+
+const normalizeModelsByProvider = (input: any): Record<string, string[]> => {
+    if (!input || typeof input !== "object") return {};
+    const output: Record<string, string[]> = {};
+
+    for (const [provider, models] of Object.entries(input as Record<string, unknown>)) {
+        if (!Array.isArray(models)) continue;
+        const unique = new Set<string>();
+        for (const item of models) {
+            const model = String(item || "").trim();
+            if (!model) continue;
+            unique.add(model);
+        }
+        if (unique.size > 0) output[provider] = [...unique];
+    }
+
+    return output;
+};
+
+const buildModelsByProvider = (
+    models: string[],
+    modelToProvider: Record<string, string>,
+    providerOrder: string[] = []
+): Record<string, string[]> => {
+    const output: Record<string, string[]> = {};
+    for (const provider of providerOrder) output[provider] = [];
+
+    for (const model of models) {
+        const provider = modelToProvider[model] || inferProviderByModelName(model);
+        if (!provider || provider === "unknown") continue;
+        if (!Array.isArray(output[provider])) output[provider] = [];
+        if (!output[provider].includes(model)) output[provider].push(model);
+    }
+
+    for (const [provider, list] of Object.entries(output)) {
+        if (!Array.isArray(list) || list.length === 0) delete output[provider];
+    }
+
+    return output;
 };
 
 const resolveProviderByModel = (model: string): string => {
@@ -386,6 +484,14 @@ export const Infrastructure = {
     getAvailableModels: () => ({
         textModels: [...availableTextModels],
         imageModels: [...availableImageModels],
+        textModelsByProvider: cloneModelsByProvider(textModelsByProvider),
+        imageModelsByProvider: cloneModelsByProvider(imageModelsByProvider),
+        providerByModel: { ...providerByModel },
+        providerOrder: {
+            text: [...modelProviderOrder.text],
+            image: [...modelProviderOrder.image],
+        },
+        providers: { ...providerStatusByName },
     }),
 
     refreshModels: async () => {
@@ -401,6 +507,10 @@ export const Infrastructure = {
             if (Array.isArray(data?.imageModels) && data.imageModels.length > 0) {
                 availableImageModels = data.imageModels;
             }
+            modelProviderOrder = {
+                text: normalizeProviderOrder(data?.providerOrder?.text, modelProviderOrder.text),
+                image: normalizeProviderOrder(data?.providerOrder?.image, modelProviderOrder.image),
+            };
             if (data?.providerByModel && typeof data.providerByModel === "object") {
                 providerByModel = { ...providerByModel, ...data.providerByModel };
             } else {
@@ -409,6 +519,23 @@ export const Infrastructure = {
                     inferred[model] = inferProviderByModelName(model);
                 });
                 providerByModel = { ...providerByModel, ...inferred };
+            }
+            const textByProviderFromApi = normalizeModelsByProvider(data?.textModelsByProvider);
+            const imageByProviderFromApi = normalizeModelsByProvider(data?.imageModelsByProvider);
+            textModelsByProvider =
+                Object.keys(textByProviderFromApi).length > 0
+                    ? textByProviderFromApi
+                    : buildModelsByProvider(availableTextModels, providerByModel, modelProviderOrder.text);
+            imageModelsByProvider =
+                Object.keys(imageByProviderFromApi).length > 0
+                    ? imageByProviderFromApi
+                    : buildModelsByProvider(availableImageModels, providerByModel, modelProviderOrder.image);
+            if (data?.providers && typeof data.providers === "object") {
+                providerStatusByName = {};
+                for (const [provider, status] of Object.entries(data.providers as Record<string, unknown>)) {
+                    if (!status || typeof status !== "object") continue;
+                    providerStatusByName[provider] = status as ProviderRuntimeStatus;
+                }
             }
 
             if (typeof data?.defaults?.textModel === "string" && !readLS("studio_text_model", "")) {
