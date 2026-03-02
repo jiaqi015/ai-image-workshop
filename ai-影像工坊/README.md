@@ -92,7 +92,7 @@ npm run dev
 - OpenAI: `gpt-5.1` / `gpt-5` / `gpt-5-mini`
 - Google: `gemini-2.5-pro` / `gemini-2.5-flash` / `gemini-3-pro-preview`
 - 阿里: `qwen-max` / `qwen-plus` / `qwen-turbo`
-- 字节: `doubao-seed-1-8-251228` / `doubao-seed-1-6-251015` / `doubao-seed-1-6-flash-250828`
+- 字节: `doubao-seed-1-6-251015` / `doubao-seed-1-6-flash-250828` / `doubao-seed-1-8-251228`
 - MiniMax: `MiniMax-M2.5` / `MiniMax-M2.5-highspeed` / `MiniMax-M2.1`
 - 智谱: `glm-4.7` / `glm-4.6` / `glm-4.5-flash`
 
@@ -101,7 +101,7 @@ npm run dev
 - OpenAI: `gpt-image-1` / `dall-e-3` / `dall-e-2`
 - Google: `gemini-3-pro-image-preview` / `gemini-2.5-flash-image`
 - 阿里: `wan2.2-t2i-plus` / `wan2.2-t2i-flash` / `wanx2.1-t2i-plus`
-- 字节: `doubao-seedream-4-5-251128` / `doubao-seedream-4-0-250828` / `doubao-seedream-3-0-t2i-250415`
+- 字节: `doubao-seedream-4-0-250828` / `doubao-seedream-3-0-t2i-250415` / `doubao-seedream-4-5-251128`
 - MiniMax: `image-01`
 - 智谱: `glm-image` / `cogview-4` / `cogview-3-flash`
 
@@ -113,7 +113,7 @@ npm run dev
 - 生图：`{ "action":"image", "model":"gpt-image-1", "prompt":"..." }`
 - 通用生成：`{ "action":"generate", "model":"...", "contents":"..." }`
 
-`GET /api/ai?action=models` 返回当前可用模型。  
+`GET /api/ai?action=models` 返回全量模型目录 + 当前可用状态。  
 `GET /api/ai?action=health` 返回各厂商就绪状态。
 
 ## 7. 关键文件

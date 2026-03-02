@@ -22,7 +22,7 @@ const DEFAULT_ROUTING = {
       openai: ["gpt-5.1", "gpt-5", "gpt-5-mini"],
       google: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-pro-preview"],
       ali: ["qwen-max", "qwen-plus", "qwen-turbo"],
-      byte: ["doubao-seed-1-8-251228", "doubao-seed-1-6-251015", "doubao-seed-1-6-flash-250828"],
+      byte: ["doubao-seed-1-6-251015", "doubao-seed-1-6-flash-250828", "doubao-seed-1-8-251228"],
       minimax: ["MiniMax-M2.5", "MiniMax-M2.5-highspeed", "MiniMax-M2.1"],
       zhipu: ["glm-4.7", "glm-4.6", "glm-4.5-flash"],
     },
@@ -34,7 +34,7 @@ const DEFAULT_ROUTING = {
       openai: ["gpt-image-1", "dall-e-3", "dall-e-2"],
       google: ["gemini-3-pro-image-preview", "gemini-2.5-flash-image"],
       ali: ["wan2.2-t2i-plus", "wan2.2-t2i-flash", "wanx2.1-t2i-plus"],
-      byte: ["doubao-seedream-4-5-251128", "doubao-seedream-4-0-250828", "doubao-seedream-3-0-t2i-250415"],
+      byte: ["doubao-seedream-4-0-250828", "doubao-seedream-3-0-t2i-250415", "doubao-seedream-4-5-251128"],
       minimax: ["image-01"],
       zhipu: ["glm-image", "cogview-4", "cogview-3-flash"],
     },
@@ -358,14 +358,30 @@ const resolveTaskConfig = (taskType, requestedModel) => {
     if (!providers.includes(p)) providers.push(p);
   }
 
-  const candidates = providers
-    .filter((provider) => providerEnabled(provider))
-    .map((provider) => {
-      const providerModels = Array.isArray(modelsByProvider[provider]) ? modelsByProvider[provider] : [];
-      const model = requestedProvider === provider && requestedModel ? requestedModel : providerModels[0];
-      return { provider, model };
-    })
-    .filter((c) => Boolean(c.model));
+  const dedupeModels = (models = []) => {
+    const unique = [];
+    for (const model of models) {
+      const value = String(model || "").trim();
+      if (!value || unique.includes(value)) continue;
+      unique.push(value);
+    }
+    return unique;
+  };
+
+  const candidates = [];
+  for (const provider of providers) {
+    if (!providerEnabled(provider)) continue;
+
+    const providerModels = dedupeModels(Array.isArray(modelsByProvider[provider]) ? modelsByProvider[provider] : []);
+    const firstChoices =
+      requestedProvider === provider && requestedModel
+        ? dedupeModels([requestedModel, ...providerModels])
+        : providerModels;
+
+    for (const model of firstChoices) {
+      candidates.push({ provider, model });
+    }
+  }
 
   const fallbackModel = section.defaultModel || requestedModel || null;
 
@@ -389,7 +405,35 @@ const extractGeminiText = (resp) => {
     .join("");
 };
 
-const callOpenAICompatibleChat = async ({ baseUrl, apiKey, model, messages }) => {
+const isModelNotOpenError = (raw) => {
+  const text = String(raw || "");
+  return text.includes("ModelNotOpen");
+};
+
+const buildOpenAICompatibleError = (taskLabel, status, txt, provider, model) => {
+  if (isModelNotOpenError(txt)) {
+    const providerName =
+      provider === "byte"
+        ? "字节/豆包"
+        : provider === "ali"
+          ? "阿里"
+          : provider === "minimax"
+            ? "MiniMax"
+            : provider === "zhipu"
+              ? "智谱"
+              : provider === "openai"
+                ? "OpenAI"
+                : provider || "该厂商";
+    return Object.assign(
+      new Error(`${providerName} 模型未开通: ${model}。请先在厂商控制台开通该模型，或切换同厂商其他模型。`),
+      { status }
+    );
+  }
+
+  return Object.assign(new Error(`${taskLabel} Error ${status}: ${String(txt || "").slice(0, 220)}`), { status });
+};
+
+const callOpenAICompatibleChat = async ({ baseUrl, apiKey, model, messages, provider }) => {
   if (!baseUrl) throw Object.assign(new Error("BASE_URL 未配置"), { status: 500 });
   const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
     method: "POST",
@@ -402,7 +446,7 @@ const callOpenAICompatibleChat = async ({ baseUrl, apiKey, model, messages }) =>
 
   if (!response.ok) {
     const txt = await response.text();
-    throw Object.assign(new Error(`Chat Error ${response.status}: ${txt.slice(0, 220)}`), { status: response.status });
+    throw buildOpenAICompatibleError("Chat", response.status, txt, provider, model);
   }
 
   const data = await response.json();
@@ -412,7 +456,7 @@ const callOpenAICompatibleChat = async ({ baseUrl, apiKey, model, messages }) =>
   };
 };
 
-const callOpenAICompatibleImage = async ({ baseUrl, apiKey, model, prompt }) => {
+const callOpenAICompatibleImage = async ({ baseUrl, apiKey, model, prompt, provider }) => {
   if (!baseUrl) throw Object.assign(new Error("BASE_URL 未配置"), { status: 500 });
   const response = await fetchWithTimeout(`${baseUrl}/images/generations`, {
     method: "POST",
@@ -431,7 +475,7 @@ const callOpenAICompatibleImage = async ({ baseUrl, apiKey, model, prompt }) => 
 
   if (!response.ok) {
     const txt = await response.text();
-    throw Object.assign(new Error(`Image Error ${response.status}: ${txt.slice(0, 220)}`), { status: response.status });
+    throw buildOpenAICompatibleError("Image", response.status, txt, provider, model);
   }
 
   const data = await response.json();
@@ -547,7 +591,7 @@ const runTextChat = async ({ model, messages }) => {
     requestedModel: model,
     run: async ({ provider, model: resolvedModel, key, baseUrl }) => {
       if (provider === "google") return callGoogleChat({ apiKey: key, model: resolvedModel, messages });
-      return callOpenAICompatibleChat({ baseUrl, apiKey: key, model: resolvedModel, messages });
+      return callOpenAICompatibleChat({ baseUrl, apiKey: key, model: resolvedModel, messages, provider });
     },
   });
 };
@@ -566,6 +610,7 @@ const runTextGenerate = async ({ model, contents, config, messages }) => {
         apiKey: key,
         model: resolvedModel,
         messages: [{ role: "user", content: prompt }],
+        provider,
       });
     },
   });
@@ -577,7 +622,7 @@ const runImageGenerate = async ({ model, prompt }) => {
     requestedModel: model,
     run: async ({ provider, model: resolvedModel, key, baseUrl }) => {
       if (provider === "google") return { imageUrl: await callGoogleImage({ apiKey: key, model: resolvedModel, prompt }) };
-      return { imageUrl: await callOpenAICompatibleImage({ baseUrl, apiKey: key, model: resolvedModel, prompt }) };
+      return { imageUrl: await callOpenAICompatibleImage({ baseUrl, apiKey: key, model: resolvedModel, prompt, provider }) };
     },
   });
 };
