@@ -22,7 +22,7 @@ const DEFAULT_ROUTING = {
       openai: ["gpt-5.1", "gpt-5", "gpt-5-mini"],
       google: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-pro-preview"],
       ali: ["qwen-max", "qwen-plus", "qwen-turbo"],
-      byte: ["doubao-seed-1-6-251015", "doubao-seed-1-6-flash-250828", "doubao-seed-1-8-251228"],
+      byte: ["doubao-seed-2-0-pro", "doubao-seed-2-0-lite", "doubao-seed-1-8"],
       minimax: ["MiniMax-M2.5", "MiniMax-M2.5-highspeed", "MiniMax-M2.1"],
       zhipu: ["glm-4.7", "glm-4.6", "glm-4.5-flash"],
     },
@@ -34,7 +34,7 @@ const DEFAULT_ROUTING = {
       openai: ["gpt-image-1", "dall-e-3", "dall-e-2"],
       google: ["gemini-3-pro-image-preview", "gemini-2.5-flash-image"],
       ali: ["wan2.2-t2i-plus", "wan2.2-t2i-flash", "wanx2.1-t2i-plus"],
-      byte: ["doubao-seedream-4-0-250828", "doubao-seedream-3-0-t2i-250415", "doubao-seedream-4-5-251128"],
+      byte: ["doubao-seedream-5-0-lite", "doubao-seedream-4-5", "doubao-seedream-4-0-250828"],
       minimax: ["image-01"],
       zhipu: ["glm-image", "cogview-4", "cogview-3-flash"],
     },
@@ -546,6 +546,43 @@ const callGoogleImage = async ({ apiKey, model, prompt }) => {
   throw Object.assign(new Error("Google Image 未返回图片数据"), { status: 500 });
 };
 
+const buildGeneratePrompt = (contents, messages) =>
+  typeof contents === "string" ? contents : messageText(messages || [{ role: "user", content: contents }]);
+
+const createOpenAICompatibleAdapter = (provider) => ({
+  chat: async ({ model, messages, key, baseUrl }) =>
+    callOpenAICompatibleChat({ baseUrl, apiKey: key, model, messages, provider }),
+  generate: async ({ model, contents, messages, key, baseUrl }) =>
+    callOpenAICompatibleChat({
+      baseUrl,
+      apiKey: key,
+      model,
+      messages: [{ role: "user", content: buildGeneratePrompt(contents, messages) }],
+      provider,
+    }),
+  image: async ({ model, prompt, key, baseUrl }) =>
+    callOpenAICompatibleImage({ baseUrl, apiKey: key, model, prompt, provider }).then((imageUrl) => ({ imageUrl })),
+});
+
+const PROVIDER_ADAPTERS = {
+  google: {
+    chat: async ({ model, messages, key }) => callGoogleChat({ apiKey: key, model, messages }),
+    generate: async ({ model, contents, config, key }) => callGoogleGenerate({ apiKey: key, model, contents, config }),
+    image: async ({ model, prompt, key }) => ({ imageUrl: await callGoogleImage({ apiKey: key, model, prompt }) }),
+  },
+  openai: createOpenAICompatibleAdapter("openai"),
+  ali: createOpenAICompatibleAdapter("ali"),
+  byte: createOpenAICompatibleAdapter("byte"),
+  minimax: createOpenAICompatibleAdapter("minimax"),
+  zhipu: createOpenAICompatibleAdapter("zhipu"),
+};
+
+const getProviderAdapter = (provider) => {
+  const adapter = PROVIDER_ADAPTERS?.[provider];
+  if (!adapter) throw Object.assign(new Error(`未实现厂商适配器: ${provider}`), { status: 500 });
+  return adapter;
+};
+
 const isRetryableStatus = (status) => status === 429 || (status >= 500 && status < 600);
 
 const runWithProviderFallback = async ({ taskType, requestedModel, run }) => {
@@ -589,10 +626,8 @@ const runTextChat = async ({ model, messages }) => {
   return runWithProviderFallback({
     taskType: "text",
     requestedModel: model,
-    run: async ({ provider, model: resolvedModel, key, baseUrl }) => {
-      if (provider === "google") return callGoogleChat({ apiKey: key, model: resolvedModel, messages });
-      return callOpenAICompatibleChat({ baseUrl, apiKey: key, model: resolvedModel, messages, provider });
-    },
+    run: async ({ provider, model: resolvedModel, key, baseUrl }) =>
+      getProviderAdapter(provider).chat({ provider, model: resolvedModel, messages, key, baseUrl }),
   });
 };
 
@@ -600,19 +635,16 @@ const runTextGenerate = async ({ model, contents, config, messages }) => {
   return runWithProviderFallback({
     taskType: "text",
     requestedModel: model,
-    run: async ({ provider, model: resolvedModel, key, baseUrl }) => {
-      if (provider === "google") {
-        return callGoogleGenerate({ apiKey: key, model: resolvedModel, contents, config });
-      }
-      const prompt = typeof contents === "string" ? contents : messageText(messages || [{ role: "user", content: contents }]);
-      return callOpenAICompatibleChat({
-        baseUrl,
-        apiKey: key,
-        model: resolvedModel,
-        messages: [{ role: "user", content: prompt }],
+    run: async ({ provider, model: resolvedModel, key, baseUrl }) =>
+      getProviderAdapter(provider).generate({
         provider,
-      });
-    },
+        model: resolvedModel,
+        contents,
+        config,
+        messages,
+        key,
+        baseUrl,
+      }),
   });
 };
 
@@ -620,10 +652,8 @@ const runImageGenerate = async ({ model, prompt }) => {
   return runWithProviderFallback({
     taskType: "image",
     requestedModel: model,
-    run: async ({ provider, model: resolvedModel, key, baseUrl }) => {
-      if (provider === "google") return { imageUrl: await callGoogleImage({ apiKey: key, model: resolvedModel, prompt }) };
-      return { imageUrl: await callOpenAICompatibleImage({ baseUrl, apiKey: key, model: resolvedModel, prompt, provider }) };
-    },
+    run: async ({ provider, model: resolvedModel, key, baseUrl }) =>
+      getProviderAdapter(provider).image({ provider, model: resolvedModel, prompt, key, baseUrl }),
   });
 };
 
