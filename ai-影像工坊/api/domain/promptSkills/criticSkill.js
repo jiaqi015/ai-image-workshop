@@ -25,6 +25,8 @@ const REQUIRED_PAYLOAD_KEYS = [
 ];
 
 const STYLE_NOISE_TOKENS = ["唯美", "梦幻", "大片感", "仙气", "小清新"];
+const AI_STYLE_TOKENS = ["超现实渲染", "8k", "cgi", "octane", "unreal engine", "塑料皮肤", "完美无瑕"];
+const MECHANICAL_TEMPLATE_TOKENS = ["情绪定调为", "选角是", "场景放在", "服装用", "道具给", "动作是", "拍法用"];
 
 const NIGHT_SCENE_PATTERN = /凌晨|深夜|夜里|夜班|夜|晚|雨后/;
 
@@ -69,6 +71,44 @@ const scoreConsistency = ({ payload = {}, prompt = "" }) => {
   return { score: clamp(score, 0, 100), issues };
 };
 
+const scoreRealism = ({ payload = {}, prompt = "" }) => {
+  let score = 100;
+  const issues = [];
+  const text = String(prompt || "");
+
+  const sensoryCueOk = /空气|潮湿|反光|风|噪声|气味|灯/.test(text);
+  if (!sensoryCueOk) {
+    score -= 12;
+    issues.push("缺少现场感线索（空气/光线/环境噪声）");
+  }
+
+  const bodyCueOk = /毛孔|细汗|勒痕|灰尘|折痕|痘印|黑眼圈/.test(text);
+  if (!bodyCueOk) {
+    score -= 14;
+    issues.push("缺少真实人体/材质细节");
+  }
+
+  if (containsAny(text, AI_STYLE_TOKENS)) {
+    score -= 22;
+    issues.push("出现AI渲染味词汇");
+  }
+
+  const mechanicalHits = MECHANICAL_TEMPLATE_TOKENS.filter((token) => text.includes(token)).length;
+  if (mechanicalHits >= 3) {
+    score -= 20;
+    issues.push("模板痕迹过重，语言机械");
+  }
+
+  const wardrobeA = String(payload.wardrobeA || "");
+  const wardrobeB = String(payload.wardrobeB || "");
+  if (wardrobeA && wardrobeB && wardrobeA === wardrobeB) {
+    score -= 10;
+    issues.push("服装搭配重复，缺少真实造型关系");
+  }
+
+  return { score: clamp(score, 0, 100), issues };
+};
+
 const scoreDiversity = ({ similarity, maxSimilarityAllowed, forceAvoidEmotion, emotion }) => {
   let score = 100;
   const issues = [];
@@ -99,6 +139,7 @@ export const evaluatePromptCriticSkill = ({
   const lengthScore = scoreLength({ length, range, target });
   const completeness = scoreCompleteness(payload);
   const consistency = scoreConsistency({ payload, prompt });
+  const realism = scoreRealism({ payload, prompt });
   const diversity = scoreDiversity({
     similarity,
     maxSimilarityAllowed,
@@ -107,19 +148,21 @@ export const evaluatePromptCriticSkill = ({
   });
 
   const weightedScore = Math.round(
-    lengthScore * 0.22 +
-      completeness.score * 0.26 +
-      consistency.score * 0.26 +
-      diversity.score * 0.26
+    lengthScore * 0.18 +
+      completeness.score * 0.2 +
+      consistency.score * 0.22 +
+      realism.score * 0.22 +
+      diversity.score * 0.18
   );
 
   const issues = [
     ...completeness.missing.map((key) => `缺少字段:${key}`),
     ...consistency.issues,
+    ...realism.issues,
     ...diversity.issues,
   ];
 
-  const pass = weightedScore >= 78 && issues.length === 0;
+  const pass = weightedScore >= 78 && issues.length === 0 && realism.score >= 84;
   return {
     pass,
     score: weightedScore,
@@ -128,6 +171,7 @@ export const evaluatePromptCriticSkill = ({
       length: lengthScore,
       completeness: completeness.score,
       consistency: consistency.score,
+      realism: realism.score,
       diversity: diversity.score,
     },
   };

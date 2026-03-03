@@ -231,6 +231,7 @@ export interface ShootPlan {
   frames: string[];
   visualVariants?: string[];
   conceptFrames?: Frame[];
+  renderFrames?: Frame[];
   selectedConceptId?: number;
   directorPacket?: DirectorPacket;
 }

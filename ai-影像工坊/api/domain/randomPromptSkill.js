@@ -1,8 +1,11 @@
 import { evaluatePromptCriticSkill } from "./promptSkills/criticSkill.js";
+import { snapshotPromptMemorySkill, rememberPromptOutcomeSkill } from "./promptSkills/memorySkill.js";
+import { resolvePromptRouteSkill } from "./promptSkills/routerSkill.js";
+import { planPromptRetrySkill } from "./promptSkills/retrySkill.js";
+import { composeHumanRealismPromptSkill } from "./promptSkills/humanRealismSkill.js";
 
 const HISTORY_LIMIT = 20;
 const DEFAULT_TARGET_LENGTH = 200;
-const MAX_GENERATION_ATTEMPTS = 12;
 const recentHistory = [];
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -177,51 +180,63 @@ const tryCompactText = (text) =>
     .replace(/，不做精修润色/g, "，不做精修")
     .replace(/，/g, "，");
 
-const buildPromptText = (payload, window, mode) => {
-  const baseBlocks = [
-    `情绪定调为${payload.emotion}，画面体感要${payload.atmosphere}`,
-    `选角是${payload.cast}，不要偶像化脸谱`,
-    `场景放在${payload.time}的${payload.location}`,
-    `服装用${payload.wardrobeA}配${payload.wardrobeB}，保留褶皱和磨损痕迹`,
-    `道具给${payload.propA}和${payload.propB}`,
-    `动作是${payload.action}，动作保持自然但带停顿`,
-    `拍法用${payload.camera}，细节上${payload.texture}`,
-    `禁止${payload.banA}、${payload.banB}和${payload.banC}`,
-  ];
+const WARDROBE_TOP_RE = /T恤|衬衫|外套|背心|风衣|西装|夹克|连帽|针织/;
+const WARDROBE_BOTTOM_RE = /裤|裙/;
+const WARDROBE_FOOT_RE = /鞋|袜|拖鞋/;
 
-  const addOns = [...payload.addOns];
-  const blocks = [...baseBlocks];
-  const desiredAddOnCount = mode === "pro" ? 2 : 1;
-  while (addOns.length > 0 && blocks.length < baseBlocks.length + desiredAddOnCount) {
-    blocks.push(addOns.shift());
-  }
-
-  let prompt = `${blocks.join("。")}。`;
-  while (prompt.length < window.min && addOns.length > 0) {
-    prompt = `${prompt}${addOns.shift()}。`;
-  }
-
-  if (prompt.length > window.max) {
-    prompt = tryCompactText(prompt);
-  }
-
-  if (prompt.length > window.max) {
-    const sentences = prompt.split("。").map((part) => part.trim()).filter(Boolean);
-    const lockedCount = baseBlocks.length;
-    while (sentences.length > lockedCount && `${sentences.join("。")}。`.length > window.max) {
-      sentences.pop();
-    }
-    prompt = `${sentences.join("。")}。`;
-  }
-
-  if (prompt.length > window.max) {
-    prompt = `${prompt.slice(0, window.max).replace(/[，；、\s]+$/g, "")}。`;
-  }
-
-  return prompt;
+const classifyWardrobe = (item) => {
+  const text = String(item || "");
+  if (WARDROBE_TOP_RE.test(text)) return "top";
+  if (WARDROBE_BOTTOM_RE.test(text)) return "bottom";
+  if (WARDROBE_FOOT_RE.test(text)) return "foot";
+  return "other";
 };
 
-const pickThemePack = () => {
+const pickWardrobePair = (pool = []) => {
+  const byType = {
+    top: [],
+    bottom: [],
+    foot: [],
+    other: [],
+  };
+  for (const item of pool) {
+    byType[classifyWardrobe(item)].push(item);
+  }
+
+  const choose = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  if (byType.top.length > 0 && byType.bottom.length > 0) {
+    return [choose(byType.top), choose(byType.bottom)];
+  }
+  if (byType.top.length > 0 && byType.foot.length > 0) {
+    return [choose(byType.top), choose(byType.foot)];
+  }
+  if (byType.bottom.length > 0 && byType.foot.length > 0) {
+    return [choose(byType.bottom), choose(byType.foot)];
+  }
+
+  return pickDistinct(pool, 2);
+};
+
+const PROP_HAND_RE = /打火机|公交卡|耳机|钥匙|收据|工牌|纸杯|罐装|手机|雨伞|毛巾/;
+
+const pickPropPair = (pool = []) => {
+  const hand = pool.filter((item) => PROP_HAND_RE.test(String(item || "")));
+  const ambient = pool.filter((item) => !PROP_HAND_RE.test(String(item || "")));
+  if (hand.length > 0 && ambient.length > 0) {
+    return [pick(hand), pick(ambient)];
+  }
+  return pickDistinct(pool, 2);
+};
+
+const toSet = (input = []) => new Set((Array.isArray(input) ? input : []).map((item) => String(item || "").trim()).filter(Boolean));
+
+const pickThemePack = ({
+  excludedThemeKeys = [],
+  preferredThemeKeys = [],
+  discouragedThemeKeys = [],
+  themeWeightByKey = {},
+  exploration = 0.6,
+} = {}) => {
   const recent = recentHistory.slice(-4);
   const lastTheme = recent.length > 0 ? recent[recent.length - 1].themeKey : "";
   const counts = new Map();
@@ -229,16 +244,30 @@ const pickThemePack = () => {
     counts.set(item.themeKey, (counts.get(item.themeKey) || 0) + 1);
   }
 
+  const excluded = toSet(excludedThemeKeys);
+  const preferred = toSet(preferredThemeKeys);
+  const discouraged = toSet(discouragedThemeKeys);
+
   return weightedPick(THEME_PACKS, (pack) => {
+    if (excluded.has(pack.key)) return 0.01;
     let weight = 1;
     if (pack.key === lastTheme) weight *= 0.35;
     weight *= 1 / (1 + (counts.get(pack.key) || 0) * 0.6);
+    const memoryWeight = Number(themeWeightByKey?.[pack.key] || 0);
+    weight *= 1 + memoryWeight;
+    if (preferred.has(pack.key)) {
+      weight *= 1 + (1 - exploration) * 0.8;
+    }
+    if (discouraged.has(pack.key)) {
+      weight *= 0.55 + exploration * 0.25;
+    }
     return weight;
   });
 };
 
-const pickEmotion = (pack, forcedAvoidEmotion) => {
-  const choices = pack.emotionPool.filter((item) => item !== forcedAvoidEmotion);
+const pickEmotion = (pack, forcedAvoidEmotion, blockedEmotions = []) => {
+  const blocked = toSet([forcedAvoidEmotion, ...blockedEmotions]);
+  const choices = pack.emotionPool.filter((item) => !blocked.has(item));
   return pick(choices.length ? choices : pack.emotionPool);
 };
 
@@ -255,20 +284,32 @@ const ensureSceneConsistency = (payload) => {
   return payload;
 };
 
-const buildCandidate = ({ mode = "pro", targetLength = DEFAULT_TARGET_LENGTH, forcedAvoidEmotion = "" } = {}) => {
-  const pack = pickThemePack();
+const buildCandidate = ({
+  mode = "pro",
+  targetLength = DEFAULT_TARGET_LENGTH,
+  forcedAvoidEmotion = "",
+  routingContext = {},
+  retryState = {},
+} = {}) => {
+  const pack = pickThemePack({
+    excludedThemeKeys: retryState.excludedThemeKeys,
+    preferredThemeKeys: routingContext.preferredThemes,
+    discouragedThemeKeys: routingContext.discouragedThemes,
+    themeWeightByKey: routingContext.themeWeightByKey,
+    exploration: routingContext.exploration,
+  });
   const location = pick(pack.locationPool);
   const time = pick(pack.timePool);
   const isNight = needsNightCamera(time, location);
-  const [wardrobeA, wardrobeB] = pickDistinct(pack.wardrobePool, 2);
-  const [propA, propB] = pickDistinct(pack.propPool, 2);
+  const [wardrobeA, wardrobeB] = pickWardrobePair(pack.wardrobePool);
+  const [propA, propB] = pickPropPair(pack.propPool);
   const [banA, banB, banC] = pickDistinct(pack.banPool, 3);
   const cameraPool = isNight ? pack.cameraNightPool : pack.cameraDayPool;
 
   const payload = ensureSceneConsistency({
     themeKey: pack.key,
     themeLabel: pack.label,
-    emotion: pickEmotion(pack, forcedAvoidEmotion),
+    emotion: pickEmotion(pack, forcedAvoidEmotion, retryState.excludedEmotions),
     cast: pick(pack.castPool),
     location,
     time,
@@ -287,7 +328,18 @@ const buildCandidate = ({ mode = "pro", targetLength = DEFAULT_TARGET_LENGTH, fo
   });
 
   const window = resolveTargetWindow(targetLength);
-  const prompt = buildPromptText(payload, window, mode === "fast" ? "fast" : "pro");
+  let prompt = composeHumanRealismPromptSkill({
+    payload,
+    mode: mode === "fast" ? "fast" : "pro",
+    window,
+  });
+  if (prompt.length > window.max) {
+    prompt = tryCompactText(prompt);
+  }
+  if (prompt.length > window.max) {
+    const hardCap = Math.max(0, window.max - 1);
+    prompt = `${prompt.slice(0, hardCap).replace(/[，；、\s]+$/g, "")}。`;
+  }
   const signature = mergeFingerprints([
     payload.themeKey,
     payload.emotion,
@@ -342,30 +394,50 @@ const resolveForcedEmotion = () => {
 };
 
 export const generateRandomPromptSkill = ({ mode = "pro", targetLength = DEFAULT_TARGET_LENGTH } = {}) => {
-  const normalizedMode = String(mode || "pro").toLowerCase() === "fast" ? "fast" : "pro";
+  const memoryBefore = snapshotPromptMemorySkill();
+  const routingContext = resolvePromptRouteSkill({
+    mode,
+    targetLength,
+    recentHistory,
+    memory: memoryBefore,
+  });
+
+  const normalizedMode = routingContext.mode;
   const forceAvoidEmotion = resolveForcedEmotion();
+  let passScoreFloor = routingContext.criticPassScore;
+  let similarityCap = routingContext.maxSimilarityAllowed;
+  let targetLengthCursor = routingContext.targetLength;
+  const retryState = {
+    excludedThemeKeys: [],
+    excludedEmotions: [],
+  };
+  const retryReasons = [];
+
   let winner = null;
   let winnerSimilarity = Number.POSITIVE_INFINITY;
   let winnerCritic = null;
   let winnerRank = Number.NEGATIVE_INFINITY;
   let attemptsUsed = 0;
 
-  for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt += 1) {
+  for (let attempt = 1; attempt <= routingContext.maxAttempts; attempt += 1) {
     attemptsUsed = attempt;
     const candidate = buildCandidate({
       mode: normalizedMode,
-      targetLength,
+      targetLength: targetLengthCursor,
       forcedAvoidEmotion: forceAvoidEmotion,
+      routingContext,
+      retryState,
     });
     const similarity = calcMaxSimilarity(candidate.signature);
     const critic = evaluatePromptCriticSkill({
       candidate,
       similarity,
-      maxSimilarityAllowed: 0.45,
+      maxSimilarityAllowed: similarityCap,
       forceAvoidEmotion,
     });
 
-    if (critic.pass) {
+    const isQualified = critic.pass && critic.score >= passScoreFloor && similarity <= similarityCap;
+    if (isQualified) {
       winner = candidate;
       winnerSimilarity = similarity;
       winnerCritic = critic;
@@ -379,18 +451,50 @@ export const generateRandomPromptSkill = ({ mode = "pro", targetLength = DEFAULT
       winnerCritic = critic;
       winnerRank = rank;
     }
+
+    const retryPlan = planPromptRetrySkill({
+      attempt,
+      maxAttempts: routingContext.maxAttempts,
+      route: routingContext,
+      critic,
+      candidate,
+      similarity,
+      currentTargetLength: targetLengthCursor,
+      currentMaxSimilarityAllowed: similarityCap,
+    });
+
+    targetLengthCursor = retryPlan.nextTargetLength;
+    similarityCap = retryPlan.nextMaxSimilarityAllowed;
+    passScoreFloor = retryPlan.nextPassScore;
+    if (retryPlan.excludeThemeKey) {
+      retryState.excludedThemeKeys = [...new Set([...retryState.excludedThemeKeys, retryPlan.excludeThemeKey])].slice(-3);
+    }
+    if (retryPlan.excludeEmotion) {
+      retryState.excludedEmotions = [...new Set([...retryState.excludedEmotions, retryPlan.excludeEmotion])].slice(-3);
+    }
+    retryReasons.push(...retryPlan.reasons);
   }
 
   if (!winnerCritic) {
     winnerCritic = evaluatePromptCriticSkill({
       candidate: winner,
       similarity: winnerSimilarity,
-      maxSimilarityAllowed: 0.45,
+      maxSimilarityAllowed: similarityCap,
       forceAvoidEmotion,
     });
   }
 
+  const acceptedOutcome = winnerCritic.pass && winnerCritic.score >= passScoreFloor && winnerSimilarity <= similarityCap;
+  rememberPromptOutcomeSkill({
+    themeKey: winner.payload.themeKey,
+    emotion: winner.payload.emotion,
+    accepted: acceptedOutcome,
+    score: winnerCritic.score,
+    issues: winnerCritic.issues,
+  });
+
   pushHistory(winner);
+  const memoryAfter = snapshotPromptMemorySkill();
   return {
     prompt: winner.prompt,
     metadata: {
@@ -406,6 +510,24 @@ export const generateRandomPromptSkill = ({ mode = "pro", targetLength = DEFAULT
         score: winnerCritic.score,
         issues: winnerCritic.issues.slice(0, 3),
         breakdown: winnerCritic.breakdown,
+      },
+      router: {
+        exploration: routingContext.exploration,
+        maxAttempts: routingContext.maxAttempts,
+        maxSimilarityAllowed: routingContext.maxSimilarityAllowed,
+        diversity: routingContext.diversity,
+        preferredThemes: routingContext.preferredThemes,
+      },
+      retry: {
+        attemptsUsed,
+        passScoreFloor,
+        similarityCap,
+        reasons: [...new Set(retryReasons)].slice(0, 5),
+      },
+      memory: {
+        observedBefore: memoryBefore?.totals?.observed || 0,
+        observedAfter: memoryAfter?.totals?.observed || 0,
+        preferredThemes: memoryAfter.preferredThemes.slice(0, 3),
       },
     },
   };

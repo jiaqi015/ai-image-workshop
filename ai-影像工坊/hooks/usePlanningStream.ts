@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-const PREHEAT_STEPS = ['解析创作意图', '锁定角色合同', '编译分镜语法', '预热镜头语言', '准备首批画面'] as const;
+const PREHEAT_STEPS = ['解析需求', '整理角色与场景', '生成候选方案', '补全镜头细节', '准备首批画面'] as const;
 
 export interface PlanningStreamSnapshot {
   currentThought: string;
@@ -17,16 +17,16 @@ export interface PlanningStreamSnapshot {
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 export const usePlanningStream = (text: string): PlanningStreamSnapshot => {
-  const [currentThought, setCurrentThought] = useState('导演处理中...');
-  const [subThought, setSubThought] = useState('等待流式内容...');
+  const [currentThought, setCurrentThought] = useState('系统正在处理...');
+  const [subThought, setSubThought] = useState('等待生成内容...');
   const [streamEchoes, setStreamEchoes] = useState<string[]>([]);
 
   const lastTextLength = useRef(0);
 
   useEffect(() => {
     if (!text) {
-      setCurrentThought('导演处理中...');
-      setSubThought('等待流式内容...');
+      setCurrentThought('系统正在处理...');
+      setSubThought('等待生成内容...');
       setStreamEchoes([]);
       lastTextLength.current = 0;
       return;
@@ -43,13 +43,13 @@ export const usePlanningStream = (text: string): PlanningStreamSnapshot => {
     const keyMatch = newChunk.match(/"(title|directorInsight|productionNotes|continuity|shootScope|frames|visualVariants)"/);
     if (keyMatch) {
       const thoughtByKey: Record<string, string> = {
-        title: '正在生成片名与主旨',
-        directorInsight: '正在整理导演阐述',
-        productionNotes: '正在生成执行说明',
-        continuity: '正在锁定角色连续性',
-        shootScope: '正在确定拍摄范围',
-        frames: '正在拆解分镜列表',
-        visualVariants: '正在生成视觉变体',
+        title: '正在生成项目标题',
+        directorInsight: '正在整理创作思路',
+        productionNotes: '正在生成执行建议',
+        continuity: '正在整理一致性配置',
+        shootScope: '正在确认拍摄约束',
+        frames: '正在拆解镜头列表',
+        visualVariants: '正在生成候选方案',
       };
       const nextThought = thoughtByKey[keyMatch[1]];
       if (nextThought) {

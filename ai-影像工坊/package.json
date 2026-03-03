@@ -11,14 +11,21 @@
     "typecheck": "tsc --noEmit",
     "build": "vite build",
     "preview": "vite preview",
-    "test:contracts": "node scripts/regression/run-backend-contracts.mjs",
+    "test:contracts": "node scripts/regression/run-backend-contracts.mjs && node scripts/regression/run-history-contracts.mjs",
     "test:golden": "node scripts/regression/run-golden-suite.mjs",
+    "test:system": "node scripts/regression/run-full-system-suite.mjs",
+    "report:quality": "node scripts/regression/render-quality-summary.mjs",
+    "ops:protect-main": "node scripts/ops/set-branch-protection.mjs",
+    "ops:protect-main:dry": "DRY_RUN=1 node scripts/ops/set-branch-protection.mjs",
     "test:regression": "npm run test:contracts && npm run test:golden",
+    "test:all": "npm run quality:gate && npm run test:system",
     "quality:gate": "npm run typecheck && npm run build && npm run test:regression"
   },
   "dependencies": {
     "@google/genai": "^1.33.0",
     "@vercel/blob": "^2.3.0",
+    "@vercel/edge-config": "^1.4.3",
+    "pg": "^8.19.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3"
   },

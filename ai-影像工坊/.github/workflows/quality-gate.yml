@@ -4,10 +4,16 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   quality-gate:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,7 +27,25 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Quality Gate
+      - name: Static + Regression Gate
         env:
           RUN_LIVE_PROVIDER_SMOKE: '0'
         run: npm run quality:gate
+
+      - name: Full System Suite
+        run: npm run test:system
+
+      - name: Render Quality Summary
+        if: always()
+        run: npm run report:quality >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Quality Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-reports-${{ github.run_id }}
+          path: |
+            quality/reports/latest-regression-summary.json
+            quality/reports/latest-system-summary.json
+          if-no-files-found: warn
+          retention-days: 14

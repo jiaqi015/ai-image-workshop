@@ -4,26 +4,196 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AI 影棚 - Professional Consistency Studio</title>
+    <title>AI影像工坊 - 专业创作工作台</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
       :root {
-        --studio-bg: #0b0d12;
-        --studio-panel: #0f1118;
-        --studio-panel-2: #121621;
-        --studio-border: rgba(255, 255, 255, 0.12);
-        --studio-text: #e7eaf0;
-        --studio-muted: #8f96a5;
-        --studio-accent: #f6ad1f;
+        --ui-bg: #0b0d12;
+        --ui-surface: #0f131b;
+        --ui-surface-soft: #121722;
+        --ui-border: rgba(255, 255, 255, 0.12);
+        --ui-border-strong: rgba(255, 255, 255, 0.22);
+        --ui-accent: #bcd3ff;
+        --ui-accent-soft: rgba(188, 211, 255, 0.12);
+        --ui-success: #8fceb3;
+        --ui-warning: #a6b1c3;
+        --ui-text-primary: #eceff5;
+        --ui-text-secondary: #cfd5df;
+        --ui-text-muted: #8d96a7;
+        --ui-text-inverse: #131720;
+        --ui-radius-sm: 8px;
+        --ui-radius-md: 12px;
+        --ui-radius-lg: 16px;
+        --ui-radius-pill: 999px;
+        --ui-space-1: 4px;
+        --ui-space-2: 8px;
+        --ui-space-3: 12px;
+        --ui-space-4: 16px;
+        --ui-space-5: 24px;
+        --ui-space-6: 32px;
+        --ui-font-title: 18px;
+        --ui-font-body: 14px;
+        --ui-font-meta: 12px;
       }
       body {
         font-family: 'Space Grotesk', 'Noto Sans SC', sans-serif;
+        background: var(--ui-bg);
+        color: var(--ui-text-primary);
+      }
+      .ui-app {
         background:
-          radial-gradient(1200px 360px at 50% -10%, rgba(246, 173, 31, 0.09), transparent 60%),
-          radial-gradient(900px 280px at 85% -5%, rgba(56, 189, 248, 0.05), transparent 65%),
-          var(--studio-bg);
-        color: var(--studio-text);
+          radial-gradient(1200px 340px at 50% -8%, rgba(255, 255, 255, 0.05), transparent 62%),
+          linear-gradient(180deg, #10141d 0%, #0b0d12 45%, #090b10 100%);
+      }
+      .ui-surface {
+        background: var(--ui-surface);
+        border: 1px solid var(--ui-border);
+        border-radius: var(--ui-radius-lg);
+      }
+      .ui-surface-soft {
+        background: var(--ui-surface-soft);
+        border: 1px solid var(--ui-border);
+        border-radius: var(--ui-radius-md);
+      }
+      .ui-header {
+        background: rgba(15, 19, 27, 0.94);
+        border-bottom: 1px solid var(--ui-border);
+        backdrop-filter: blur(10px);
+      }
+      .ui-title {
+        font-size: var(--ui-font-title);
+        color: var(--ui-text-primary);
+        line-height: 1.35;
+        letter-spacing: 0.01em;
+      }
+      .ui-meta {
+        font-size: var(--ui-font-meta);
+        color: var(--ui-text-muted);
+        letter-spacing: 0.04em;
+      }
+      .ui-btn-primary {
+        height: 36px;
+        padding: 0 14px;
+        border-radius: var(--ui-radius-sm);
+        border: 1px solid rgba(255, 255, 255, 0.45);
+        background: #f1f5ff;
+        color: var(--ui-text-inverse);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      .ui-btn-primary:hover {
+        background: #ffffff;
+        border-color: rgba(255, 255, 255, 0.65);
+      }
+      .ui-btn-primary:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .ui-btn-secondary {
+        height: 36px;
+        padding: 0 14px;
+        border-radius: var(--ui-radius-sm);
+        border: 1px solid var(--ui-border);
+        background: rgba(255, 255, 255, 0.01);
+        color: var(--ui-text-secondary);
+        font-size: 12px;
+      }
+      .ui-btn-secondary:hover {
+        border-color: var(--ui-border-strong);
+        color: var(--ui-text-primary);
+        background: rgba(255, 255, 255, 0.04);
+      }
+      .ui-btn-link {
+        font-size: 11px;
+        color: var(--ui-text-muted);
+      }
+      .ui-btn-link:hover {
+        color: var(--ui-text-secondary);
+      }
+      .ui-field-label {
+        font-size: var(--ui-font-meta);
+        color: var(--ui-text-muted);
+        letter-spacing: 0.06em;
+      }
+      .ui-input,
+      .ui-select,
+      .ui-textarea {
+        width: 100%;
+        border-radius: var(--ui-radius-sm);
+        border: 1px solid var(--ui-border);
+        background: rgba(255, 255, 255, 0.02);
+        color: var(--ui-text-secondary);
+        font-size: var(--ui-font-body);
+        transition: border-color 0.2s ease, background-color 0.2s ease;
+      }
+      .ui-input,
+      .ui-select {
+        height: 36px;
+        padding: 0 10px;
+      }
+      .ui-textarea {
+        min-height: 220px;
+        padding: 12px 14px;
+        resize: none;
+        line-height: 1.7;
+      }
+      .ui-input:focus,
+      .ui-select:focus,
+      .ui-textarea:focus {
+        outline: none;
+        border-color: var(--ui-border-strong);
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .ui-chip {
+        border: 1px solid var(--ui-border);
+        border-radius: var(--ui-radius-sm);
+        background: rgba(255, 255, 255, 0.02);
+        color: var(--ui-text-muted);
+        font-size: 12px;
+        padding: 8px 10px;
+        text-align: left;
+        transition: border-color 0.2s ease, color 0.2s ease, background-color 0.2s ease;
+      }
+      .ui-chip:hover {
+        border-color: var(--ui-border-strong);
+        color: var(--ui-text-secondary);
+      }
+      .ui-chip-active {
+        border-color: rgba(188, 211, 255, 0.46);
+        color: var(--ui-text-primary);
+        background: var(--ui-accent-soft);
+      }
+      .ui-modal {
+        background: rgba(12, 15, 22, 0.94);
+        border: 1px solid var(--ui-border);
+        border-radius: var(--ui-radius-lg);
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+      }
+      .ui-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 8px;
+        border-radius: var(--ui-radius-pill);
+        border: 1px solid var(--ui-border);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--ui-text-secondary);
+        font-size: 11px;
+      }
+      .ui-tag-info {
+        border-color: rgba(188, 211, 255, 0.36);
+        background: var(--ui-accent-soft);
+        color: var(--ui-accent);
+      }
+      .ui-tag-success {
+        border-color: rgba(143, 206, 179, 0.35);
+        background: rgba(143, 206, 179, 0.1);
+        color: var(--ui-success);
+      }
+      .ui-tag-muted {
+        color: var(--ui-text-muted);
       }
       /* Custom Scrollbar */
       ::-webkit-scrollbar {
@@ -31,14 +201,14 @@
         height: 8px;
       }
       ::-webkit-scrollbar-track {
-        background: #18181b; 
+        background: #151922;
       }
       ::-webkit-scrollbar-thumb {
-        background: #3f3f46; 
+        background: #3a4558;
         border-radius: 4px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: #52525b; 
+        background: #4f5f78;
       }
       .glass-panel {
         background: rgba(24, 24, 27, 0.7);
@@ -55,9 +225,9 @@
       .animate-film-develop {
         background: linear-gradient(90deg, 
             rgba(255,255,255,0) 0%, 
-            rgba(245, 158, 11, 0.1) 25%, 
-            rgba(245, 158, 11, 0.2) 50%, 
-            rgba(245, 158, 11, 0.1) 75%, 
+            rgba(188, 211, 255, 0.08) 25%, 
+            rgba(188, 211, 255, 0.15) 50%, 
+            rgba(188, 211, 255, 0.08) 75%, 
             rgba(255,255,255,0) 100%
         );
         background-size: 200% 100%;
@@ -126,6 +296,39 @@
       }
       .animate-rise-fade {
         animation: rise-fade 420ms ease-out both;
+      }
+
+      /* Bridge legacy utility colors into the token palette */
+      [class*="text-amber-"],
+      [class*="text-blue-"],
+      [class*="text-cyan-"],
+      [class*="text-purple-"] {
+        color: var(--ui-accent) !important;
+      }
+      [class*="text-red-"] {
+        color: var(--ui-warning) !important;
+      }
+      [class*="text-emerald-"],
+      [class*="text-green-"] {
+        color: var(--ui-success) !important;
+      }
+      [class*="bg-amber-"],
+      [class*="bg-blue-"],
+      [class*="bg-cyan-"],
+      [class*="bg-purple-"],
+      [class*="bg-red-"],
+      [class*="bg-emerald-"],
+      [class*="bg-green-"] {
+        background-color: rgba(188, 211, 255, 0.08) !important;
+      }
+      [class*="border-amber-"],
+      [class*="border-blue-"],
+      [class*="border-cyan-"],
+      [class*="border-purple-"],
+      [class*="border-red-"],
+      [class*="border-emerald-"],
+      [class*="border-green-"] {
+        border-color: var(--ui-border-strong) !important;
       }
     </style>
 </head>

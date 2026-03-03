@@ -223,6 +223,9 @@ test('POST random_prompt returns 200 with bounded length and metadata', async ()
   assert.equal(typeof res.body?.metadata?.theme, 'string');
   assert.equal(typeof res.body?.metadata?.similarityToRecent, 'number');
   assert.equal(typeof res.body?.metadata?.critic?.score, 'number');
+  assert.equal(typeof res.body?.metadata?.router?.exploration, 'number');
+  assert.equal(typeof res.body?.metadata?.retry?.attemptsUsed, 'number');
+  assert.equal(typeof res.body?.metadata?.memory?.observedAfter, 'number');
 });
 
 test('POST unsupported action returns 400', async () => {
@@ -235,6 +238,18 @@ test('POST unsupported action returns 400', async () => {
   assert.equal(res.body?.ok, false);
   expectTrace(res);
   assert.match(String(res.body?.error || ''), /Unsupported action/);
+});
+
+test('POST invalid JSON body returns 400', async () => {
+  const handler = await loadHandler({ AI_GATEWAY_TOKEN: undefined });
+  const res = await invoke(handler, {
+    method: 'POST',
+    body: '{"action":"chat",',
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.body?.ok, false);
+  expectTrace(res);
+  assert.match(String(res.body?.error || ''), /JSON/i);
 });
 
 test('gateway token auth blocks unauthenticated requests and allows authenticated ones', async () => {
@@ -263,6 +278,23 @@ test('gateway token auth blocks unauthenticated requests and allows authenticate
   });
   assert.equal(byBearer.status, 200);
   expectTrace(byBearer);
+});
+
+test('production requires gateway token even when AI_GATEWAY_TOKEN is missing', async () => {
+  const handler = await loadHandler({
+    NODE_ENV: 'production',
+    AI_GATEWAY_TOKEN: undefined,
+  });
+
+  const res = await invoke(handler, {
+    method: 'GET',
+    query: { action: 'health' },
+    headers: {},
+  });
+
+  assert.equal(res.status, 401);
+  expectTrace(res);
+  assert.match(String(res.body?.error || ''), /AI_GATEWAY_TOKEN/i);
 });
 
 test('GET metrics returns telemetry snapshot', async () => {

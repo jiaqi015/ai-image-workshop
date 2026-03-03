@@ -1,8 +1,6 @@
 import React, { useCallback } from 'react';
 import { AppState } from '../../types';
 import type {
-  DirectorPacket,
-  DirectorShotPacket,
   Frame,
   FrameMetadata,
   ImageModel,
@@ -17,6 +15,7 @@ import {
 } from '../../services/public';
 import { resolveRuntimeStrategy } from '../../services/routing/policy';
 import type { WorkflowEvent } from '../../domain/workflow/stateMachine';
+import { buildChunkFrames, buildShootFrames, syncPlanWithDirectorPacket } from '../../domain/workflow/sessionOrchestrator';
 
 type Setter<T> = React.Dispatch<React.SetStateAction<T>>;
 
@@ -49,49 +48,6 @@ interface ShootingWorkflowParams {
     setPlan: Setter<ShootPlan | null>
   ) => Promise<void>;
 }
-
-const buildDirectorShotPacket = (
-  packet: DirectorPacket | undefined,
-  description: string,
-  index: number,
-  seed?: Partial<DirectorShotPacket>
-): DirectorShotPacket => ({
-  shotId: `S${String(index + 1).padStart(2, '0')}`,
-  beatIndex: index + 1,
-  description,
-  camera: seed?.camera || 'medium',
-  mood: seed?.mood || 'neutral',
-  promptPack: {
-    base: description,
-    style: seed?.promptPack?.style || packet?.styleProfile?.visualSignature || 'Cinematic',
-    variantHint: seed?.promptPack?.variantHint || packet?.styleProfile?.visualSignature || 'Cinematic',
-  },
-  negativePack: Array.isArray(seed?.negativePack) ? [...seed.negativePack] : [],
-});
-
-const syncPlanWithDirectorPacket = (basePlan: ShootPlan, descriptions: string[]): ShootPlan => {
-  const normalized = descriptions.map((item) => String(item || '').trim()).filter(Boolean);
-  if (!normalized.length) return basePlan;
-
-  if (!basePlan.directorPacket) {
-    return { ...basePlan, frames: normalized };
-  }
-
-  const existingShots = Array.isArray(basePlan.directorPacket.shots) ? basePlan.directorPacket.shots : [];
-  const nextShots = normalized.map((desc, idx) => {
-    const previous = existingShots[idx];
-    return buildDirectorShotPacket(basePlan.directorPacket, desc, idx, previous);
-  });
-
-  return {
-    ...basePlan,
-    frames: normalized,
-    directorPacket: {
-      ...basePlan.directorPacket,
-      shots: nextShots,
-    },
-  };
-};
 
 export const useShootingWorkflow = ({
   appState,
@@ -128,13 +84,12 @@ export const useShootingWorkflow = ({
     setSelectedConceptUrl(selectedFrame.imageUrl);
 
     const lockedVariant = selectedFrame.metadata?.variant;
-    const lockedCasting = selectedFrame.metadata?.castingTraits;
     const runtimeStrategy = resolveRuntimeStrategy(strategy, masterMode);
     const shootPlan = masterMode ? applyMasterProfileToPlan(plan) : plan;
 
-    addLog(`视觉基调已锁定: [${lockedVariant?.substring(0, 15)}...]。全流水线启动...`, 'info');
+    addLog(`已锁定主方案，开始批量生成。`, 'info');
     if (masterMode) {
-      addLog('母版锁定模式执行中：使用固定姿态库和统一风格模板。', 'network');
+      addLog('一致性锁定已启用：将使用固定模板批量生成。', 'network');
     }
 
     const TARGET_COUNT = 20;
@@ -144,54 +99,29 @@ export const useShootingWorkflow = ({
       : packetDescriptions.length > 0
       ? packetDescriptions
       : shootPlan.frames || [];
-
-    const framesToShoot: Frame[] = [];
-    existingDescriptions.forEach((desc, i) => {
-      framesToShoot.push({
-        id: i + 1,
-        description: desc,
-        status: 'pending',
-        metadata: {
-          ...selectedFrame.metadata,
-          model: imageModel,
-          strategy: runtimeStrategy,
-          resolution: runtimeStrategy === 'pro' ? '4K' : 'Std',
-          type: 'shot' as const,
-          variant: lockedVariant,
-          castingTraits: lockedCasting,
-          curationStatus: 'pending',
-          curationScore: undefined,
-          curationReason: undefined,
-        },
-      });
+    const { framesToShoot, needed } = buildShootFrames({
+      descriptions: existingDescriptions,
+      selectedFrame,
+      imageModel,
+      runtimeStrategy,
+      targetCount: TARGET_COUNT,
     });
 
-    const needed = TARGET_COUNT - framesToShoot.length;
-    for (let i = 0; i < needed; i++) {
-      framesToShoot.push({
-        id: framesToShoot.length + 1,
-        description: '正在等待导演分镜指令...',
-        status: 'scripting',
-        metadata: {
-          ...selectedFrame.metadata,
-          model: imageModel,
-          strategy: runtimeStrategy,
-          resolution: runtimeStrategy === 'pro' ? '4K' : 'Std',
-          type: 'shot' as const,
-          variant: lockedVariant,
-          castingTraits: lockedCasting,
-          curationStatus: 'pending',
-        },
-      });
-    }
-
     curationSignatureRef.current = '';
-    setPlan((prev) => ({ ...shootPlan, conceptFrames: prev?.conceptFrames || shootPlan.conceptFrames, selectedConceptId: selectedFrame.id }));
+    const conceptFramesSnapshot = (plan?.conceptFrames && plan.conceptFrames.length > 0) ? plan.conceptFrames : frames;
+    setPlan((prev) => ({
+      ...shootPlan,
+      conceptFrames: prev?.conceptFrames?.length ? prev.conceptFrames : conceptFramesSnapshot,
+      selectedConceptId: selectedFrame.id,
+    }));
     setFrames(framesToShoot);
 
     const initialBatch = framesToShoot.filter((f) => f.status === 'pending');
     if (initialBatch.length > 0) {
-      shootStreamBatch(initialBatch, shootPlan, runtimeStrategy, setFrames, setPlan);
+      void shootStreamBatch(initialBatch, shootPlan, runtimeStrategy, setFrames, setPlan).catch((error) => {
+        const message = error instanceof Error ? error.message : '未知错误';
+        addLog(`首批镜头生成失败: ${message}`, 'error');
+      });
     }
 
     if (!masterMode && needed > 0) {
@@ -199,23 +129,12 @@ export const useShootingWorkflow = ({
       const CHUNK_SIZE = 5;
       const onChunkReady = async (newScripts: string[], chunkIndex: number) => {
         const chunkStartGlobalIdx = startIdx + chunkIndex * CHUNK_SIZE;
-        const chunkFrames: Frame[] = newScripts.map((desc, i) => {
-          const realId = chunkStartGlobalIdx + i + 1;
-          return {
-            id: realId,
-            description: desc,
-            status: 'pending',
-            metadata: {
-              ...selectedFrame.metadata,
-              model: imageModel,
-              strategy: runtimeStrategy,
-              resolution: runtimeStrategy === 'pro' ? '4K' : 'Std',
-              type: 'shot' as const,
-              variant: lockedVariant,
-              castingTraits: lockedCasting,
-              curationStatus: 'pending',
-            },
-          };
+        const chunkFrames = buildChunkFrames({
+          descriptions: newScripts,
+          startId: chunkStartGlobalIdx + 1,
+          selectedFrame,
+          imageModel,
+          runtimeStrategy,
         });
         setFrames((prev) => {
           const next = [...prev];
@@ -229,7 +148,7 @@ export const useShootingWorkflow = ({
       };
 
       try {
-        addLog('[流水线] 启动并行编剧（目标 20 帧）...', 'network');
+        addLog('[流水线] 正在补充分镜脚本（目标 20 帧）...', 'network');
         const allDescriptions = await generateMoreFrames(
           shootPlan,
           needed,
@@ -240,14 +159,24 @@ export const useShootingWorkflow = ({
         );
         const fullList = [...existingDescriptions, ...allDescriptions];
         const syncedPlan = syncPlanWithDirectorPacket(shootPlan, fullList);
-        setPlan({ ...syncedPlan, conceptFrames: frames, selectedConceptId: selectedFrame.id });
-        addLog('[流水线] 所有剧本分发完毕。', 'success');
+        setPlan((prev) => ({
+          ...(prev || syncedPlan),
+          ...syncedPlan,
+          conceptFrames: prev?.conceptFrames?.length ? prev.conceptFrames : conceptFramesSnapshot,
+          selectedConceptId: selectedFrame.id,
+        }));
+        addLog('[流水线] 分镜脚本准备完成。', 'success');
       } catch (e) {
-        addLog('剧本扩充遇到阻碍。', 'error');
+        addLog('分镜脚本补充失败。', 'error');
       }
     } else {
       const syncedPlan = syncPlanWithDirectorPacket(shootPlan, existingDescriptions);
-      setPlan({ ...syncedPlan, conceptFrames: frames, selectedConceptId: selectedFrame.id });
+      setPlan((prev) => ({
+        ...(prev || syncedPlan),
+        ...syncedPlan,
+        conceptFrames: prev?.conceptFrames?.length ? prev.conceptFrames : conceptFramesSnapshot,
+        selectedConceptId: selectedFrame.id,
+      }));
     }
   }, [
     addLog,
@@ -281,7 +210,7 @@ export const useShootingWorkflow = ({
       const runtimeStrategy = resolveRuntimeStrategy(strategy, masterMode);
       const basePlan = masterMode ? applyMasterProfileToPlan(plan) : plan;
 
-      addLog(masterMode ? `[母版模式] 正在按姿态模板补齐 ${count} 帧...` : `[编剧部] 正在构思 ${count} 个新分镜...`, 'network');
+      addLog(masterMode ? `[一致性模式] 正在追加 ${count} 帧...` : `[扩展生成] 正在追加 ${count} 个镜头...`, 'network');
       const startId = frames.length + 1;
 
       if (masterMode) {
@@ -306,11 +235,16 @@ export const useShootingWorkflow = ({
           const existingDescriptions = (basePlan.directorPacket?.shots || []).map((shot) => shot.description).filter(Boolean);
           const fullList = [...(existingDescriptions.length ? existingDescriptions : basePlan.frames || []), ...deterministicDescriptions];
           const syncedPlan = syncPlanWithDirectorPacket(basePlan, fullList);
-          setPlan(syncedPlan);
-          addLog('[母版模式] 续拍任务分发完毕。', 'success');
+          setPlan((prev) => ({
+            ...syncedPlan,
+            conceptFrames: prev?.conceptFrames || syncedPlan.conceptFrames,
+            selectedConceptId: prev?.selectedConceptId ?? syncedPlan.selectedConceptId,
+          }));
+          addLog('[一致性模式] 追加任务已提交。', 'success');
         } catch (e) {
           console.error(e);
-          addLog('[母版模式] 续拍失败。', 'error');
+          const message = e instanceof Error ? e.message : '未知错误';
+          addLog(`[一致性模式] 追加失败: ${message}`, 'error');
         } finally {
           setIsExtending(false);
         }
@@ -342,10 +276,16 @@ export const useShootingWorkflow = ({
         const baseDescriptions = existingDescriptions.length ? existingDescriptions : basePlan.frames || [];
         const fullList = [...baseDescriptions, ...generatedDescriptions];
         const syncedPlan = syncPlanWithDirectorPacket(basePlan, fullList);
-        setPlan(syncedPlan);
-        addLog('[编剧部] 续拍任务分发完毕。', 'success');
+        setPlan((prev) => ({
+          ...syncedPlan,
+          conceptFrames: prev?.conceptFrames || syncedPlan.conceptFrames,
+          selectedConceptId: prev?.selectedConceptId ?? syncedPlan.selectedConceptId,
+        }));
+        addLog('[扩展生成] 追加任务已提交。', 'success');
       } catch (e) {
         console.error(e);
+        const message = e instanceof Error ? e.message : '未知错误';
+        addLog(`[扩展生成] 追加失败: ${message}`, 'error');
       } finally {
         setIsExtending(false);
       }
@@ -382,14 +322,17 @@ export const useShootingWorkflow = ({
       };
       setFrames((prev) => prev.map((f) => (f.id === frameId ? retryFrame : f)));
       setPlan((prev) => {
-        if (!prev?.conceptFrames) return prev;
+        if (!prev) return prev;
+        const patchCollection = (collection?: Frame[]) =>
+          Array.isArray(collection) ? collection.map((f) => (f.id === frameId ? retryFrame : f)) : collection;
         return {
           ...prev,
-          conceptFrames: prev.conceptFrames.map((f) => (f.id === frameId ? retryFrame : f)),
+          conceptFrames: patchCollection(prev.conceptFrames),
+          renderFrames: patchCollection(prev.renderFrames),
         };
       });
 
-      addLog(`重试帧 #${frameId}...`, 'network');
+      addLog(`正在重试第 ${frameId} 帧...`, 'network');
       isShootingRef.current = true;
       try {
         if (appState === AppState.CONCEPT) {

@@ -13,7 +13,7 @@ interface PlanningRightStageProps {
 }
 
 export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, stream, frameStats }) => {
-  const conceptTitle = studio.frames.length > 0 ? `${studio.frames.length}个方案` : '方案生成中';
+  const conceptTitle = studio.frames.length > 0 ? `${studio.frames.length} 个候选方案` : '正在生成候选方案';
 
   if (studio.appState === AppState.PLANNING && !studio.plan) {
     return <PlanningStagePreload textModel={studio.textModel} imageModel={studio.imageModel} stream={stream} />;
@@ -22,27 +22,27 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
   if (studio.appState === AppState.CONCEPT) {
     return (
       <div className="space-y-4">
-        <div className="sticky top-0 z-20 rounded-lg border border-white/10 bg-[#0d0d10]/95 backdrop-blur px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="sticky top-0 z-20 ui-surface-soft backdrop-blur px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <div className="text-[11px] text-zinc-500 tracking-wider">阶段二 · 视觉定调</div>
-            <h2 className="text-xl text-zinc-100 tracking-wide mt-1">{conceptTitle}</h2>
+            <div className="ui-meta tracking-wider">阶段 2 · 选择主方案</div>
+            <h2 className="text-lg md:text-xl text-zinc-100 tracking-wide mt-1">{conceptTitle}</h2>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={studio.handleExpandUniverse}
               disabled={studio.isExpandingUniverse}
-              className="px-3 py-2 rounded-md border border-white/15 text-xs text-zinc-300 hover:text-white hover:border-white/30 disabled:opacity-50"
+              className="ui-btn-secondary h-8 px-3 text-xs disabled:opacity-50"
             >
-              {studio.isExpandingUniverse ? '追加中...' : '追加 6 个方案'}
+              {studio.isExpandingUniverse ? '追加中...' : '再生成 6 个方案'}
             </button>
             <button
               type="button"
               onClick={studio.handleConfirmShoot}
               disabled={studio.selectedProposalId === null}
-              className="px-4 py-2 rounded-md bg-amber-600 text-white text-xs font-semibold tracking-wide hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="ui-btn-primary h-8 px-4 text-xs tracking-wide disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              锁定方案并开机
+              确认方案并开始生成
             </button>
           </div>
         </div>
@@ -54,8 +54,8 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
             return (
               <article
                 key={proposalFrame.id}
-                className={`rounded-xl border overflow-hidden transition-all ${
-                  isSelected ? 'border-amber-500/70 ring-1 ring-amber-500/40' : 'border-white/10 hover:border-white/25'
+                className={`ui-surface-soft overflow-hidden transition-all ${
+                  isSelected ? 'border-[rgba(188,211,255,0.45)] ring-1 ring-[rgba(188,211,255,0.35)]' : 'hover:border-white/25'
                 }`}
               >
               <div
@@ -72,12 +72,12 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
               >
                 <div className="relative aspect-[3/4] bg-[#0a0a0d]">
                     <div className="absolute top-2 left-2 z-10 text-[10px] font-mono px-2 py-1 rounded bg-black/70 border border-white/10 text-zinc-100">
-                      方案 {index + 1}
+                      候选 {index + 1}
                     </div>
 
                     {proposalFrame.status === 'completed' && proposalFrame.imageUrl ? (
                       <>
-                        <img src={proposalFrame.imageUrl} alt={`方案 ${index + 1}`} className="w-full h-full object-cover" />
+                        <img src={proposalFrame.imageUrl} alt={`候选 ${index + 1}`} className="w-full h-full object-cover" />
                         <button
                           type="button"
                           onClick={(e) => {
@@ -90,8 +90,8 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
                         </button>
                       </>
                     ) : proposalFrame.status === 'failed' ? (
-                      <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-red-300">
-                        <span className="text-sm">生成失败</span>
+                      <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-zinc-300">
+                        <span className="text-sm">生成未完成</span>
                         <button
                           type="button"
                           disabled={isRetrying}
@@ -99,26 +99,26 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
                             e.stopPropagation();
                             studio.handleRetryFrame(proposalFrame.id);
                           }}
-                          className="px-3 py-1 text-xs rounded-full border border-red-400/40 hover:border-red-300/70 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="px-3 py-1 text-xs rounded-full border border-white/20 text-zinc-300 hover:border-white/40 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          {isRetrying ? '重试中...' : '重试'}
+                          {isRetrying ? '重试中...' : '重新生成'}
                         </button>
                       </div>
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-zinc-500 text-xs">
                         {proposalFrame.status === 'generating'
-                          ? '渲染中...'
+                          ? '生成中...'
                           : proposalFrame.status === 'scripting'
-                          ? '写分镜中...'
-                          : '等待中...'}
+                          ? '准备提示词...'
+                          : '排队中...'}
                       </div>
                     )}
                 </div>
               </div>
 
-                <div className="p-3 border-t border-white/10 bg-[#0d0d10]">
-                  <p className="text-xs text-zinc-300 leading-relaxed min-h-[40px]">{proposalFrame.description || '等待方案描述'}</p>
-                  <div className="mt-2 text-[10px] text-zinc-500 font-mono">{proposalFrame.metadata?.variantType || 'balanced'}</div>
+                <div className="p-3 border-t border-white/10 bg-black/15">
+                  <p className="text-xs text-zinc-300 leading-relaxed min-h-[40px]">{proposalFrame.description || '等待方案说明'}</p>
+                  <div className="mt-2 ui-meta font-mono">{proposalFrame.metadata?.variantType || 'balanced'}</div>
                 </div>
               </article>
             );
@@ -131,15 +131,15 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
   if (studio.appState === AppState.SHOOTING) {
     return (
       <div className="space-y-4">
-        <div className="rounded-lg border border-white/10 bg-[#0d0d10] px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="ui-surface-soft px-4 py-3 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="text-[11px] text-zinc-500 tracking-wider">阶段三 · 正片拍摄</div>
+            <div className="ui-meta tracking-wider">阶段 3 · 批量生成</div>
             <div className="text-sm text-zinc-200 mt-1">
               已完成 {frameStats.completed} / {studio.frames.length} 帧
             </div>
             {studio.masterMode && (
-              <div className="text-[11px] text-zinc-500 mt-1">
-                自动筛片：入选 {studio.curationSummary.keep} 张 · 淘汰 {studio.curationSummary.drop} 张
+              <div className="ui-meta mt-1">
+                自动筛选：保留 {studio.curationSummary.keep} 张 · 剔除 {studio.curationSummary.drop} 张
               </div>
             )}
           </div>
@@ -150,7 +150,7 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
             </div>
             <div className="flex items-center gap-1.5">
               <ActivityIcon className="w-3.5 h-3.5" />
-              {studio.activeRequests} 处理中
+              {studio.activeRequests} 进行中
             </div>
           </div>
         </div>
@@ -166,7 +166,7 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
 
   return (
     <div className="h-full flex items-center justify-center text-zinc-600 text-sm">
-      等待进入工作阶段
+      等待进入下一阶段
     </div>
   );
 };

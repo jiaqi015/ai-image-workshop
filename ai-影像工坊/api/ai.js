@@ -127,6 +127,10 @@ const GOOGLE_UPSTREAM_TIMEOUT_MS = toPositiveInt(process.env.AI_GOOGLE_TIMEOUT_M
 const RATE_LIMIT_RPM = toPositiveInt(process.env.AI_RATE_LIMIT_RPM, 120);
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const GATEWAY_TOKEN = String(process.env.AI_GATEWAY_TOKEN || "").trim();
+const NODE_ENV = String(process.env.NODE_ENV || "").toLowerCase();
+const IS_PRODUCTION = NODE_ENV === "production";
+const ALLOW_ANON_IN_PROD = String(process.env.AI_ALLOW_ANON_IN_PROD || "").trim() === "1";
+const REQUIRE_GATEWAY_TOKEN = Boolean(GATEWAY_TOKEN) || (IS_PRODUCTION && !ALLOW_ANON_IN_PROD);
 const DEFAULT_ALERT_THRESHOLDS = {
   successRateMin: 0.92,
   p95LatencyMsMax: 12000,
@@ -189,8 +193,16 @@ const extractGatewayToken = (req) => {
 };
 
 const isAuthorized = (req) => {
-  if (!GATEWAY_TOKEN) return true;
+  if (!REQUIRE_GATEWAY_TOKEN) return true;
+  if (!GATEWAY_TOKEN) return false;
   return extractGatewayToken(req) === GATEWAY_TOKEN;
+};
+
+const getAuthErrorMessage = () => {
+  if (REQUIRE_GATEWAY_TOKEN && !GATEWAY_TOKEN) {
+    return "AI_GATEWAY_TOKEN 未配置：生产环境默认要求鉴权。请在 Vercel 配置 AI_GATEWAY_TOKEN，并在前端填入网关访问令牌。";
+  }
+  return "Unauthorized";
 };
 
 const checkRateLimit = (req, action = "unknown") => {
@@ -1096,11 +1108,16 @@ const runImageGenerate = async ({ model, prompt }) => {
 const parseBody = (req) => {
   if (!req.body) return {};
   if (typeof req.body === "string") {
+    const text = req.body.trim();
+    if (!text) return {};
     try {
-      return JSON.parse(req.body);
+      return JSON.parse(text);
     } catch {
-      return {};
+      throw Object.assign(new Error("请求体 JSON 无效"), { status: 400 });
     }
+  }
+  if (typeof req.body !== "object") {
+    throw Object.assign(new Error("请求体格式无效"), { status: 400 });
   }
   return req.body;
 };
@@ -1168,6 +1185,10 @@ const healthPayload = () => {
 
   return {
     ok: true,
+    auth: {
+      required: REQUIRE_GATEWAY_TOKEN,
+      configured: Boolean(GATEWAY_TOKEN),
+    },
     providers,
     defaults: {
       textModel: pickDefaultModel("text", textAll, text),
@@ -1203,7 +1224,13 @@ export default async function handler(req, res) {
 
     if (!isAuthorized(req)) {
       recordUnauthorized();
-      sendJson(res, traceId, 401, { ok: false, error: "Unauthorized" }, { ...requestMeta, recordOutcome: false });
+      sendJson(
+        res,
+        traceId,
+        401,
+        { ok: false, error: getAuthErrorMessage() },
+        { ...requestMeta, recordOutcome: false }
+      );
       return;
     }
 

@@ -68,6 +68,7 @@ npm run dev
 
 必填（建议）：
 
+- `AI_GATEWAY_TOKEN`（生产默认要求；前端设置里填同一个令牌）
 - `OPENAI_KEY`
 - `GOOGLE_KEY`
 - `ALI_KEY`
@@ -81,7 +82,15 @@ npm run dev
 - `AI_UPSTREAM_TIMEOUT_MS=25000`
 - `AI_GOOGLE_TIMEOUT_MS=25000`
 - `AI_RATE_LIMIT_RPM=120`
-- `AI_GATEWAY_TOKEN=`（不填则不开鉴权）
+- `AI_ALLOW_ANON_IN_PROD=0`（默认 0；设成 1 才允许生产匿名访问，不推荐）
+- `HISTORY_GATEWAY_TOKEN=`（不填则复用 `AI_GATEWAY_TOKEN`）
+- `HISTORY_ALLOW_ANON_IN_PROD=0`
+- `HISTORY_MAX_BODY_BYTES=12582912`
+- `HISTORY_MAX_FRAMES_PER_RECORD=80`
+- `HISTORY_MAX_IMAGE_BYTES=8388608`
+- `HISTORY_MAX_TOTAL_IMAGE_BYTES=50331648`
+- `EDGE_CONFIG=`（可选，开启历史运行时策略）
+- `HISTORY_EDGE_CONFIG_CACHE_MS=10000`
 - `OPENAI_BASE_URL / ALI_BASE_URL / BYTE_BASE_URL / MINIMAX_BASE_URL / ZHIPU_BASE_URL`
 
 字节（Ark）建议：
@@ -137,11 +146,46 @@ npm run dev
 - `POST /api/history` + `{ "action":"upsert", "item":{...} }`：写入/更新历史
 - `POST /api/history` + `{ "action":"delete", "id":"..." }`：删除历史
 
+安全与限额：
+
+- 生产环境默认要求历史接口鉴权（`HISTORY_GATEWAY_TOKEN` 或复用 `AI_GATEWAY_TOKEN`）
+- 历史写入默认启用请求体/单图/总图大小限制，防止 Blob 成本攻击
+
 存储结构：
 
 - `history/latest/*.json`：每条历史的最新快照
 - `history/snapshots/*`：历史版本快照
 - `history/images/*`：历史图片（自动把 data URL 上传为 Blob 公网地址）
+
+## 6.2 Edge Config 运行时策略（可选）
+
+若已配置 `EDGE_CONFIG`，可在 Edge Config 写入 `history.policy`（JSON 对象）动态控制历史服务，无需重新部署。
+
+示例：
+
+```json
+{
+  "enabled": true,
+  "readOnly": false,
+  "allowAnonInProd": false,
+  "requireHistoryToken": true,
+  "maxBodyBytes": 12582912,
+  "maxFramesPerRecord": 80,
+  "maxImageBytes": 8388608,
+  "maxTotalImageBytes": 50331648
+}
+```
+
+字段说明：
+
+- `enabled=false`：直接关闭历史服务（返回 503）
+- `readOnly=true`：保留查询，禁止 upsert/delete
+- `allowAnonInProd`、`requireHistoryToken`：覆盖生产态鉴权策略
+- `max*`：覆盖历史请求体/图片限额
+
+调试入口：
+
+- `GET /api/history?action=health` 会返回 `runtime` 与 `edgeConfig`，可直接确认当前是否命中 Edge Config 策略。
 
 Provider 状态语义（重要）：
 
@@ -169,7 +213,31 @@ Provider 状态语义（重要）：
 - `npm run build`
 - `npm run test:contracts`（后端接口契约回归）
 - `npm run test:golden`（金标回归集校验）
+- `npm run test:system`（全系统链路回归：网关、鉴权/限流、前端代理、history 退化）
+- `npm run report:quality`（输出回归与系统测试摘要，适配 CI Step Summary）
 - `npm run quality:gate`（发布门禁总入口）
+- `npm run test:all`（质量门禁 + 全系统链路回归）
+
+报告输出：
+
+- `quality/reports/latest-regression-summary.json`
+- `quality/reports/latest-system-summary.json`
+
+分支保护（将 `quality-gate` 设为必过检查）：
+
+```bash
+# 先预览即将应用的配置
+npm run ops:protect-main:dry
+
+# 实际应用（需要 repo admin token）
+GITHUB_TOKEN=xxx npm run ops:protect-main
+```
+
+可选参数：
+
+- `BRANCH`（默认 `main`）
+- `REPO_SLUG`（默认自动从 origin 推断）
+- `REQUIRED_CHECKS`（默认 `quality-gate`，多项逗号分隔）
 
 默认 `test:golden` 只跑离线结构回归。  
 若要开启真实厂商在线烟测：

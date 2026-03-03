@@ -1,12 +1,14 @@
 import React, { useCallback } from 'react';
 import { AppState } from '../../types';
 import type { DirectorModel, Frame, ImageModel, ShootPlan, TextModel } from '../../types';
+import type { HistoryItem } from '../../components/HistorySidebar';
 import {
   applyMasterProfileToPlan,
   expandParallelUniverses,
   generateMicroCasting,
   generateShootPlan,
 } from '../../services/public';
+import { buildConceptProposalFrames } from '../../domain/workflow/sessionOrchestrator';
 import { canExpandConceptUniverse } from '../../services/routing/policy';
 import type { WorkflowEvent } from '../../domain/workflow/stateMachine';
 
@@ -35,7 +37,8 @@ interface PlanningWorkflowParams {
   setIsExpandingUniverse: Setter<boolean>;
   transitionWorkflow: (event: WorkflowEvent) => void;
   addLog: (message: string, type?: 'info' | 'success' | 'error' | 'network', latency?: number) => void;
-  addToHistory: (plan: ShootPlan, userInput: string) => Promise<string | null | undefined>;
+  addToHistory: (plan: ShootPlan, userInput: string, patch?: Partial<HistoryItem>) => Promise<string | null | undefined>;
+  updateHistoryItem: (timestampId: string, updatedFrames?: Frame[] | null, patch?: Partial<HistoryItem>) => Promise<void>;
   executeFrameBatch: (
     framesToProcess: Frame[],
     currentPlan: ShootPlan,
@@ -44,6 +47,49 @@ interface PlanningWorkflowParams {
     setPlan: Setter<ShootPlan | null>
   ) => Promise<void>;
 }
+
+const buildDraftPlan = (userInput: string): ShootPlan => ({
+  title: '任务进行中',
+  directorInsight: `正在解析任务：${String(userInput || '').slice(0, 120)}`,
+  productionNotes: {
+    lighting: '待生成',
+    palette: '待生成',
+    composition: '待生成',
+  },
+  continuity: {
+    character: {
+      description: '待生成',
+      body: '待生成',
+      details: [],
+    },
+    wardrobe: {
+      description: '待生成',
+      material: '待生成',
+      accessories: [],
+    },
+    set: {
+      environment: '待生成',
+      timeOfDay: '待生成',
+      atmosphere: '待生成',
+    },
+  },
+  shootScope: {
+    nonNegotiables: [],
+    flexibleElements: [],
+    complexityLevel: 'medium',
+  },
+  contract: {
+    subjectIdentity: '待生成',
+    wardrobe: '待生成',
+    location: '待生成',
+    lighting: '待生成',
+    cameraLanguage: '待生成',
+    texture: '待生成',
+  },
+  frames: [],
+  visualVariants: [],
+  conceptFrames: [],
+});
 
 export const usePlanningWorkflow = ({
   appState,
@@ -69,6 +115,7 @@ export const usePlanningWorkflow = ({
   transitionWorkflow,
   addLog,
   addToHistory,
+  updateHistoryItem,
   executeFrameBatch,
 }: PlanningWorkflowParams) => {
   const handleStartPlanning = useCallback(
@@ -89,12 +136,20 @@ export const usePlanningWorkflow = ({
       setElapsedTime(0);
       setSelectedProposalId(null);
       setCurrentHistoryId(null);
+      let activeHistoryId: string | null = null;
 
       try {
-        if (!keyConfigured) {
-          addLog('检测到网关状态异常，请优先修复后端配置。', 'network');
+        const draftPlan = buildDraftPlan(userInput);
+        const draftId = await addToHistory(draftPlan, userInput, { taskStatus: 'planning' });
+        activeHistoryId = draftId || null;
+        if (activeHistoryId) {
+          setCurrentHistoryId(activeHistoryId);
         }
-        addLog(`接收到导演指令（文本模型：${directorModel}），正在构建平行宇宙...`, 'info');
+
+        if (!keyConfigured) {
+          addLog('检测到网关状态异常，请先检查后端配置。', 'network');
+        }
+        addLog(`已收到任务（文本模型：${directorModel}），开始生成候选方案...`, 'info');
 
         const generatedPlan = await generateShootPlan(
           userInput,
@@ -109,54 +164,33 @@ export const usePlanningWorkflow = ({
 
         const planForExecution = masterMode ? applyMasterProfileToPlan(generatedPlan) : generatedPlan;
         if (masterMode) {
-          addLog('已启用母版锁定：身份、风格、姿态模板已固定。', 'network');
+          addLog('已启用一致性锁定：角色、风格与姿态将保持一致。', 'network');
         }
-
-        let variants = planForExecution.visualVariants || [];
-        if (variants.length < conceptCount) {
-          variants = [...variants, ...Array(conceptCount - variants.length).fill('标准视觉方案 - 选角: 默认')];
-        }
-
-        const strictBound = Math.max(1, Math.floor(conceptCount / 3));
-        const balancedBound = Math.max(strictBound + 1, Math.floor((conceptCount * 2) / 3));
-        const proposalFrames: Frame[] = variants.slice(0, conceptCount).map((variantDesc, index) => {
-          let vType: 'strict' | 'balanced' | 'creative' = 'balanced';
-          if (index < strictBound) vType = 'strict';
-          else if (index < balancedBound) vType = 'balanced';
-          else vType = 'creative';
-          const microCasting = planForExecution.continuity?.character?.details?.join('、') || generateMicroCasting();
-          return {
-            id: -1 - index,
-            description: variantDesc,
-            status: 'pending',
-            metadata: {
-              model: imageModel,
-              provider: 'Hybrid',
-              strategy: 'Concept',
-              resolution: 'Std',
-              variant: variantDesc,
-              variantType: vType,
-              type: 'reference',
-              castingTraits: microCasting,
-              curationStatus: 'pending',
-            },
-          };
-        });
+        const microCasting = planForExecution.continuity?.character?.details?.join('、') || generateMicroCasting();
+        const proposalFrames = buildConceptProposalFrames(planForExecution, conceptCount, imageModel, microCasting);
 
         planForExecution.conceptFrames = proposalFrames;
         setPlan(planForExecution);
         setFrames(proposalFrames);
         transitionWorkflow({ type: 'PLAN_READY' });
-        const historyId = await addToHistory(planForExecution, userInput);
-        setCurrentHistoryId(historyId || null);
-        addLog(`平行宇宙构建完成。请导演检视 ${conceptCount} 种可能方案。`, 'success');
+        if (activeHistoryId) {
+          await updateHistoryItem(activeHistoryId, proposalFrames, { plan: planForExecution, taskStatus: 'concept' });
+          setCurrentHistoryId(activeHistoryId);
+        } else {
+          const historyId = await addToHistory(planForExecution, userInput, { taskStatus: 'concept' });
+          setCurrentHistoryId(historyId || null);
+        }
+        addLog(`候选方案已生成，请从 ${conceptCount} 个方案中选择主方案。`, 'success');
         await executeFrameBatch(proposalFrames, planForExecution, 'flash', setFrames, setPlan);
       } catch (e: any) {
         if (e.message !== 'Aborted') {
-          addLog(`剧本解析受阻: ${e.message}`, 'error');
+          if (activeHistoryId) {
+            await updateHistoryItem(activeHistoryId, null, { taskStatus: 'failed' });
+          }
+          addLog(`方案生成失败: ${e.message}`, 'error');
           transitionWorkflow({ type: 'PLAN_FAILED' });
         } else {
-          addLog('任务已中断', 'info');
+          addLog('任务已取消', 'info');
         }
       }
     },
@@ -180,6 +214,7 @@ export const usePlanningWorkflow = ({
       setSelectedProposalId,
       setStreamingPlanText,
       transitionWorkflow,
+      updateHistoryItem,
       userInput,
     ]
   );
@@ -187,13 +222,13 @@ export const usePlanningWorkflow = ({
   const handleExpandUniverse = useCallback(async () => {
     if (!plan) return;
     if (!canExpandConceptUniverse(masterMode)) {
-      addLog('母版锁定模式已开启：不建议继续追加随机方案。', 'info');
+      addLog('一致性锁定已开启，暂不支持追加随机方案。', 'info');
       return;
     }
 
     setIsExpandingUniverse(true);
     isShootingRef.current = true;
-    addLog('正在探测新的平行时空...', 'info');
+    addLog('正在追加候选方案...', 'info');
     try {
       const newVariants = await expandParallelUniverses(plan, 6, textModel);
       const startIdx = frames.length;
@@ -215,9 +250,9 @@ export const usePlanningWorkflow = ({
       setFrames((prev) => [...prev, ...newFrames]);
       setPlan((prev) => (prev ? { ...prev, conceptFrames: [...(prev.conceptFrames || []), ...newFrames] } : null));
       await executeFrameBatch(newFrames, plan, 'flash', setFrames, setPlan);
-      addLog('新时空探测完毕。', 'success');
+      addLog('追加方案完成。', 'success');
     } catch (e: any) {
-      addLog(`时空探测失败: ${e.message}`, 'error');
+      addLog(`追加方案失败: ${e.message}`, 'error');
     } finally {
       setIsExpandingUniverse(false);
     }

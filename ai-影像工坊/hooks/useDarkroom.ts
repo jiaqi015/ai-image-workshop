@@ -16,6 +16,77 @@ export const useDarkroom = (
     const [activeRequests, setActiveRequests] = useState(0);
     const isShootingRef = useRef(false);
     const abortControllerRef = useRef<AbortController | null>(null);
+    const activeBatchLimitsRef = useRef<number[]>([]);
+    const semaphoreRef = useRef<{
+        active: number;
+        waiters: Array<{ resolve: () => void; reject: (error: Error) => void }>;
+    }>({ active: 0, waiters: [] });
+
+    const getGlobalConcurrencyLimit = useCallback(() => {
+        const limits = activeBatchLimitsRef.current;
+        if (!limits.length) return 1;
+        const computed = Math.min(...limits);
+        return Number.isFinite(computed) && computed > 0 ? computed : 1;
+    }, []);
+
+    const drainSemaphore = useCallback(() => {
+        const sem = semaphoreRef.current;
+        while (sem.waiters.length > 0 && sem.active < getGlobalConcurrencyLimit()) {
+            const waiter = sem.waiters.shift();
+            if (!waiter) continue;
+            sem.active += 1;
+            waiter.resolve();
+        }
+    }, [getGlobalConcurrencyLimit]);
+
+    const acquireSlot = useCallback((signal?: AbortSignal): Promise<void> => {
+        if (signal?.aborted) return Promise.reject(new Error("Aborted"));
+
+        const sem = semaphoreRef.current;
+        if (sem.active < getGlobalConcurrencyLimit()) {
+            sem.active += 1;
+            return Promise.resolve();
+        }
+
+        return new Promise<void>((resolve, reject) => {
+            let detached = false;
+            const detachAbort = () => {
+                if (detached || !signal) return;
+                signal.removeEventListener("abort", onAbort);
+                detached = true;
+            };
+            const onAbort = () => {
+                const index = sem.waiters.findIndex((entry) => entry.reject === wrappedReject);
+                if (index >= 0) sem.waiters.splice(index, 1);
+                wrappedReject(new Error("Aborted"));
+            };
+            const wrappedResolve = () => {
+                detachAbort();
+                resolve();
+            };
+            const wrappedReject = (error: Error) => {
+                detachAbort();
+                reject(error);
+            };
+
+            if (signal) signal.addEventListener("abort", onAbort, { once: true });
+            sem.waiters.push({ resolve: wrappedResolve, reject: wrappedReject });
+        });
+    }, [getGlobalConcurrencyLimit]);
+
+    const releaseSlot = useCallback(() => {
+        const sem = semaphoreRef.current;
+        sem.active = Math.max(0, sem.active - 1);
+        drainSemaphore();
+    }, [drainSemaphore]);
+
+    const clearWaitingSlots = useCallback(() => {
+        const sem = semaphoreRef.current;
+        const pending = sem.waiters.splice(0, sem.waiters.length);
+        for (const waiter of pending) {
+            waiter.reject(new Error("Aborted"));
+        }
+    }, []);
 
     // 清理逻辑：组件卸载时释放所有 Blob 并取消请求
     useEffect(() => {
@@ -53,7 +124,13 @@ export const useDarkroom = (
             const optimizedUrl = MemoryManager.allocate(base64Image);
 
             if (isShootingRef.current && !signal?.aborted) {
-                setFrames(prev => prev.map(f => f.id === frame.id ? { ...f, status: 'completed', imageUrl: optimizedUrl, metadata: currentMetadata } : f));
+                setFrames(prev => prev.map(f => {
+                    if (f.id !== frame.id) return f;
+                    if (f.imageUrl && f.imageUrl !== optimizedUrl) {
+                        MemoryManager.release(f.imageUrl);
+                    }
+                    return { ...f, status: 'completed', imageUrl: optimizedUrl, metadata: currentMetadata };
+                }));
                 
                 setPlan(prev => {
                     if (!prev || !prev.conceptFrames) return prev;
@@ -69,11 +146,11 @@ export const useDarkroom = (
             if (signal?.aborted || e.message === "Aborted") return;
             console.error(`Frame #${frame.id} Final Failure:`, e);
             if (isShootingRef.current) {
-                const errorMsg = e?.message || '未知渲染错误';
+                const errorMsg = e?.message || '未知生成错误';
                 const isQuota = errorMsg.includes('429') || errorMsg.includes('quota');
                 
-                addLog(`底片 #${frame.id} 冲印废片 | ${isQuota ? '接口限流(请稍后)' : '错误'}: ${errorMsg}`, 'error');
-                setFrames(prev => prev.map(f => f.id === frame.id ? { ...f, status: 'failed', error: isQuota ? '接口限流' : '失败' } : f));
+                addLog(`第 ${frame.id} 帧生成失败 | ${isQuota ? '触发限流，请稍后重试' : '错误'}: ${errorMsg}`, 'error');
+                setFrames(prev => prev.map(f => f.id === frame.id ? { ...f, status: 'failed', error: isQuota ? '触发限流' : '生成失败' } : f));
             }
         }
     }, [addLog]);
@@ -133,7 +210,7 @@ export const useDarkroom = (
 
         const workers = [];
         const initialBatchSize = Math.min(policy.concurrency, framesToProcess.length);
-        addLog(`启动暗房引擎（批处理）| 并发: ${policy.concurrency}`, 'info');
+        addLog(`批量生成已启动 | 并发: ${policy.concurrency}`, 'info');
         
         for (let i = 0; i < initialBatchSize; i++) {
              workers.push((async () => {
@@ -156,13 +233,22 @@ export const useDarkroom = (
          if (!abortControllerRef.current) abortControllerRef.current = new AbortController();
          const signal = abortControllerRef.current.signal;
          const policy = ExecutionPolicy.resolve(strategy);
+         activeBatchLimitsRef.current.push(Math.max(1, policy.concurrency));
+         drainSemaphore();
          
-         addLog(`流式任务注入: ${frames.length} 帧进入队列 | 并发: ${policy.concurrency}`, 'network');
+         addLog(`已加入生成队列: ${frames.length} 帧 | 并发: ${policy.concurrency}`, 'network');
 
-         const inFlight = new Set<Promise<void>>();
+         const tasks = frames.map((frame, index) => (async () => {
+            if (signal.aborted || !isShootingRef.current) return;
+            if (index > 0 && policy.staggerDelay > 0) {
+                await new Promise(r => setTimeout(r, policy.staggerDelay));
+                if (signal.aborted || !isShootingRef.current) return;
+            }
 
-         const launchFrame = (frame: Frame, index: number) => {
-            const task = (async () => {
+            let slotAcquired = false;
+            try {
+                await acquireSlot(signal);
+                slotAcquired = true;
                 if (signal.aborted || !isShootingRef.current) return;
 
                 const targetModel: 'pro' | 'flash' = selectFrameModelType({
@@ -189,32 +275,20 @@ export const useDarkroom = (
                 } finally {
                     setActiveRequests(p => Math.max(0, p - 1));
                 }
-            })();
+            } finally {
+                if (slotAcquired) releaseSlot();
+            }
+         })());
 
-            inFlight.add(task);
-            task.finally(() => inFlight.delete(task));
-        };
-
-         for (let i = 0; i < frames.length; i++) {
-             if (signal.aborted || !isShootingRef.current) break;
-
-             while (inFlight.size >= policy.concurrency) {
-                 await Promise.race(inFlight);
-                 if (signal.aborted || !isShootingRef.current) break;
-             }
-             if (signal.aborted || !isShootingRef.current) break;
-
-             if (i > 0 && policy.staggerDelay > 0) {
-                 await new Promise(r => setTimeout(r, policy.staggerDelay));
-             }
-
-             launchFrame(frames[i], i);
+         try {
+            await Promise.allSettled(tasks);
+         } finally {
+            const limits = activeBatchLimitsRef.current;
+            const idx = limits.lastIndexOf(Math.max(1, policy.concurrency));
+            if (idx >= 0) limits.splice(idx, 1);
+            drainSemaphore();
          }
-
-         if (inFlight.size > 0) {
-            await Promise.allSettled(Array.from(inFlight));
-         }
-    }, [addLog, processFrameWithRetry]);
+    }, [acquireSlot, addLog, drainSemaphore, processFrameWithRetry, releaseSlot]);
 
     // 暴露中止方法
     const abortAll = useCallback(() => {
@@ -223,7 +297,11 @@ export const useDarkroom = (
             abortControllerRef.current = null;
             setActiveRequests(0); 
         }
-    }, []);
+        activeBatchLimitsRef.current = [];
+        semaphoreRef.current.active = 0;
+        clearWaitingSlots();
+        MemoryManager.releaseAll();
+    }, [clearWaitingSlots]);
 
     return {
         activeRequests,

@@ -416,11 +416,18 @@ export const Infrastructure = {
             });
             if (!response.ok) throw new Error(`模型目录请求失败: ${response.status}`);
             const data = await response.json();
+            const usableTextModels = Array.isArray(data?.available?.textModels) ? data.available.textModels : [];
+            const usableImageModels = Array.isArray(data?.available?.imageModels) ? data.available.imageModels : [];
+            const preferUsableCatalog = usableTextModels.length > 0 || usableImageModels.length > 0;
 
-            if (Array.isArray(data?.textModels) && data.textModels.length > 0) {
+            if (usableTextModels.length > 0) {
+                availableTextModels = usableTextModels;
+            } else if (Array.isArray(data?.textModels) && data.textModels.length > 0) {
                 availableTextModels = data.textModels;
             }
-            if (Array.isArray(data?.imageModels) && data.imageModels.length > 0) {
+            if (usableImageModels.length > 0) {
+                availableImageModels = usableImageModels;
+            } else if (Array.isArray(data?.imageModels) && data.imageModels.length > 0) {
                 availableImageModels = data.imageModels;
             }
             modelProviderOrder = {
@@ -440,11 +447,15 @@ export const Infrastructure = {
             const textByProviderFromApi = normalizeModelsByProvider(data?.textModelsByProvider);
             const imageByProviderFromApi = normalizeModelsByProvider(data?.imageModelsByProvider);
             textModelsByProvider =
-                Object.keys(textByProviderFromApi).length > 0
+                preferUsableCatalog
+                    ? buildModelsByProvider(availableTextModels, providerByModel, modelProviderOrder.text)
+                    : Object.keys(textByProviderFromApi).length > 0
                     ? textByProviderFromApi
                     : buildModelsByProvider(availableTextModels, providerByModel, modelProviderOrder.text);
             imageModelsByProvider =
-                Object.keys(imageByProviderFromApi).length > 0
+                preferUsableCatalog
+                    ? buildModelsByProvider(availableImageModels, providerByModel, modelProviderOrder.image)
+                    : Object.keys(imageByProviderFromApi).length > 0
                     ? imageByProviderFromApi
                     : buildModelsByProvider(availableImageModels, providerByModel, modelProviderOrder.image);
 
@@ -518,15 +529,21 @@ export const Infrastructure = {
         if (!userIdea) throw new Error("缺少用户创意输入");
 
         const targetModel = payload?.model || selectedTextModel;
-        const data = await callBackend(
-            {
-                action: "director_plan",
-                model: targetModel,
-                userIdea,
-                tension: payload?.tension || "dramatic",
-                analysis: payload?.analysis || {},
-                creativeBrief: payload?.creativeBrief || {},
-            },
+        const data = await withRetry(
+            () =>
+                callBackend(
+                    {
+                        action: "director_plan",
+                        model: targetModel,
+                        userIdea,
+                        tension: payload?.tension || "dramatic",
+                        analysis: payload?.analysis || {},
+                        creativeBrief: payload?.creativeBrief || {},
+                    },
+                    signal
+                ),
+            3,
+            1200,
             signal
         );
 
@@ -551,12 +568,18 @@ export const Infrastructure = {
 
     generateRandomPrompt: async (payload: RandomPromptRequest = {}, signal?: AbortSignal): Promise<RandomPromptResponse> => {
         const targetLength = Number(payload?.targetLength);
-        const data = await callBackend(
-            {
-                action: "random_prompt",
-                mode: payload?.mode || "pro",
-                targetLength: Number.isFinite(targetLength) ? Math.floor(targetLength) : 200,
-            },
+        const data = await withRetry(
+            () =>
+                callBackend(
+                    {
+                        action: "random_prompt",
+                        mode: payload?.mode || "pro",
+                        targetLength: Number.isFinite(targetLength) ? Math.floor(targetLength) : 200,
+                    },
+                    signal
+                ),
+            3,
+            1000,
             signal
         );
 
@@ -588,13 +611,19 @@ export const Infrastructure = {
         if (signal?.aborted) throw new Error("Aborted");
 
         const fallbackModel = modelType === "pro" ? "gemini-3-pro-image-preview" : "gemini-2.5-flash-image";
-        const data = await callBackend(
-            {
-                action: "image",
-                model: selectedImageModel || fallbackModel,
-                modelType,
-                prompt,
-            },
+        const data = await withRetry(
+            () =>
+                callBackend(
+                    {
+                        action: "image",
+                        model: selectedImageModel || fallbackModel,
+                        modelType,
+                        prompt,
+                    },
+                    signal
+                ),
+            3,
+            1200,
             signal
         );
         if (!data?.imageUrl) throw new Error("Backend 未返回图片数据");

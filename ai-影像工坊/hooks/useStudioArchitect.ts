@@ -1,11 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { AppState, ShootPlan, Frame, ShootStrategy, DirectorModel, LogEntry, TextModel, ImageModel } from '../types';
 import type { AvailableModelsCatalog } from '../services/api/client';
+import type { HistoryTaskStatus } from '../components/HistorySidebar';
 import { 
     generateRandomPrompt, 
     generateProRandomPrompt, 
-    curateFrames,
-    summarizeCuration,
     validateApiKey, 
     getCustomApiKey, 
     setCustomApiKey,
@@ -21,6 +20,7 @@ import { useHistory } from './useHistory';
 import { useWorkflowMachine } from './useWorkflowMachine';
 import { usePlanningWorkflow } from './workflows/usePlanningWorkflow';
 import { useShootingWorkflow } from './workflows/useShootingWorkflow';
+import { useAutoCuration } from './useAutoCuration';
 
 export const useStudioArchitect = () => {
     
@@ -62,6 +62,8 @@ export const useStudioArchitect = () => {
     const mainContentRef = useRef<HTMLDivElement>(null); 
     const retryingFrameIdsRef = useRef<Set<number>>(new Set());
     const curationSignatureRef = useRef<string>('');
+    const lastHistoryStatusRef = useRef<HistoryTaskStatus | null>(null);
+    const lastHistoryFrameSignatureRef = useRef<string>('');
 
     // 通用日志记录
     const addLog = useCallback((message: string, type: 'info' | 'success' | 'error' | 'network' = 'info', latency?: number) => {
@@ -89,10 +91,10 @@ export const useStudioArchitect = () => {
                 setAvailableModels(getAvailableModels());
                 await validateApiKey("");
                 setKeyConfigured(true);
-                addLog("系统初始化完成：已连接后端智能网关。", "success");
+                addLog("系统初始化完成：模型网关连接成功。", "success");
             } catch (e: any) {
                 setKeyConfigured(false);
-                addLog(`后端网关不可用: ${e.message}`, "error");
+                addLog(`模型网关不可用: ${e.message}`, "error");
             }
         };
         initSystem();
@@ -111,53 +113,72 @@ export const useStudioArchitect = () => {
         return () => { if (interval) clearInterval(interval); };
     }, [appState, activeRequests]);
     
-    // 自动更新历史记录中的图片 (显影后回写)
+    // 自动回写历史中的帧进度（概念/拍摄阶段）
     useEffect(() => {
-        if (currentHistoryId && frames.length > 0 && activeRequests === 0 && appState === AppState.CONCEPT) {
-            const completedCount = frames.filter(f => f.status === 'completed').length;
-            if (completedCount > 0) {
-                updateHistoryItem(currentHistoryId, frames);
-            }
-        }
+        if (!currentHistoryId) return;
+        if (frames.length === 0) return;
+        if (activeRequests > 0) return;
+        if (appState !== AppState.CONCEPT && appState !== AppState.SHOOTING) return;
+
+        const hasRenderableFrames = frames.some((f) => f.status === 'completed' || f.status === 'failed');
+        if (!hasRenderableFrames) return;
+
+        const signature = `${appState}|${frames
+            .map((f) => `${f.id}:${f.status}:${Boolean(f.imageUrl)}:${String(f.error || '')}`)
+            .join('|')}`;
+        if (lastHistoryFrameSignatureRef.current === signature) return;
+        lastHistoryFrameSignatureRef.current = signature;
+
+        updateHistoryItem(currentHistoryId, frames).catch(() => undefined);
     }, [frames, activeRequests, currentHistoryId, updateHistoryItem, appState]);
+
+    const derivedHistoryStatus = useMemo<HistoryTaskStatus>(() => {
+        if (appState === AppState.PLANNING) return 'planning';
+        if (appState === AppState.CONCEPT) return 'concept';
+        if (appState === AppState.SHOOTING) {
+            const hasInFlight = activeRequests > 0 || frames.some((frame) => frame.status === 'pending' || frame.status === 'generating' || frame.status === 'scripting');
+            if (hasInFlight) return 'shooting';
+            const hasCompleted = frames.some((frame) => frame.status === 'completed');
+            return hasCompleted ? 'completed' : 'failed';
+        }
+        return 'completed';
+    }, [appState, activeRequests, frames]);
+
+    useEffect(() => {
+        if (!currentHistoryId) return;
+        if (lastHistoryStatusRef.current === derivedHistoryStatus) return;
+        lastHistoryStatusRef.current = derivedHistoryStatus;
+        updateHistoryItem(currentHistoryId, null, { taskStatus: derivedHistoryStatus }).catch(() => undefined);
+    }, [currentHistoryId, derivedHistoryStatus, updateHistoryItem]);
+
+    useEffect(() => {
+        if (currentHistoryId) return;
+        lastHistoryStatusRef.current = null;
+        lastHistoryFrameSignatureRef.current = '';
+    }, [currentHistoryId]);
+
+    useEffect(() => {
+        if (appState !== AppState.CONCEPT) return;
+        if (selectedProposalId !== null && frames.some((frame) => frame.id === selectedProposalId)) return;
+        const completedFrames = frames.filter((frame) => frame.status === 'completed' && Boolean(frame.imageUrl));
+        if (completedFrames.length === 0) return;
+
+        const scoreForFrame = (frame: Frame) => {
+            if (typeof frame.metadata?.curationScore === 'number') return frame.metadata.curationScore;
+            if (frame.metadata?.variantType === 'balanced') return 0.8;
+            if (frame.metadata?.variantType === 'strict') return 0.7;
+            if (frame.metadata?.variantType === 'creative') return 0.65;
+            return 0.6;
+        };
+
+        const bestFrame = completedFrames.reduce((acc, frame) => (scoreForFrame(frame) > scoreForFrame(acc) ? frame : acc), completedFrames[0]);
+        setSelectedProposalId(bestFrame.id);
+    }, [appState, frames, selectedProposalId]);
     
     // 模型偏好同步到 Infrastructure
     useEffect(() => {
         setModelPreferences({ textModel, imageModel });
     }, [textModel, imageModel]);
-
-    // 母版模式自动筛片（批次结束后触发一次）
-    useEffect(() => {
-        if (!masterMode) return;
-        if (appState !== AppState.SHOOTING || activeRequests > 0) return;
-
-        const completedFrames = frames.filter((frame) => frame.status === 'completed' && Boolean(frame.imageUrl));
-        if (completedFrames.length === 0) return;
-
-        const signature = completedFrames
-            .map((frame) => `${frame.id}:${frame.metadata?.curationStatus || 'pending'}:${frame.metadata?.curationScore || 0}`)
-            .join('|');
-        if (curationSignatureRef.current === signature) return;
-
-        const hasPending = completedFrames.some((frame) => {
-            const status = frame.metadata?.curationStatus;
-            return !status || status === 'pending';
-        });
-        if (!hasPending) {
-            curationSignatureRef.current = signature;
-            return;
-        }
-
-        const curated = curateFrames(frames, { keepRatio: 0.2, minKeep: 4, maxKeep: 20 });
-        const summary = summarizeCuration(curated);
-        curationSignatureRef.current = curated
-            .filter((frame) => frame.status === 'completed' && Boolean(frame.imageUrl))
-            .map((frame) => `${frame.id}:${frame.metadata?.curationStatus || 'pending'}:${frame.metadata?.curationScore || 0}`)
-            .join('|');
-
-        setFrames(curated);
-        addLog(`[母版筛片] 入选 ${summary.keep} 张，淘汰 ${summary.drop} 张。`, 'success');
-    }, [masterMode, appState, activeRequests, frames, addLog]);
 
     const handleReset = useCallback(() => {
         if (planningAbortController.current) {
@@ -168,11 +189,13 @@ export const useStudioArchitect = () => {
         isShootingRef.current = false; 
         retryingFrameIdsRef.current.clear();
         curationSignatureRef.current = '';
+        lastHistoryStatusRef.current = null;
+        lastHistoryFrameSignatureRef.current = '';
         setRetryingFrameIds([]);
         resetWorkflow();
         setStreamingPlanText(''); setUserInput(''); setPlan(null); setFrames([]); setLogs([]); setSelectedConceptUrl(undefined); setElapsedTime(0); setSelectedProposalId(null);
         setCurrentHistoryId(null);
-        addLog("系统已硬复位，所有资源已释放。", "info");
+        addLog("已重置当前任务。", "info");
     }, [abortDarkroom, addLog, resetWorkflow]);
 
     const restoreSession = useCallback((item: any) => {
@@ -180,14 +203,25 @@ export const useStudioArchitect = () => {
         setIsHistoryOpen(false);
         isShootingRef.current = false;
         setCurrentHistoryId(item.id); 
-        transitionWorkflow({ type: 'RESTORE_TO_CONCEPT' });
         setUserInput(item.userInput);
-        setPlan(item.plan);
-        const restoredFrames = item.plan.conceptFrames || item.plan.frames.map((desc: string, i: number) => ({ id: i + 1, description: desc, status: 'pending' }));
+        const restoredPlan = item?.plan && typeof item.plan === 'object' ? item.plan : null;
+        setPlan(restoredPlan);
+        const conceptFrames = Array.isArray(restoredPlan?.conceptFrames) ? restoredPlan.conceptFrames : [];
+        const renderFrames = Array.isArray(restoredPlan?.renderFrames) ? restoredPlan.renderFrames : [];
+        const fallbackFrames = Array.isArray(restoredPlan?.frames)
+            ? restoredPlan.frames.map((desc: string, i: number) => ({ id: i + 1, description: desc, status: 'pending' }))
+            : [];
+        const hasRenderFrames = renderFrames.length > 0;
+        const restoredFrames = hasRenderFrames ? renderFrames : (conceptFrames.length > 0 ? conceptFrames : fallbackFrames);
+        if (hasRenderFrames) {
+            setAppState(AppState.SHOOTING);
+        } else {
+            transitionWorkflow({ type: 'RESTORE_TO_CONCEPT' });
+        }
         setFrames(restoredFrames);
         setLogs([]); setElapsedTime(0);
-        addLog(`暗房会话已恢复｜档案编号：${item.id}`, 'info');
-    }, [handleReset, addLog, transitionWorkflow]);
+        addLog(`已恢复历史项目 | ID: ${item.id}`, 'info');
+    }, [handleReset, addLog, transitionWorkflow, setAppState]);
 
     const handleVoiceInput = useCallback(() => {
         if (isListening) { voiceService.stop(); setIsListening(false); } 
@@ -197,7 +231,7 @@ export const useStudioArchitect = () => {
     const handleRandomPrompt = useCallback(async () => {
         if (isGeneratingRandom) return;
         setIsGeneratingRandom(true);
-        setUserInput("正在连接大师脑波...");
+        setUserInput("正在生成灵感描述...");
         try {
             const prompt = await generateProRandomPrompt(); 
             setUserInput(prompt);
@@ -211,12 +245,20 @@ export const useStudioArchitect = () => {
 
     const canStartPlanning = appState === AppState.IDLE && userInput.trim().length > 0;
     const startBlockedReason = useMemo(() => {
-        if (appState !== AppState.IDLE) return "已有任务在执行，请先重置或等待结束";
-        if (!userInput.trim()) return "请先输入镜头描述";
+        if (appState !== AppState.IDLE) return "当前有任务正在运行，请先重置或等待完成";
+        if (!userInput.trim()) return "请先输入你的画面需求";
         return "";
     }, [appState, userInput]);
-    const readinessHint = keyConfigured ? "" : "网关状态异常，请检查后端模型 Key 配置";
-    const curationSummary = useMemo(() => summarizeCuration(frames), [frames]);
+    const readinessHint = keyConfigured ? "" : "网关状态异常，请检查后端模型配置";
+    const { curationSummary } = useAutoCuration({
+        masterMode,
+        appState,
+        activeRequests,
+        frames,
+        setFrames,
+        curationSignatureRef,
+        addLog
+    });
 
     const { handleStartPlanning, handleExpandUniverse } = usePlanningWorkflow({
         appState,
@@ -242,6 +284,7 @@ export const useStudioArchitect = () => {
         transitionWorkflow,
         addLog,
         addToHistory,
+        updateHistoryItem,
         executeFrameBatch,
     });
 
@@ -281,6 +324,7 @@ export const useStudioArchitect = () => {
             setKeyConfigured(true);
             setTimeout(() => setShowSettingsModal(false), 300);
         } catch (error: any) {
+            setKeyConfigured(false);
             addValidationLog(`❌ ${error.message}`);
         } finally {
             setIsValidating(false);
