@@ -512,9 +512,12 @@ test('postgres mode reads and writes history metadata with blob snapshots', asyn
   const pg = createMemoryPgAdapter();
   const handler = await loadHandler({
     envOverrides: {
+      NODE_ENV: 'development',
       BLOB_READ_WRITE_TOKEN: 'blob-test-token',
       HISTORY_DATABASE_MODE: 'postgres',
       POSTGRES_URL: 'postgres://example.com/db?sslmode=require',
+      HISTORY_GATEWAY_TOKEN: undefined,
+      AI_GATEWAY_TOKEN: undefined,
     },
     blobAdapter: memory,
     fetchAdapter: memory.fetch,
