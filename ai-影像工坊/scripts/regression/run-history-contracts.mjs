@@ -507,6 +507,64 @@ test('edge config policy can enforce read-only and override auth requirement', a
   assert.match(String(writeAttempt.body?.error || ''), /只读/i);
 });
 
+test('postgres mode reads and writes history metadata with blob snapshots', async () => {
+  const memory = createMemoryBlobAdapter();
+  const pg = createMemoryPgAdapter();
+  const handler = await loadHandler({
+    envOverrides: {
+      BLOB_READ_WRITE_TOKEN: 'blob-test-token',
+      HISTORY_DATABASE_MODE: 'postgres',
+      POSTGRES_URL: 'postgres://example.com/db?sslmode=require',
+    },
+    blobAdapter: memory,
+    fetchAdapter: memory.fetch,
+    pgAdapter: pg,
+  });
+
+  const created = await invoke(handler, {
+    method: 'POST',
+    body: {
+      action: 'upsert',
+      item: {
+        id: 'postgres_mode_case_1',
+        timestamp: 1772546402222,
+        userInput: 'postgres mode case',
+        taskStatus: 'concept',
+        plan: { title: 'postgres-case', frames: ['f1'] },
+      },
+    },
+  });
+  assert.equal(created.status, 200);
+  assert.equal(created.body?.ok, true);
+  assert.equal(pg.dump().length, 1);
+
+  const listed = await invoke(handler, {
+    method: 'GET',
+    query: { action: 'list', limit: 5 },
+  });
+  assert.equal(listed.status, 200);
+  assert.equal(listed.body?.ok, true);
+  assert.equal(listed.body?.items?.[0]?.id, 'postgres_mode_case_1');
+
+  const health = await invoke(handler, {
+    method: 'GET',
+    query: { action: 'health' },
+  });
+  assert.equal(health.status, 200);
+  assert.equal(health.body?.runtime?.databaseMode, 'postgres');
+  assert.equal(health.body?.database?.configured, true);
+  assert.equal(health.body?.database?.connected, true);
+  assert.equal(health.body?.database?.ready, true);
+
+  const removed = await invoke(handler, {
+    method: 'POST',
+    body: { action: 'delete', id: 'postgres_mode_case_1' },
+  });
+  assert.equal(removed.status, 200);
+  assert.equal(removed.body?.ok, true);
+  assert.equal(pg.dump().length, 0);
+});
+
 const main = async () => {
   const started = Date.now();
   let passed = 0;
