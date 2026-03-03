@@ -23,7 +23,7 @@
 - **`services/api/` (The Network Layer)**: 
   - Handling HTTP, Retries, Proxy routing, and Error normalization.
 
-- **`api/gateway/` (Backend Gateway Kernel)**:
+- **`server/gateway/` (Backend Gateway Kernel)**:
   - `runtimeConfig.ts/js`: provider/model/env/runtime policy loading.
   - `providerAdapterProtocol.ts/js`: adapter contract enforcement (`chat/generate/image`).
   - Goal: split routing policy from handler glue code.

@@ -208,7 +208,7 @@ Provider 状态语义（重要）：
 ## 7. 关键文件
 
 - `api/ai.js`：后端统一网关（多厂商/多 key/重试）
-- `api/domain/directorPlan.js`：导演计划域（prompt 编排、计划清洗、blueprint token、director packet）
+- `server/domain/directorPlan.js`：导演计划域（prompt 编排、计划清洗、blueprint token、director packet）
 - `config/ai-routing.json`：模型路由策略（文本与生图分离）
 - `config/ai-runtime-aliases.json`：运行时模型别名（展示模型名 -> 厂商真实调用 ID）
 - `config/ai-alert-thresholds.json`：指标告警阈值（successRate/p95/429/fallback/auth）

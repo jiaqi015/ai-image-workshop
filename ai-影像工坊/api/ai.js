@@ -13,28 +13,28 @@ import {
   recordRateLimited,
   recordRequestStart,
   recordUnauthorized,
-} from "./domain/telemetry.js";
+} from "../server/domain/telemetry.js";
 import {
   getProviderValidationState,
   isAuthFailure,
   markProviderValidated,
   markProviderValidationFailure,
-} from "./domain/providerValidation.js";
+} from "../server/domain/providerValidation.js";
 import {
   buildDirectorPacket,
   buildDirectorPlanMessages,
   normalizeDirectorPlan,
-} from "./domain/directorPlan.js";
-import { generateRandomPromptSkill, recordPromptPairwiseFeedbackSkill } from "./domain/randomPromptSkill.js";
-import { getNorthstarSnapshot } from "./domain/northstarMetrics.js";
+} from "../server/domain/directorPlan.js";
+import { generateRandomPromptSkill, recordPromptPairwiseFeedbackSkill } from "../server/domain/randomPromptSkill.js";
+import { getNorthstarSnapshot } from "../server/domain/northstarMetrics.js";
 import {
   OPENAI_COMPAT_ENDPOINTS,
   PROVIDER_ENV,
   readGatewayRuntimeConfig,
   providerNeedsBaseUrl,
   toPositiveInt,
-} from "./gateway/runtimeConfig.js";
-import { getProviderTaskRunner, validateProviderAdapter } from "./gateway/providerAdapterProtocol.js";
+} from "../server/gateway/runtimeConfig.js";
+import { getProviderTaskRunner, validateProviderAdapter } from "../server/gateway/providerAdapterProtocol.js";
 
 const keyRuntimeState = new Map();
 const rateLimitState = new Map();
