@@ -221,6 +221,39 @@ test('GET metrics returns telemetry snapshot', async () => {
   assert.equal(typeof res.body?.telemetry?.routing?.fallbackTriggered, 'number');
 });
 
+test('GET dashboard returns day and week snapshots', async () => {
+  const handler = await loadHandler({ AI_GATEWAY_TOKEN: undefined });
+
+  const day = await invoke(handler, { method: 'GET', query: { action: 'dashboard', period: 'day' } });
+  assert.equal(day.status, 200);
+  expectRateHeaders(day.headers);
+  expectTrace(day);
+  assert.equal(day.body?.ok, true);
+  assert.equal(day.body?.dashboard?.period, 'day');
+  assert.equal(typeof day.body?.dashboard?.traffic?.totalRequests, 'number');
+  assert.equal(typeof day.body?.dashboard?.latency?.p95LatencyMs, 'number');
+
+  const week = await invoke(handler, { method: 'GET', query: { action: 'dashboard', period: 'week' } });
+  assert.equal(week.status, 200);
+  expectRateHeaders(week.headers);
+  expectTrace(week);
+  assert.equal(week.body?.dashboard?.period, 'week');
+});
+
+test('GET alerts returns threshold-based evaluation payload', async () => {
+  const handler = await loadHandler({ AI_GATEWAY_TOKEN: undefined });
+  const res = await invoke(handler, { method: 'GET', query: { action: 'alerts', period: 'day' } });
+
+  assert.equal(res.status, 200);
+  expectRateHeaders(res.headers);
+  expectTrace(res);
+  assert.equal(res.body?.ok, true);
+  assert.equal(typeof res.body?.alerts?.healthy, 'boolean');
+  assert.ok(Array.isArray(res.body?.alerts?.alerts), 'alerts.alerts should be an array');
+  assert.equal(typeof res.body?.alerts?.thresholds?.successRateMin, 'number');
+  assert.equal(typeof res.body?.thresholds?.successRateMin, 'number');
+});
+
 const main = async () => {
   const started = Date.now();
   let passed = 0;

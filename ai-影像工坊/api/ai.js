@@ -3,12 +3,15 @@ import path from "node:path";
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import {
   createTraceId,
+  evaluateAlerts,
+  getDashboardSnapshot,
   getTelemetrySnapshot,
   recordError,
   recordFallbackSuccess,
   recordFallbackTriggered,
   recordOutcomeByStatus,
   recordProviderAttempt,
+  recordRequestComplete,
   recordRateLimited,
   recordRequestStart,
   recordUnauthorized,
@@ -107,6 +110,14 @@ const GOOGLE_UPSTREAM_TIMEOUT_MS = toPositiveInt(process.env.AI_GOOGLE_TIMEOUT_M
 const RATE_LIMIT_RPM = toPositiveInt(process.env.AI_RATE_LIMIT_RPM, 120);
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const GATEWAY_TOKEN = String(process.env.AI_GATEWAY_TOKEN || "").trim();
+const DEFAULT_ALERT_THRESHOLDS = {
+  successRateMin: 0.92,
+  p95LatencyMsMax: 12000,
+  rateLimitRateMax: 0.05,
+  fallbackFailureRateMax: 0.2,
+  providerAuthFailuresMax: 5,
+  minRequestsForAlerting: 20,
+};
 
 const resolveRuntimeModel = (provider, model) => {
   const normalizedProvider = String(provider || "").trim();
@@ -216,8 +227,21 @@ const setTraceHeader = (res, traceId) => {
 
 const sendJson = (res, traceId, status, payload = {}, options = {}) => {
   const shouldRecordOutcome = options.recordOutcome !== false;
+  const action = String(options.action || "unknown");
+  const method = String(options.method || "UNKNOWN").toUpperCase();
+  const requestStartedAt = Number(options.requestStartedAt || 0);
+  const durationMs = requestStartedAt > 0 ? Math.max(0, Date.now() - requestStartedAt) : 0;
   setTraceHeader(res, traceId);
   if (shouldRecordOutcome) recordOutcomeByStatus(status);
+  if (requestStartedAt > 0) {
+    recordRequestComplete({
+      action,
+      method,
+      status,
+      durationMs,
+      traceId,
+    });
+  }
   res.status(status).json({
     ...payload,
     traceId,
@@ -327,8 +351,21 @@ const loadRuntimeAliasConfig = () => {
   }
 };
 
+const loadAlertThresholdConfig = () => {
+  try {
+    const file = path.join(process.cwd(), "config", "ai-alert-thresholds.json");
+    if (!fs.existsSync(file)) return DEFAULT_ALERT_THRESHOLDS;
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (!parsed || typeof parsed !== "object") return DEFAULT_ALERT_THRESHOLDS;
+    return deepMerge(DEFAULT_ALERT_THRESHOLDS, parsed);
+  } catch {
+    return DEFAULT_ALERT_THRESHOLDS;
+  }
+};
+
 const routingConfig = loadRoutingConfig();
 const runtimeModelAliases = loadRuntimeAliasConfig();
+const alertThresholds = loadAlertThresholdConfig();
 
 const providerEnabled = (provider) => Boolean(routingConfig?.providers?.[provider]?.enabled);
 
@@ -1058,18 +1095,26 @@ export default async function handler(req, res) {
 
   maybePruneRateLimitState();
   const traceId = createTraceId();
+  const requestStartedAt = Date.now();
+  let resolvedAction = "unknown";
 
   try {
     const actionFromGet = req.query?.action || "health";
     const bodyFromPost = req.method === "POST" ? parseBody(req) : {};
     const actionFromPost = bodyFromPost.action || "health";
     const action = req.method === "POST" ? actionFromPost : actionFromGet;
+    resolvedAction = action;
+    const requestMeta = {
+      action,
+      method: req.method,
+      requestStartedAt,
+    };
 
     recordRequestStart({ action, method: req.method });
 
     if (!isAuthorized(req)) {
       recordUnauthorized();
-      sendJson(res, traceId, 401, { ok: false, error: "Unauthorized" }, { recordOutcome: false });
+      sendJson(res, traceId, 401, { ok: false, error: "Unauthorized" }, { ...requestMeta, recordOutcome: false });
       return;
     }
 
@@ -1085,7 +1130,7 @@ export default async function handler(req, res) {
           ok: false,
           error: `Rate limit exceeded (${RATE_LIMIT_RPM}/min)`,
         },
-        { recordOutcome: false }
+        { ...requestMeta, recordOutcome: false }
       );
       return;
     }
@@ -1118,7 +1163,7 @@ export default async function handler(req, res) {
             textModel: pickDefaultModel("text", text, textUsable),
             imageModel: pickDefaultModel("image", image, imageUsable),
           },
-        });
+        }, requestMeta);
         return;
       }
 
@@ -1127,23 +1172,43 @@ export default async function handler(req, res) {
           ok: true,
           telemetry: getTelemetrySnapshot(),
           health: healthPayload(),
-        });
+        }, requestMeta);
         return;
       }
 
-      sendJson(res, traceId, 200, healthPayload());
+      if (action === "dashboard") {
+        const period = String(req.query?.period || "day");
+        sendJson(res, traceId, 200, {
+          ok: true,
+          dashboard: getDashboardSnapshot(period),
+          health: healthPayload(),
+        }, requestMeta);
+        return;
+      }
+
+      if (action === "alerts") {
+        const period = String(req.query?.period || "day");
+        sendJson(res, traceId, 200, {
+          ok: true,
+          alerts: evaluateAlerts({ period, thresholds: alertThresholds }),
+          thresholds: alertThresholds,
+        }, requestMeta);
+        return;
+      }
+
+      sendJson(res, traceId, 200, healthPayload(), requestMeta);
       return;
     }
 
     if (req.method !== "POST") {
-      sendJson(res, traceId, 405, { ok: false, error: "Method Not Allowed" });
+      sendJson(res, traceId, 405, { ok: false, error: "Method Not Allowed" }, requestMeta);
       return;
     }
 
     const body = bodyFromPost;
 
     if (action === "health" || action === "validate") {
-      sendJson(res, traceId, 200, healthPayload());
+      sendJson(res, traceId, 200, healthPayload(), requestMeta);
       return;
     }
 
@@ -1155,7 +1220,7 @@ export default async function handler(req, res) {
         provider: execution.provider,
         model: execution.model,
         text: execution.result?.text || "",
-      });
+      }, requestMeta);
       return;
     }
 
@@ -1180,14 +1245,14 @@ export default async function handler(req, res) {
             },
           },
         ],
-      });
+      }, requestMeta);
       return;
     }
 
     if (action === "image") {
       const prompt = body.prompt || "";
       if (!prompt) {
-        sendJson(res, traceId, 400, { ok: false, error: "prompt is required" });
+        sendJson(res, traceId, 400, { ok: false, error: "prompt is required" }, requestMeta);
         return;
       }
 
@@ -1197,7 +1262,7 @@ export default async function handler(req, res) {
         provider: execution.provider,
         model: execution.model,
         imageUrl: execution.result?.imageUrl,
-      });
+      }, requestMeta);
       return;
     }
 
@@ -1206,11 +1271,31 @@ export default async function handler(req, res) {
         ok: true,
         telemetry: getTelemetrySnapshot(),
         health: healthPayload(),
-      });
+      }, requestMeta);
       return;
     }
 
-    sendJson(res, traceId, 400, { ok: false, error: `Unsupported action: ${action}` });
+    if (action === "dashboard") {
+      const period = String(body.period || "day");
+      sendJson(res, traceId, 200, {
+        ok: true,
+        dashboard: getDashboardSnapshot(period),
+        health: healthPayload(),
+      }, requestMeta);
+      return;
+    }
+
+    if (action === "alerts") {
+      const period = String(body.period || "day");
+      sendJson(res, traceId, 200, {
+        ok: true,
+        alerts: evaluateAlerts({ period, thresholds: alertThresholds }),
+        thresholds: alertThresholds,
+      }, requestMeta);
+      return;
+    }
+
+    sendJson(res, traceId, 400, { ok: false, error: `Unsupported action: ${action}` }, requestMeta);
   } catch (error) {
     const status = Number(error?.status || 500);
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -1218,6 +1303,10 @@ export default async function handler(req, res) {
     sendJson(res, traceId, status >= 400 && status < 600 ? status : 500, {
       ok: false,
       error: message,
+    }, {
+      action: resolvedAction,
+      method: req.method,
+      requestStartedAt,
     });
   }
 }

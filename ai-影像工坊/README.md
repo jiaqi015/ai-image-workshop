@@ -123,6 +123,8 @@ npm run dev
 `GET /api/ai?action=models` 返回全量模型目录 + 当前可用状态。  
 `GET /api/ai?action=health` 返回各厂商就绪状态。
 `GET /api/ai?action=metrics` 返回网关运行遥测（请求量、错误类型、fallback统计、厂商健康快照）。
+`GET /api/ai?action=dashboard&period=day|week` 返回日/周聚合看板指标。  
+`GET /api/ai?action=alerts&period=day|week` 返回阈值告警结果。
 
 Provider 状态语义（重要）：
 
@@ -136,6 +138,7 @@ Provider 状态语义（重要）：
 - `api/ai.js`：后端统一网关（多厂商/多 key/重试）
 - `config/ai-routing.json`：模型路由策略（文本与生图分离）
 - `config/ai-runtime-aliases.json`：运行时模型别名（展示模型名 -> 厂商真实调用 ID）
+- `config/ai-alert-thresholds.json`：指标告警阈值（successRate/p95/429/fallback/auth）
 - `services/api/client.ts`：前端基础设施层（后端优先、可选前端兜底）
 - `vercel.json`：Function Runtime + SPA 路由重写
 - `docs/ITERATION_TEST_REGRESSION_PLAN.md`：迭代、测试、回归总计划

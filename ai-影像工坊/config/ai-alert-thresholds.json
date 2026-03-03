@@ -1,0 +1,8 @@
+{
+  "successRateMin": 0.92,
+  "p95LatencyMsMax": 12000,
+  "rateLimitRateMax": 0.05,
+  "fallbackFailureRateMax": 0.2,
+  "providerAuthFailuresMax": 5,
+  "minRequestsForAlerting": 20
+}
