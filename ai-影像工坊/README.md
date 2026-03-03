@@ -85,12 +85,14 @@ npm run dev
 - `AI_ALLOW_ANON_IN_PROD=0`（默认 0；设成 1 才允许生产匿名访问，不推荐）
 - `HISTORY_GATEWAY_TOKEN=`（不填则复用 `AI_GATEWAY_TOKEN`）
 - `HISTORY_ALLOW_ANON_IN_PROD=0`
+- `HISTORY_DATABASE_MODE=hybrid`（`blob | hybrid | postgres`）
 - `HISTORY_MAX_BODY_BYTES=12582912`
 - `HISTORY_MAX_FRAMES_PER_RECORD=80`
 - `HISTORY_MAX_IMAGE_BYTES=8388608`
 - `HISTORY_MAX_TOTAL_IMAGE_BYTES=50331648`
 - `EDGE_CONFIG=`（可选，开启历史运行时策略）
 - `HISTORY_EDGE_CONFIG_CACHE_MS=10000`
+- `POSTGRES_URL / DATABASE_URL / PRISMA_DATABASE_URL`（任意一个可用即启用 Postgres）
 - `OPENAI_BASE_URL / ALI_BASE_URL / BYTE_BASE_URL / MINIMAX_BASE_URL / ZHIPU_BASE_URL`
 
 字节（Ark）建议：
@@ -157,6 +159,12 @@ npm run dev
 - `history/snapshots/*`：历史版本快照
 - `history/images/*`：历史图片（自动把 data URL 上传为 Blob 公网地址）
 
+推荐生产模式：
+
+- `HISTORY_DATABASE_MODE=hybrid`
+- Blob：存图片与快照文件
+- Postgres：存历史元数据索引（列表、排序、状态）
+
 ## 6.2 Edge Config 运行时策略（可选）
 
 若已配置 `EDGE_CONFIG`，可在 Edge Config 写入 `history.policy`（JSON 对象）动态控制历史服务，无需重新部署。
@@ -167,6 +175,7 @@ npm run dev
 {
   "enabled": true,
   "readOnly": false,
+  "databaseMode": "hybrid",
   "allowAnonInProd": false,
   "requireHistoryToken": true,
   "maxBodyBytes": 12582912,
@@ -180,12 +189,13 @@ npm run dev
 
 - `enabled=false`：直接关闭历史服务（返回 503）
 - `readOnly=true`：保留查询，禁止 upsert/delete
+- `databaseMode`：`blob | hybrid | postgres`
 - `allowAnonInProd`、`requireHistoryToken`：覆盖生产态鉴权策略
 - `max*`：覆盖历史请求体/图片限额
 
 调试入口：
 
-- `GET /api/history?action=health` 会返回 `runtime` 与 `edgeConfig`，可直接确认当前是否命中 Edge Config 策略。
+- `GET /api/history?action=health` 会返回 `runtime`、`edgeConfig`、`database`，可直接确认当前是否命中 Edge Config 与 Postgres 连通状态。
 
 Provider 状态语义（重要）：
 
