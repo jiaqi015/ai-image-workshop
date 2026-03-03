@@ -5,6 +5,7 @@ import { Gallery } from './components/Gallery';
 import { HistorySidebar } from './components/HistorySidebar';
 import { ConsoleLog } from './components/ConsoleLog';
 import { DirectorThinking } from './components/DirectorThinking'; 
+import { BrandLogo } from './components/BrandLogo';
 import { ShootStrategy, AppState } from './types';
 import { useStudioArchitect } from './hooks/useStudioArchitect';
 
@@ -213,10 +214,16 @@ export default function App() {
         <header className="h-20 border-b border-white/5 bg-[#0f0f12]/95 backdrop-blur-sm flex items-center justify-between px-8 z-30 flex-shrink-0 transition-all">
            {/* Left: Logo & Status */}
            <div className="flex items-center gap-12">
-             <div className="flex items-center gap-4 text-zinc-100 opacity-90 hover:opacity-100 transition-opacity cursor-default" onClick={() => studio.setIsHistoryOpen(true)}>
-                <div className="bg-zinc-800/50 p-2 rounded-lg border border-white/5 hover:bg-zinc-700/50 transition-colors cursor-pointer"><CameraIcon className="w-5 h-5" /></div>
-                <span className="font-serif tracking-[0.15em] text-lg cursor-pointer">影像工坊</span>
-             </div>
+             <button
+               type="button"
+               className="group flex items-center text-zinc-100 opacity-90 hover:opacity-100 transition-opacity cursor-pointer"
+               onClick={() => studio.setIsHistoryOpen(true)}
+               title="打开历史档案"
+             >
+               <div className="rounded-xl border border-white/5 bg-black/20 px-2 py-1.5 transition-colors group-hover:bg-zinc-900/70 group-hover:border-white/15">
+                 <BrandLogo />
+               </div>
+             </button>
              
              {/* Workflow Progress Indicator */}
              <div className="hidden xl:flex items-center gap-8 text-xs tracking-[0.2em] text-zinc-500 font-medium">
@@ -382,7 +389,29 @@ export default function App() {
                 {/* Left Panel: Contract & Logs */}
                 <div className="w-96 2xl:w-[28rem] border-r border-white/5 bg-[#0c0c0e] hidden md:flex flex-col flex-shrink-0 z-20 transition-all duration-300 shadow-2xl">
                    <div className="flex-1 p-8 overflow-hidden">
-                      {studio.appState === AppState.PLANNING && !studio.plan ? ( <DirectorThinking text={studio.streamingPlanText} /> ) : ( studio.plan && <ContractCard contract={studio.plan.contract} title={studio.plan.title} directorInsight={studio.plan.directorInsight} productionNotes={studio.plan.productionNotes} shootGuide={studio.plan.shootGuide} shootScope={studio.plan.shootScope} continuity={studio.plan.continuity} conceptFrames={studio.plan.conceptFrames} selectedConceptId={studio.plan.selectedConceptId} visualReferenceImageUrl={studio.selectedConceptUrl} onSelectConcept={studio.handleSelectSidebarConcept} onGenerateMore={() => studio.handleGenerateMore(20)} isExtending={studio.isExtending} onPreviewConcept={(url) => studio.setConceptPreviewUrl(url)} /> )}
+                      {studio.appState === AppState.PLANNING && !studio.plan ? (
+                        <DirectorThinking text={studio.streamingPlanText} />
+                      ) : (
+                        studio.plan && (
+                          <ContractCard
+                            contract={studio.plan.contract}
+                            title={studio.plan.title}
+                            directorInsight={studio.plan.directorInsight}
+                            productionNotes={studio.plan.productionNotes}
+                            shootGuide={studio.plan.shootGuide}
+                            shootScope={studio.plan.shootScope}
+                            directorPacket={studio.plan.directorPacket}
+                            continuity={studio.plan.continuity}
+                            conceptFrames={studio.plan.conceptFrames}
+                            selectedConceptId={studio.plan.selectedConceptId}
+                            visualReferenceImageUrl={studio.selectedConceptUrl}
+                            onSelectConcept={studio.handleSelectSidebarConcept}
+                            onGenerateMore={() => studio.handleGenerateMore(20)}
+                            isExtending={studio.isExtending}
+                            onPreviewConcept={(url) => studio.setConceptPreviewUrl(url)}
+                          />
+                        )
+                      )}
                    </div>
                    <div className="h-64 flex-shrink-0 border-t border-white/5"><ConsoleLog logs={studio.logs} /></div>
                 </div>

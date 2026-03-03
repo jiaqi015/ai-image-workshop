@@ -11,6 +11,7 @@ interface ContractCardProps {
   productionNotes?: ProductionNotes; // 具体的执行笔记
   shootGuide?: ShootGuide;       // 表演指导
   shootScope?: ShootPlan['shootScope']; // 制作范围
+  directorPacket?: ShootPlan['directorPacket']; // 结构化导演包
   continuity?: ShootPlan['continuity']; // 连戏配置 (核心数据)
   conceptFrames?: Frame[];       // 概念预览图列表
   selectedConceptId?: number;    // 当前选中的概念ID
@@ -98,6 +99,7 @@ export const ContractCard: React.FC<ContractCardProps> = ({
   productionNotes, 
   shootGuide, 
   shootScope,
+  directorPacket,
   continuity,
   conceptFrames, 
   selectedConceptId,
@@ -179,6 +181,40 @@ export const ContractCard: React.FC<ContractCardProps> = ({
                   ))}
                </div>
            </div>
+        )}
+
+        {/* 导演包（结构化项目资产） */}
+        {directorPacket && (
+            <div className="mb-6 mt-4">
+                <h3 className="text-[11px] font-bold text-zinc-600 tracking-widest mb-3 border-b border-white/5 pb-2">
+                    导演包 · 结构化镜头
+                </h3>
+
+                <div className="grid grid-cols-1 gap-3 mb-4">
+                    <div className="bg-zinc-900/30 border border-white/5 rounded p-3">
+                        <div className="text-[10px] text-zinc-500 tracking-widest mb-1">风格签名</div>
+                        <div className="text-xs text-zinc-300">{directorPacket.styleProfile.visualSignature}</div>
+                    </div>
+                    <div className="bg-zinc-900/30 border border-white/5 rounded p-3">
+                        <div className="text-[10px] text-zinc-500 tracking-widest mb-1">角色锚点</div>
+                        <div className="text-xs text-zinc-300 leading-relaxed">
+                            {directorPacket.characterProfile.identityAnchor} · {directorPacket.characterProfile.bodyAnchor}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="space-y-2 max-h-56 overflow-y-auto custom-scrollbar pr-1">
+                    {(directorPacket.shots || []).slice(0, 12).map((shot) => (
+                        <div key={shot.shotId} className="bg-black/25 border border-white/5 rounded p-2">
+                            <div className="flex items-center justify-between text-[10px] text-zinc-500 mb-1">
+                                <span className="font-mono">{shot.shotId}</span>
+                                <span>{shot.camera} / {shot.mood}</span>
+                            </div>
+                            <div className="text-xs text-zinc-300 leading-relaxed">{shot.description}</div>
+                        </div>
+                    ))}
+                </div>
+            </div>
         )}
 
         {/* 连戏配置表 (Continuity Sheets) */}
