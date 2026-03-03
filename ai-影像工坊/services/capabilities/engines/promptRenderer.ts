@@ -4,6 +4,8 @@ import { ShootPlan } from "../../../types";
 // Helper for string cleaning
 const clean = (s: string) => s.replace(/(\r\n|\n|\r)/gm, " ").trim();
 const cleanOptions = (text: string) => text.replace(/(Option|方案)\s*[A-Z0-9]+[:\uff1a]/gi, "").replace(/\|\|/g, " OR ").trim();
+const ASIAN_REALISM_SUBJECT_PREFIX =
+    "(Real Asian adult human:1.7), (East Asian facial structure:1.5), (natural human skin texture, pores, subtle imperfections:1.4), black or dark-brown hair, dark-brown eyes";
 
 export class PromptRenderer {
 
@@ -46,15 +48,9 @@ export class PromptRenderer {
             "led lights", "digital art", "airbrush", "perfect skin", "latex"
         ];
 
-        // Smart Ethnicity Injection (if not explicitly foreign)
-        const lowerWho = who.toLowerCase();
-        const isForeign = /\b(western|white|caucasian|black|african|blonde|blue eye|russian|american)\b/i.test(lowerWho);
-        let ethnicEnforcement = "";
-        
-        if (!isForeign) {
-            immuneSystem.push("western", "caucasian", "blonde hair", "blue eyes", "european");
-            ethnicEnforcement = "(Chinese ethnicity:1.5), (East Asian features:1.3), (Black hair:1.2)";
-        }
+        // 强制全局人群约束：真实亚洲人
+        const ethnicEnforcement = ASIAN_REALISM_SUBJECT_PREFIX;
+        immuneSystem.push("western face", "caucasian", "white people", "african ethnicity", "blonde hair", "blue eyes", "green eyes", "non-asian ethnicity");
 
         const negativePrompt = immuneSystem.join(", ");
         const cleanStyle = style.replace(/^(Option|Variant|方案)[:\.\-]\s*/i, "").trim();
@@ -68,6 +64,7 @@ Aesthetic: "${cleanStyle}"
 Who: ${clean(who)}. ${ethnicEnforcement}.
 Wearing: ${clean(wear)}.
 Action: ${clean(action)}.
+(Hard Constraint: Subject MUST be a real Asian human adult. Do NOT switch ethnicity.)
 
 [ENVIRONMENT]
 Location: ${clean(where)}.

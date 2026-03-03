@@ -85,7 +85,7 @@ export const Gallery: React.FC<GalleryProps> = ({ frames, plan }) => {
     if (downloadingId === id) return;
     setDownloadingId(id);
 
-    const filename = `ai-studio-master-${String(id).padStart(3, '0')}.png`;
+    const filename = `影像工坊-母版-${String(id).padStart(3, '0')}.png`;
 
     try {
         if (url.startsWith('blob:')) {
@@ -110,7 +110,7 @@ export const Gallery: React.FC<GalleryProps> = ({ frames, plan }) => {
             setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
         }
     } catch (err) {
-        console.error("Download failed:", err);
+        console.error("下载失败:", err);
         window.open(url, '_blank');
     } finally {
         setDownloadingId(null);
@@ -125,15 +125,15 @@ export const Gallery: React.FC<GalleryProps> = ({ frames, plan }) => {
       // 如果有 Plan，则重建完整的 Prompt (包含人物、场景、负面词等)
       if (plan) {
          const fallbackMetadata: FrameMetadata = {
-             model: 'unknown',
-             provider: 'unknown',
-             strategy: 'unknown',
-             resolution: 'unknown'
+             model: '未知',
+             provider: '未知',
+             strategy: '未知',
+             resolution: '未知'
          };
          text = constructFullPrompt(plan, frame.description, frame.metadata || fallbackMetadata);
       } else {
          // 降级：只复制当前描述
-         text = `[Prompt] ${frame.description}\n[Model] ${frame.metadata?.model}\n[Variant] ${frame.metadata?.variant}`;
+         text = `[提示词] ${frame.description}\n[模型] ${frame.metadata?.model}\n[风格] ${frame.metadata?.variant}`;
       }
       
       navigator.clipboard.writeText(text);
@@ -222,7 +222,7 @@ export const Gallery: React.FC<GalleryProps> = ({ frames, plan }) => {
                     <div className="flex flex-col items-center gap-3 animate-pulse opacity-60">
                         <TerminalIcon className="w-5 h-5 text-amber-500/80" />
                         <span className="text-[9px] text-amber-500/70 font-mono uppercase tracking-widest">
-                            AI WRITING SCRIPT...
+                            正在生成分镜脚本...
                         </span>
                         <div className="w-8 h-0.5 bg-amber-500/20 rounded overflow-hidden">
                             <div className="h-full bg-amber-500/50 w-full animate-progress origin-left"></div>
@@ -250,11 +250,11 @@ export const Gallery: React.FC<GalleryProps> = ({ frames, plan }) => {
                          <span className={`text-[10px] px-2 py-0.5 rounded border font-mono uppercase tracking-wide ${
                            frame.metadata.model.includes('pro') ? 'bg-amber-900/20 border-amber-500/20 text-amber-500' : 'bg-blue-900/20 border-blue-500/20 text-blue-400'
                          }`}>
-                           {frame.metadata.model.includes('pro') ? '电影级 4K' : '极速 FLASH'}
+                           {frame.metadata.model.includes('pro') ? '电影级 4K' : '极速模式'}
                          </span>
                          {frame.metadata.variant && (
                              <span className="text-[10px] px-2 py-0.5 rounded border border-amber-500/10 bg-amber-500/5 text-amber-500 font-mono uppercase tracking-wide cursor-pointer hover:bg-amber-500/20" title="点击复制完整配方" onClick={(e) => handleCopyPrompt(e, frame)}>
-                                {copiedId === frame.id ? "FULL PROMPT COPIED!" : String(frame.metadata.variant).split('/')[0].substring(0, 10) + "..."}
+                                {copiedId === frame.id ? "完整配方已复制" : String(frame.metadata.variant).split('/')[0].substring(0, 10) + "..."}
                              </span>
                          )}
                        </>
@@ -308,9 +308,9 @@ export const Gallery: React.FC<GalleryProps> = ({ frames, plan }) => {
           onClick={closeLightbox}
         >
           {/* Top Bar */}
-          <div className="flex-none h-16 flex items-center justify-between px-6 z-50 border-b border-white/5 bg-black/40">
-             <div className="text-zinc-400 font-mono text-xs tracking-widest flex items-center gap-4">
-                <span>序列 FRAME {String(selectedIndex + 1).padStart(2, '0')} / {String(frames.length).padStart(2, '0')}</span>
+              <div className="flex-none h-16 flex items-center justify-between px-6 z-50 border-b border-white/5 bg-black/40">
+                 <div className="text-zinc-400 font-mono text-xs tracking-widest flex items-center gap-4">
+                <span>序列帧 {String(selectedIndex + 1).padStart(2, '0')} / {String(frames.length).padStart(2, '0')}</span>
                 <span className="w-px h-3 bg-zinc-700"></span>
                 <button 
                     onClick={(e) => handleCopyPrompt(e, selectedFrame)}
@@ -349,9 +349,9 @@ export const Gallery: React.FC<GalleryProps> = ({ frames, plan }) => {
                <div className="flex-1 w-full">
                  <p className="text-zinc-100 text-sm md:text-base leading-relaxed font-light mb-3 font-serif line-clamp-3 md:line-clamp-none select-text">{selectedFrame.description}</p>
                  <div className="flex gap-4 text-[10px] text-zinc-500 font-mono uppercase tracking-widest">
-                    <span>Model: {selectedFrame.metadata?.model}</span>
+                    <span>模型：{selectedFrame.metadata?.model}</span>
                     <span>•</span>
-                    <span>Style: {selectedFrame.metadata?.variant?.substring(0, 20)}...</span>
+                    <span>风格：{selectedFrame.metadata?.variant?.substring(0, 20)}...</span>
                  </div>
                </div>
                <button 

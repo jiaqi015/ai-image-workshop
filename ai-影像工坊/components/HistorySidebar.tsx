@@ -45,7 +45,7 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
               <div className="bg-amber-500/10 text-amber-500 p-2 rounded border border-amber-500/20">
                 <FilmIcon className="w-4 h-4" />
               </div>
-              <span className="uppercase tracking-widest text-xs">制作档案库 Archives</span>
+              <span className="tracking-widest text-xs">制作档案库</span>
             </h2>
             <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-full">✕</button>
           </div>

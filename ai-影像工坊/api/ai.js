@@ -855,6 +855,16 @@ const callGoogleImage = async ({ apiKey, model, prompt }) => {
 const buildGeneratePrompt = (contents, messages) =>
   typeof contents === "string" ? contents : messageText(messages || [{ role: "user", content: contents }]);
 
+const ASIAN_REALISM_IMAGE_APPENDIX =
+  "Hard Constraint: subject must be a real Asian adult human (East Asian), with natural skin texture, realistic body proportion, and human imperfections. Do NOT switch to non-Asian ethnicity. Avoid stylized/cartoon/plastic look.";
+
+const enforceAsianRealismImagePrompt = (prompt) => {
+  const text = String(prompt || "").trim();
+  if (!text) return "";
+  if (/real asian|east asian|真实亚洲|东亚/i.test(text)) return text;
+  return `${text}\n\n${ASIAN_REALISM_IMAGE_APPENDIX}`;
+};
+
 const createOpenAICompatibleAdapter = (provider) => ({
   chat: async ({ model, messages, key, baseUrl }) =>
     callOpenAICompatibleChat({ baseUrl, apiKey: key, model, messages, provider }),
@@ -1007,6 +1017,7 @@ const runTextGenerate = async ({ model, contents, config, messages }) => {
 };
 
 const runImageGenerate = async ({ model, prompt }) => {
+  const normalizedPrompt = enforceAsianRealismImagePrompt(prompt);
   return runWithProviderFallback({
     taskType: "image",
     requestedModel: model,
@@ -1014,7 +1025,7 @@ const runImageGenerate = async ({ model, prompt }) => {
       getProviderAdapter(provider).image({
         provider,
         model: resolveRuntimeModel(provider, resolvedModel),
-        prompt,
+        prompt: normalizedPrompt,
         key,
         baseUrl,
       }),

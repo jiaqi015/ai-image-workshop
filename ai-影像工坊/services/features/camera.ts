@@ -2,6 +2,24 @@
 import { ShootPlan, FrameMetadata, RuntimeBlueprint, OptionBlueprint } from "../../types";
 import { Infrastructure } from "../api/client";
 
+const ASIAN_REALISM_SUBJECT_PREFIX =
+    "(Real Asian adult human:1.7), (East Asian facial structure:1.5), (natural human skin texture, pores, subtle imperfections:1.4), black or dark-brown hair, dark-brown eyes";
+
+const ASIAN_REALISM_NEGATIVE = [
+    "western face",
+    "caucasian",
+    "white people",
+    "african ethnicity",
+    "european face",
+    "blonde hair",
+    "blue eyes",
+    "green eyes",
+    "non-asian ethnicity",
+    "anime face",
+    "cartoon face",
+    "plastic skin",
+];
+
 // ==========================================
 // 领域：摄影执行 (Camera Domain)
 // 架构模式: "Optical Physics Simulation" + "Semantic Isolation" + "Blueprint Execution"
@@ -112,11 +130,8 @@ export const CameraEngine = {
         }
 
         if (isPerson) {
-            const isExplicitlyForeign = /\b(western|white|caucasian|black|african|blonde|blue eye|green eye|russian|american|european)\b/i.test(lowerChar);
-            if (!isExplicitlyForeign) {
-                charDesc = `(Chinese ethnicity:1.5), (East Asian facial features:1.3), black hair, dark eyes, ${charDesc}`;
-                immuneSystem.push("western", "caucasian", "white people", "blonde hair", "blue eyes", "green eyes", "european");
-            }
+            charDesc = `${ASIAN_REALISM_SUBJECT_PREFIX}, ${charDesc}`;
+            immuneSystem.push(...ASIAN_REALISM_NEGATIVE);
             immuneSystem.push("monk", "priest", "clown", "joker", "alien", "robot", "cyborg", "zombie", "monster", "creature", "mask");
         }
         
@@ -131,7 +146,7 @@ Aesthetic Reference: "${cleanVariant}"
 Who: ${charDesc}.
 Wearing: ${wardrobe}.
 Action: ${mainDesc}${resolvedConfig ? `, ${resolvedConfig.palette.expression}, ${resolvedConfig.palette.posture}` : ""}.
-(Constraint: The subject MUST be Chinese/East Asian as defined. Do NOT whitewash.)
+(Constraint: Subject MUST be a real Asian human adult. Do NOT whitewash. Do NOT switch ethnicity.)
 
 [ENVIRONMENT]
 Location: ${env}.
@@ -179,7 +194,7 @@ Avoid: ${negativePromptBlock}.
             const isRefusal = errMsg.includes("refusal") || errMsg.includes("safety") || errMsg.includes("400") || errMsg.includes("policy");
 
             if (isRefusal) {
-                const safePrompt = `Cinematic photo: ${description}. Style: ${metadata.variant}. High quality.`;
+                const safePrompt = `Cinematic photo of a real Asian adult human: ${description}. Style: ${metadata.variant}. Natural skin texture, high quality.`;
                 try {
                     return await Infrastructure.runWithRetry(
                         () => CameraEngine._executeRequest(safePrompt, modelType, signal),
@@ -187,7 +202,7 @@ Avoid: ${negativePromptBlock}.
                     );
                 } catch (retryError: any) {
                     if (signal?.aborted) throw new Error("Aborted");
-                    const fallbackPrompt = "Abstract cinematic lighting, high contrast, 8k resolution.";
+                    const fallbackPrompt = "Photorealistic portrait of a real Asian adult human, cinematic lighting, natural skin texture, high contrast, 8k resolution.";
                     try {
                         return await Infrastructure.runWithRetry(
                             () => CameraEngine._executeRequest(fallbackPrompt, 'flash', signal),

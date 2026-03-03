@@ -71,8 +71,8 @@ export const useDarkroom = (
                 const errorMsg = e?.message || '未知渲染错误';
                 const isQuota = errorMsg.includes('429') || errorMsg.includes('quota');
                 
-                addLog(`底片 #${frame.id} 冲印废片 | ${isQuota ? 'API限流(请稍后)' : '错误'}: ${errorMsg}`, 'error');
-                setFrames(prev => prev.map(f => f.id === frame.id ? { ...f, status: 'failed', error: isQuota ? 'API限流' : '失败' } : f));
+                addLog(`底片 #${frame.id} 冲印废片 | ${isQuota ? '接口限流(请稍后)' : '错误'}: ${errorMsg}`, 'error');
+                setFrames(prev => prev.map(f => f.id === frame.id ? { ...f, status: 'failed', error: isQuota ? '接口限流' : '失败' } : f));
             }
         }
     }, [addLog]);
@@ -131,7 +131,7 @@ export const useDarkroom = (
 
         const workers = [];
         const initialBatchSize = Math.min(policy.concurrency, framesToProcess.length);
-        addLog(`启动暗房引擎 (Batch) | 并发: ${policy.concurrency}`, 'info');
+        addLog(`启动暗房引擎（批处理）| 并发: ${policy.concurrency}`, 'info');
         
         for (let i = 0; i < initialBatchSize; i++) {
              workers.push((async () => {

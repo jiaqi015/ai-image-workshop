@@ -255,19 +255,19 @@ const firstModelByFamily = (models: string[], family: "google" | "non_google", f
 const providerLabel = (provider: string) => {
     switch (provider) {
         case "openai":
-            return "OpenAI";
+            return "开放智能";
         case "google":
-            return "Google";
+            return "谷歌";
         case "ali":
             return "阿里";
         case "byte":
             return "字节";
         case "minimax":
-            return "MiniMax";
+            return "海螺";
         case "zhipu":
             return "智谱";
         default:
-            return provider || "Unknown";
+            return provider || "未知厂商";
     }
 };
 
@@ -355,11 +355,11 @@ async function callBackend(payload: any, signal?: AbortSignal) {
     try {
         data = text ? JSON.parse(text) : {};
     } catch {
-        data = { ok: false, error: text || "Invalid JSON response" };
+        data = { ok: false, error: text || "响应解析失败" };
     }
 
     if (!response.ok || data?.ok === false) {
-        throw new Error(data?.error || `Backend Error ${response.status}`);
+        throw new Error(data?.error || `后端错误 ${response.status}`);
     }
 
     return data;
@@ -372,7 +372,7 @@ interface IGenAIProvider {
 }
 
 class BackendStrategy implements IGenAIProvider {
-    public label = "Backend Gateway";
+    public label = "后端网关";
 
     async generateText(model: string, messages: any[], onChunk?: (text: string) => void, signal?: AbortSignal): Promise<string> {
         const targetModel = model || selectedTextModel;
@@ -395,16 +395,16 @@ class BackendStrategy implements IGenAIProvider {
         const response = await fetch(apiUrl("/api/ai?action=health"), {
             headers: withGatewayHeaders(),
         });
-        if (!response.ok) throw new Error(`Backend Health Error: ${response.status}`);
+        if (!response.ok) throw new Error(`后端健康检查错误: ${response.status}`);
         const data = await response.json();
-        if (data?.ok === false) throw new Error(data?.error || "Backend health failed");
+        if (data?.ok === false) throw new Error(data?.error || "后端健康检查失败");
         return true;
     }
 }
 
 class GoogleOfficialStrategy implements IGenAIProvider {
     private client: GoogleGenAI;
-    public label = "Google Cloud";
+    public label = "谷歌云直连";
     constructor(apiKey: string) {
         this.client = new GoogleGenAI({ apiKey });
     }
@@ -446,7 +446,7 @@ class GoogleOfficialStrategy implements IGenAIProvider {
 
 class ProxyServiceStrategy implements IGenAIProvider {
     private apiKey: string;
-    public label = "Proxy/OpenAI";
+    public label = "前端代理";
 
     constructor(apiKey: string) {
         this.apiKey = apiKey;
@@ -463,7 +463,7 @@ class ProxyServiceStrategy implements IGenAIProvider {
             body: JSON.stringify({ model: targetModel, messages, stream: true }),
             signal,
         });
-        if (!response.ok) throw new Error(`Proxy Error: ${response.status}`);
+        if (!response.ok) throw new Error(`前端代理错误: ${response.status}`);
 
         const reader = response.body?.getReader();
         const decoder = new TextDecoder();
@@ -502,7 +502,7 @@ class ProxyServiceStrategy implements IGenAIProvider {
             },
             body: JSON.stringify({ model: "gpt-5.1", messages: [{ role: "user", content: "ping" }], max_tokens: 1 }),
         });
-        if (!response.ok) throw new Error(`Proxy Error: ${response.status}`);
+        if (!response.ok) throw new Error(`前端代理错误: ${response.status}`);
         return true;
     }
 }
@@ -550,7 +550,7 @@ export const Infrastructure = {
             const response = await fetch(apiUrl("/api/ai?action=models"), {
                 headers: withGatewayHeaders(),
             });
-            if (!response.ok) throw new Error(`Model Catalog Error: ${response.status}`);
+            if (!response.ok) throw new Error(`模型目录请求失败: ${response.status}`);
             const data = await response.json();
 
             if (Array.isArray(data?.textModels) && data.textModels.length > 0) {
@@ -635,9 +635,9 @@ export const Infrastructure = {
             label: backendEnabled
                 ? `后端网关 · 文本:${providerLabel(textProvider)} · 生图:${providerLabel(imageProvider)}`
                 : mode === "proxy"
-                    ? "前端代理模式 (OpenAI Compatible)"
-                    : "Google Cloud",
-            provider: backendEnabled ? "Backend Gateway" : mode === "proxy" ? "Proxy" : "Google",
+                    ? "前端代理模式（开放接口兼容）"
+                    : "谷歌云直连",
+            provider: backendEnabled ? "后端网关" : mode === "proxy" ? "前端代理" : "谷歌",
             textModel: selectedTextModel,
             imageModel: selectedImageModel,
         };
@@ -647,7 +647,7 @@ export const Infrastructure = {
 
     getProvider: (): IGenAIProvider => {
         if (backendEnabled) return new BackendStrategy();
-        if (!storedKey) throw new Error("API Key 未配置");
+        if (!storedKey) throw new Error("接口密钥未配置");
         if (getModeFromModels() === "proxy") return new ProxyServiceStrategy(storedKey);
         return new GoogleOfficialStrategy(storedKey);
     },
@@ -669,8 +669,8 @@ export const Infrastructure = {
             } as any;
         }
 
-        if (!storedKey) throw new Error("API Key 未配置");
-        if (getModeFromModels() === "proxy") throw new Error("Proxy Mode active");
+        if (!storedKey) throw new Error("接口密钥未配置");
+        if (getModeFromModels() === "proxy") throw new Error("当前为前端代理模式");
         return new GoogleOfficialStrategy(storedKey).getClient();
     },
 
@@ -685,7 +685,7 @@ export const Infrastructure = {
         signal?: AbortSignal
     ): Promise<DirectorPlanResponse> => {
         const userIdea = String(payload?.userIdea || "").trim();
-        if (!userIdea) throw new Error("userIdea is required");
+        if (!userIdea) throw new Error("缺少用户创意输入");
 
         if (backendEnabled) {
             const targetModel = payload?.model || selectedTextModel;
@@ -705,9 +705,9 @@ export const Infrastructure = {
 
             if (onChunk) {
                 const progress = [
-                    `[Director Domain] Provider: ${data.provider || "unknown"}`,
-                    `[Director Domain] Model: ${data.model || targetModel}`,
-                    `[Director Domain] Plan ready`,
+                    `[导演域] 厂商: ${data.provider || "未知"}`,
+                    `[导演域] 模型: ${data.model || targetModel}`,
+                    `[导演域] 计划已就绪`,
                 ].join("\n");
                 onChunk(progress);
             }
@@ -720,7 +720,7 @@ export const Infrastructure = {
             };
         }
 
-        throw new Error("Backend disabled for director_plan");
+        throw new Error("后端已关闭，无法执行导演计划");
     },
 
     callProxy: async (modelList: string[], messages: any[], stream: boolean = false, onChunk?: (text: string) => void, signal?: AbortSignal): Promise<string> => {
@@ -739,7 +739,7 @@ export const Infrastructure = {
 
         if (backendEnabled) {
             try {
-                if (logger) logger("🚀 连接 Backend Gateway...");
+                if (logger) logger("正在连接后端网关...");
                 await withTimeout(callBackend({ action: "health" }), 30000, "连接超时");
                 if (logger) logger("✅ 后端网关握手成功");
                 return "pro";
@@ -777,7 +777,7 @@ export const Infrastructure = {
             return data.imageUrl;
         }
 
-        if (!storedKey) throw new Error("API Key 未配置");
+        if (!storedKey) throw new Error("接口密钥未配置");
 
         if (getModeFromModels() === "proxy") {
             const openaiImageModel = firstModelByProvider(availableImageModels, "openai", "gpt-image-1");
@@ -799,8 +799,8 @@ export const Infrastructure = {
 
             if (!response.ok) {
                 const errText = await response.text();
-                if (response.status === 429) throw new Error("Rate Limit (429)");
-                throw new Error(`Proxy Error ${response.status}: ${errText.slice(0, 120)}`);
+                if (response.status === 429) throw new Error("请求限流 (429)");
+                throw new Error(`前端代理错误 ${response.status}: ${errText.slice(0, 120)}`);
             }
 
             const data = await response.json();
@@ -833,6 +833,6 @@ export const Infrastructure = {
             return `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`;
         }
 
-        throw new Error(response.text || `Generation failed (${candidate?.finishReason || "Empty Response"})`);
+        throw new Error(response.text || `生成失败 (${candidate?.finishReason || "空响应"})`);
     },
 };

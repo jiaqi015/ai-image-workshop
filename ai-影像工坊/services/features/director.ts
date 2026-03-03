@@ -18,7 +18,7 @@ const FALLBACK_PLAN: ShootPlan = {
     productionNotes: { lighting: "自然光", palette: "中性", composition: "中心构图" },
     shootScope: { nonNegotiables: [], flexibleElements: [], complexityLevel: "low" },
     continuity: {
-        character: { description: "通用主体", body: "标准身材", details: [], origin: "director" },
+        character: { description: "真实亚洲成年人主体", body: "真实人体比例，标准身材", details: ["真实亚洲人", "自然皮肤纹理"], origin: "director" },
         wardrobe: { description: "简约造型", material: "棉麻", accessories: [], origin: "director" },
         set: { environment: "极简背景", timeOfDay: "日间", atmosphere: "平静", origin: "director" }
     },
@@ -26,6 +26,53 @@ const FALLBACK_PLAN: ShootPlan = {
     contract: { subjectIdentity: "主体", wardrobe: "基础款", location: "影棚", lighting: "柔光", cameraLanguage: "平视", texture: "数码" },
     frames: ["特写镜头", "中景镜头", "全景镜头"],
     visualVariants: ["经典方案 - 选角: 默认"]
+};
+
+const ASIAN_REALISM_CONSTRAINT =
+    "真实亚洲成年人（东亚骨相、自然皮肤纹理、真实人体比例，不可切换为非亚洲族裔）";
+
+const addAsianRealismPrefix = (text: string): string => {
+    const value = String(text || "").trim();
+    if (!value) return ASIAN_REALISM_CONSTRAINT;
+    const hasAsian = /(亚洲|东亚|asian|east asian|chinese)/i.test(value);
+    const hasReal = /(真实|real|photoreal|自然皮肤|skin texture|人体比例)/i.test(value);
+    if (hasAsian && hasReal) return value;
+    return `${ASIAN_REALISM_CONSTRAINT}，${value}`;
+};
+
+const normalizeOptionLine = (text: string): string => {
+    const chunks = String(text || "")
+        .split("||")
+        .map((item) => Adjudicator.cleanOption(item))
+        .filter(Boolean);
+    if (!chunks.length) return ASIAN_REALISM_CONSTRAINT;
+    return chunks.map((item) => addAsianRealismPrefix(item)).join(" || ");
+};
+
+const enforceAsianRealismPlan = (plan: any): any => {
+    if (!plan || typeof plan !== "object") return plan;
+    if (!plan.continuity) plan.continuity = {};
+    if (!plan.continuity.character) plan.continuity.character = {};
+    if (!plan.shootScope) plan.shootScope = { nonNegotiables: [], flexibleElements: [], complexityLevel: "low" };
+    if (!Array.isArray(plan.shootScope.nonNegotiables)) plan.shootScope.nonNegotiables = [];
+
+    plan.continuity.character.description = normalizeOptionLine(plan.continuity.character.description || FALLBACK_PLAN.continuity.character.description);
+    plan.continuity.character.body = normalizeOptionLine(plan.continuity.character.body || FALLBACK_PLAN.continuity.character.body);
+
+    const details = Array.isArray(plan.continuity.character.details) ? [...plan.continuity.character.details] : [];
+    const fixedDetails = details.filter((item) => typeof item === "string" && item.trim());
+    if (!fixedDetails.some((item) => /真实亚洲|east asian|asian/i.test(item))) fixedDetails.unshift("真实亚洲人");
+    if (!fixedDetails.some((item) => /皮肤|skin/i.test(item))) fixedDetails.push("自然皮肤纹理");
+    plan.continuity.character.details = fixedDetails;
+
+    if (!plan.contract) plan.contract = {};
+    plan.contract.subjectIdentity = addAsianRealismPrefix(plan.contract.subjectIdentity || "主体");
+
+    if (!plan.shootScope.nonNegotiables.some((item: string) => /亚洲|east asian|asian/i.test(String(item || "")))) {
+        plan.shootScope.nonNegotiables.unshift("主体必须为真实亚洲成年人");
+    }
+
+    return plan;
 };
 
 // ------------------------------------------------------------------
@@ -45,6 +92,12 @@ const Adjudicator = {
         if (analysis.hardLocks.gender !== 'NEUTRAL') {
              hardLocks.push({ kind: "text", where: "GLOBAL", strength: "SHOULD", text: `Gender: ${analysis.hardLocks.gender}` });
         }
+        hardLocks.push({
+            kind: "text",
+            where: "GLOBAL",
+            strength: "MUST",
+            text: "Subject must be a real Asian adult human with natural skin texture. No non-Asian casting.",
+        });
         analysis.hardLocks.explicitTraits.forEach(t => {
             hardLocks.push({ kind: "text", where: "GLOBAL", strength: "SHOULD", text: t });
         });
@@ -117,9 +170,9 @@ ${styleDirective}
 - AESTHETIC MUST BE: Organic, Raw, Film Grain, Imperfect, Human, Vintage, Textured.
 
 === 🌏 GLOBAL CASTING PROTOCOL (CRITICAL) ===
-- **DEFAULT ETHNICITY: CHINESE / EAST ASIAN**.
-- Unless the user EXPLICITLY asks for a foreigner, **YOU MUST CAST CHINESE ACTORS**.
-- **HAIR COLOR RULE**: Chinese characters CAN have dyed hair (blonde, pink, blue, etc.) if the style calls for it.
+- **MANDATORY ETHNICITY: ASIAN / EAST ASIAN (NO EXCEPTION)**.
+- Subject must always be a **real Asian adult human** with natural skin texture and human imperfections.
+- Even if user input mentions non-Asian ethnicity, you must still keep Asian casting.
 
 === 1. MULTI-OPTION PROTOCOL (FOR UI PARSING) ===
 - For \`continuity.character.description\` (Identity), \`continuity.character.body\` (Body Type), and \`continuity.wardrobe.description\`:
@@ -184,7 +237,7 @@ ${styleDirective}
             ? `\n[CONSTRAINT] Subject Gender: ${analysis.hardLocks.gender}. Must be explicitly described in 'character' description.` 
             : "";
 
-        const userPrompt = `PROJECT: ${analysis.coreSubject}${genderInstruction}\n[Instruction]: Interpret this with ORGANIC, HUMAN, FILM texture. No digital art feel. Casting Default: CHINESE (Dyed hair OK). Micro-casting Inspiration: "${creativeBrief.microCasting}"`;
+        const userPrompt = `PROJECT: ${analysis.coreSubject}${genderInstruction}\n[Instruction]: Interpret this with ORGANIC, HUMAN, FILM texture. No digital art feel. Subject must be a REAL ASIAN ADULT HUMAN. Micro-casting Inspiration: "${creativeBrief.microCasting}"`;
 
         const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }];
         const targetModel = model || Infrastructure.getModelPreferences().textModel;
@@ -194,6 +247,7 @@ ${styleDirective}
             if (!rawData.continuity) rawData.continuity = FALLBACK_PLAN.continuity;
             if (!rawData.continuity.character) rawData.continuity.character = { ...FALLBACK_PLAN.continuity.character };
             if (!rawData.continuity.character.body) rawData.continuity.character.body = "Default Body Type";
+            enforceAsianRealismPlan(rawData);
 
             // Ensure blueprint token exists and is current.
             const details: string[] = Array.isArray(rawData.continuity.character.details)
@@ -254,6 +308,7 @@ ${styleDirective}
         Task: Create ${count} NEW visual style variants for "${plan.title}".
         Strategy: "Organic Textures".
         Requirements: NO CYBERPUNK. NO TECH. NO AI ART. Use Analog Film stocks.
+        Subject Constraint: Must depict a real Asian adult human (East Asian), no non-Asian casting.
         Output JSON: { "variants": ["方案N: ...", "方案N+1: ..."] }
         `;
 
@@ -344,7 +399,8 @@ ${styleDirective}
         2. Vary shot types (Close-up, Wide, Low-angle).
         3. KEEP SUBJECT CONSISTENT.
         4. ALIGN WITH THE [Visual Style Lock] defined above.
-        5. Output strictly JSON: { "frames": ["Shot 1 description", "Shot 2 description", ...] }
+        5. Subject must be a real Asian adult human (East Asian), natural skin texture.
+        6. Output strictly JSON: { "frames": ["Shot 1 description", "Shot 2 description", ...] }
         `;
 
         try {

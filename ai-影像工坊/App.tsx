@@ -25,11 +25,11 @@ export default function App() {
 
   const providerLabel = (provider: string) => {
       switch (provider) {
-          case 'openai': return 'OpenAI';
-          case 'google': return 'Google';
+          case 'openai': return '开放智能';
+          case 'google': return '谷歌';
           case 'ali': return '阿里';
           case 'byte': return '字节';
-          case 'minimax': return 'MiniMax';
+          case 'minimax': return '海螺';
           case 'zhipu': return '智谱';
           default: return provider || '未知厂商';
       }
@@ -125,19 +125,19 @@ export default function App() {
          <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
              <div className="bg-[#0f0f12] border border-white/10 p-8 rounded-lg w-full max-w-md shadow-2xl animate-in fade-in zoom-in-95">
                  <div className="flex justify-between items-center mb-6">
-                     <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-300">网关配置 Gateway Settings</h3>
+                     <h3 className="text-sm font-bold tracking-widest text-zinc-300">网关配置</h3>
                      <button onClick={() => studio.setShowSettingsModal(false)} className="text-zinc-500 hover:text-white"><XIcon className="w-5 h-5"/></button>
                  </div>
                  <form onSubmit={studio.handleManualKeySubmit} className="flex flex-col gap-4">
                      <div className="flex flex-col gap-2">
-                         <label className="text-[10px] text-zinc-500 uppercase font-mono">前端 Key 覆盖 (可选)</label>
+                         <label className="text-[10px] text-zinc-500 tracking-wide font-mono">前端密钥覆盖（可选）</label>
                          <div className="relative">
                             <input type="text" className="w-full bg-black/20 border border-white/10 p-3 rounded text-sm text-white focus:outline-none focus:border-amber-500/50 font-mono" placeholder="通常留空，生产环境推荐后端托管" value={studio.manualKeyInput} onChange={(e) => studio.setManualKeyInput(e.target.value)} />
                             {studio.hasDemoKey && (
                                 <button type="button" onClick={studio.handleAutoFillKey} className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-amber-500 hover:text-amber-400 px-2 py-1 bg-amber-500/10 rounded">填入测试卡</button>
                             )}
                          </div>
-                         <p className="text-[10px] text-zinc-500">推荐在 Vercel 环境变量中配置模型 Key，前端无需暴露敏感信息。</p>
+                         <p className="text-[10px] text-zinc-500">推荐在部署平台环境变量中配置模型密钥，前端无需暴露敏感信息。</p>
                      </div>
                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                          <div className="flex flex-col gap-2">
@@ -198,8 +198,8 @@ export default function App() {
                          </div>
                      </div>
                      <div className="flex gap-2 justify-end mt-4 pt-4 border-t border-white/5">
-                         <button type="button" onClick={studio.handleClearKey} className="px-4 py-2 text-xs text-zinc-500 hover:text-red-400 uppercase tracking-wide">清除配置 (Clear)</button>
-                         <button type="submit" className="px-6 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold uppercase tracking-wide rounded">{studio.isValidating ? '验证中...' : '保存 & 连接'}</button>
+                         <button type="button" onClick={studio.handleClearKey} className="px-4 py-2 text-xs text-zinc-500 hover:text-red-400 tracking-wide">清除配置</button>
+                         <button type="submit" className="px-6 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold tracking-wide rounded">{studio.isValidating ? '验证中...' : '保存并连接'}</button>
                      </div>
                  </form>
                  {studio.validationLogs.length > 0 && (<div className="w-full text-left font-mono mt-4 p-3 bg-black/40 rounded">{studio.validationLogs.map((log, i) => (<div key={i} className="text-[10px] text-zinc-400 mb-1">{log}</div>))}</div>)}
@@ -227,11 +227,11 @@ export default function App() {
              
              {/* Workflow Progress Indicator */}
              <div className="hidden xl:flex items-center gap-8 text-xs tracking-[0.2em] text-zinc-500 font-medium">
-                <div className={`transition-all duration-500 flex flex-col ${studio.appState === AppState.PLANNING ? 'text-amber-500 scale-105' : 'opacity-50'}`}><span>前期筹备</span><span className="text-[8px] opacity-60 font-serif mt-0.5">PRE-PRODUCTION</span></div>
+                <div className={`transition-all duration-500 ${studio.appState === AppState.PLANNING ? 'text-amber-500 scale-105' : 'opacity-50'}`}><span>前期筹备</span></div>
                 <div className="w-8 h-px bg-zinc-800"></div>
-                <div className={`transition-all duration-500 flex flex-col ${studio.appState === AppState.CONCEPT ? 'text-amber-500 scale-105' : 'opacity-50'}`}><span>视觉定调</span><span className="text-[8px] opacity-60 font-serif mt-0.5">ART DIRECTION</span></div>
+                <div className={`transition-all duration-500 ${studio.appState === AppState.CONCEPT ? 'text-amber-500 scale-105' : 'opacity-50'}`}><span>视觉定调</span></div>
                 <div className="w-8 h-px bg-zinc-800"></div>
-                <div className={`transition-all duration-500 flex flex-col ${studio.appState === AppState.SHOOTING ? 'text-white scale-105' : 'opacity-50'}`}><span>正片拍摄</span><span className="text-[8px] opacity-60 font-serif mt-0.5">PRINCIPAL PHOTOGRAPHY</span></div>
+                <div className={`transition-all duration-500 ${studio.appState === AppState.SHOOTING ? 'text-white scale-105' : 'opacity-50'}`}><span>正片拍摄</span></div>
              </div>
 
              {/* Model Selector: Provider -> Model */}
@@ -297,7 +297,7 @@ export default function App() {
              {/* Stats (Render Time / Active Requests) */}
              {studio.appState === AppState.SHOOTING && (
                 <div className="hidden md:flex items-center gap-6 ml-8 animate-in fade-in slide-in-from-left-4 text-zinc-400">
-                    <div className="flex items-center gap-2 bg-zinc-900/50 px-3 py-1.5 rounded-full border border-white/5"><ClockIcon className="w-3.5 h-3.5" /><span className="text-xs font-mono">{(studio.elapsedTime / 1000).toFixed(1)}s</span></div>
+                    <div className="flex items-center gap-2 bg-zinc-900/50 px-3 py-1.5 rounded-full border border-white/5"><ClockIcon className="w-3.5 h-3.5" /><span className="text-xs font-mono">{(studio.elapsedTime / 1000).toFixed(1)}秒</span></div>
                     <div className="flex items-center gap-2 bg-zinc-900/50 px-3 py-1.5 rounded-full border border-white/5"><ActivityIcon className="w-3.5 h-3.5" /><span className="text-xs font-mono">{studio.activeRequests} 渲染中</span></div>
                 </div>
              )}
@@ -339,7 +339,7 @@ export default function App() {
                         onClick={studio.handleRandomPrompt} 
                         disabled={studio.isGeneratingRandom}
                         className={`absolute left-8 bottom-24 p-2 rounded-full transition-all duration-300 z-20 bg-black/20 hover:bg-black/40 ${studio.isGeneratingRandom ? 'text-amber-500 cursor-not-allowed' : 'text-zinc-500 hover:text-amber-500 hover:rotate-180'}`} 
-                        title="大师灵感 (AI Powered)"
+                        title="大师灵感"
                       >
                          {studio.isGeneratingRandom ? (
                              <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
@@ -352,22 +352,22 @@ export default function App() {
                       {/* Control Bar */}
                       <div className="px-8 py-5 border-t border-white/5 flex flex-col md:flex-row gap-6 justify-between items-center bg-black/20 backdrop-blur-sm">
                          <div className="flex gap-4 w-full md:w-auto overflow-x-auto pb-2 md:pb-0 no-scrollbar">
-                              {[{ id: 'pro', label: '电影级', sub: 'Cinema 4K', desc: 'Auto Fallback', active: studio.strategy === 'pro' }, { id: 'hybrid', label: '混合模式', sub: 'Dynamic', desc: 'Pro + Flash', active: studio.strategy === 'hybrid' }, { id: 'flash', label: '极速模式', sub: 'Flash', desc: 'High Speed', active: studio.strategy === 'flash' }].map((mode) => (
+                              {[{ id: 'pro', label: '电影级', sub: '画质优先', active: studio.strategy === 'pro' }, { id: 'hybrid', label: '混合模式', sub: '智能分配', active: studio.strategy === 'hybrid' }, { id: 'flash', label: '极速模式', sub: '速度优先', active: studio.strategy === 'flash' }].map((mode) => (
                                 <button key={mode.id} onClick={() => studio.setStrategy(mode.id as ShootStrategy)} className={`flex-1 md:flex-none px-5 py-3 rounded-lg transition-all duration-300 flex flex-col items-start min-w-[130px] border relative overflow-hidden group/btn ${mode.active ? 'bg-zinc-800/80 border-zinc-600 text-zinc-100 shadow-lg' : 'bg-transparent border-transparent hover:bg-white/5 text-zinc-500 hover:text-zinc-300'}`}>
-                                    <span className="text-xs font-bold tracking-widest uppercase mb-1 z-10">{mode.label}</span>
+                                    <span className="text-xs font-bold tracking-widest mb-1 z-10">{mode.label}</span>
                                     <div className="flex items-center justify-between w-full z-10"><span className={`text-[10px] font-mono ${mode.active ? 'text-zinc-300' : 'text-zinc-600'}`}>{mode.sub}</span></div>
                                     {mode.active && <div className="absolute bottom-0 left-0 h-0.5 bg-amber-500 w-full animate-in slide-in-from-left duration-500"></div>}
                                 </button>
                               ))}
                          </div>
                          <div className="hidden md:flex flex-col items-end gap-1.5 text-[10px] text-zinc-500 font-mono tracking-wider">
-                             <div className="flex items-center gap-2"><div className={`w-1.5 h-1.5 rounded-full ${studio.keyConfigured ? 'bg-green-500 shadow-[0_0_5px_rgba(34,197,94,0.5)]' : 'bg-red-500'}`}></div><span>影棚就绪 STUDIO READY</span></div>
+                             <div className="flex items-center gap-2"><div className={`w-1.5 h-1.5 rounded-full ${studio.keyConfigured ? 'bg-green-500 shadow-[0_0_5px_rgba(34,197,94,0.5)]' : 'bg-red-500'}`}></div><span>影棚已就绪</span></div>
                              <button 
                                 onClick={cycleTextModel} 
                                 className="flex items-center gap-1 opacity-70 hover:opacity-100 transition-opacity cursor-pointer group"
-                                title="点击切换文本模型 / Click to Switch Text Model"
+                                title="点击切换文本模型"
                              >
-                                <span className="text-[9px] uppercase group-hover:text-zinc-300">Text:</span>
+                                <span className="text-[9px] group-hover:text-zinc-300">文本模型：</span>
                                 <span className={`text-[9px] font-bold ${studio.connectionMode.mode === 'proxy' ? 'text-amber-500' : 'text-blue-400'}`}>
                                     {studio.textModel}
                                 </span>
@@ -429,7 +429,7 @@ export default function App() {
                                       <div className="inline-block px-3 py-1 border border-white/10 rounded-full text-[10px] text-zinc-500 font-mono tracking-widest uppercase mb-4">第一阶段：视觉定调</div>
                                       <div className="flex items-center justify-center gap-4">
                                           <h2 className="text-3xl font-serif text-zinc-100 mb-4 tracking-widest">十二种可能的现实</h2>
-                                          <button onClick={studio.handleExpandUniverse} disabled={studio.isExpandingUniverse} className="mb-3 px-3 py-1.5 border border-dashed border-zinc-700 hover:border-amber-500 text-zinc-500 hover:text-amber-500 rounded text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all disabled:opacity-50" title="Expand Parallel Universes">
+                                          <button onClick={studio.handleExpandUniverse} disabled={studio.isExpandingUniverse} className="mb-3 px-3 py-1.5 border border-dashed border-zinc-700 hover:border-amber-500 text-zinc-500 hover:text-amber-500 rounded text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all disabled:opacity-50" title="扩展平行时空">
                                               {studio.isExpandingUniverse ? <div className="w-3 h-3 border border-current border-t-transparent animate-spin rounded-full"></div> : <SparklesIcon className="w-3 h-3" />}
                                               {studio.isExpandingUniverse ? '探测中...' : '探测更多时空 (+6)'}
                                           </button>
@@ -457,7 +457,7 @@ export default function App() {
                                                 {/* Main Image State */}
                                                 {proposalFrame.status === 'completed' && proposalFrame.imageUrl ? ( 
                                                     <>
-                                                        <img src={proposalFrame.imageUrl} className={`w-full h-full object-cover transition-all duration-700 ${isSelected ? 'grayscale-0' : 'grayscale-[20%] group-hover:grayscale-0'}`} alt={`Proposal ${index}`} />
+                                                        <img src={proposalFrame.imageUrl} className={`w-full h-full object-cover transition-all duration-700 ${isSelected ? 'grayscale-0' : 'grayscale-[20%] group-hover:grayscale-0'}`} alt={`方案预览图 ${index + 1}`} />
                                                         <div className="absolute inset-0 bg-black/10 group-hover:bg-transparent transition-colors"></div>
                                                     </> 
                                                 ) : ( 
@@ -490,7 +490,7 @@ export default function App() {
                           {/* Floating Action Button */}
                           <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 transition-all duration-500 ease-out transform translate-y-0">
                                <button onClick={studio.handleConfirmShoot} disabled={studio.selectedProposalId === null} className={`group relative px-10 py-4 rounded-full font-bold tracking-[0.2em] uppercase text-xs shadow-2xl flex items-center gap-3 transition-all duration-300 ${studio.selectedProposalId !== null ? 'bg-amber-600 hover:bg-amber-500 text-white hover:scale-105 hover:shadow-[0_0_40px_rgba(245,158,11,0.4)]' : 'bg-zinc-800 text-zinc-600 cursor-not-allowed border border-white/5'}`}>
-                                 {studio.selectedProposalId !== null ? ( <><span className="relative z-10">锁定方案 & 开机</span><div className="relative z-10 bg-white/20 p-1 rounded-full"><CameraIcon className="w-4 h-4" /></div><div className="absolute inset-0 rounded-full border border-white/20 scale-110 opacity-0 group-hover:scale-100 group-hover:opacity-100 transition-all duration-500"></div></> ) : ( <span>请先选择一种视觉风格</span> )}
+                                 {studio.selectedProposalId !== null ? ( <><span className="relative z-10">锁定方案并开机</span><div className="relative z-10 bg-white/20 p-1 rounded-full"><CameraIcon className="w-4 h-4" /></div><div className="absolute inset-0 rounded-full border border-white/20 scale-110 opacity-0 group-hover:scale-100 group-hover:opacity-100 transition-all duration-500"></div></> ) : ( <span>请先选择一种视觉风格</span> )}
                                </button>
                           </div>
                       </>

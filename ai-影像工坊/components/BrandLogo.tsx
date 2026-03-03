@@ -15,7 +15,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({ className = "", compact = 
           <circle cx="23" cy="24" r="6.4" stroke="currentColor" strokeWidth="1.6" opacity="0.95" />
           <circle cx="23" cy="24" r="2.2" fill="currentColor" opacity="0.85" />
 
-          {/* Restrained claw motif */}
+          {/* 克制的爪痕符号 */}
           <path d="M31 17.6c2.8-1.3 5.4-2.8 7.4-5.4" stroke="#f59e0b" strokeWidth="1.4" strokeLinecap="round" />
           <path d="M33 22.8c2.6-.4 5.3-1.4 7-3.5" stroke="#f59e0b" strokeWidth="1.4" strokeLinecap="round" opacity="0.9" />
           <path d="M32.1 28c2.4.4 4.8.2 7-.8" stroke="#f59e0b" strokeWidth="1.4" strokeLinecap="round" opacity="0.8" />
@@ -24,11 +24,10 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({ className = "", compact = 
 
       {!compact && (
         <div className="leading-none">
-          <div className="text-[11px] tracking-[0.22em] text-zinc-300 font-semibold">CAMERACLAW</div>
-          <div className="mt-1 text-[10px] tracking-[0.16em] text-zinc-500">影像工坊</div>
+          <div className="text-[11px] tracking-[0.22em] text-zinc-300 font-semibold">影爪工坊</div>
+          <div className="mt-1 text-[10px] tracking-[0.16em] text-zinc-500">视觉创作台</div>
         </div>
       )}
     </div>
   );
 };
-

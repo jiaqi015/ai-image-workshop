@@ -91,7 +91,7 @@ export const useStudioArchitect = () => {
                 await validateApiKey(DEMO_PROXY_KEY);
                 setKeyConfigured(true);
                 setConnectionMode(getConnectionStatus());
-                addLog("系统初始化完成: 已连接后端 AI 网关。", "success");
+                addLog("系统初始化完成：已连接后端智能网关。", "success");
             } catch (e: any) {
                 setKeyConfigured(false);
                 addLog(`后端网关不可用: ${e.message}`, "error");
@@ -141,7 +141,7 @@ export const useStudioArchitect = () => {
         setAppState(AppState.IDLE);
         setStreamingPlanText(''); setUserInput(''); setPlan(null); setFrames([]); setLogs([]); setSelectedConceptUrl(undefined); setElapsedTime(0); setSelectedProposalId(null);
         setCurrentHistoryId(null);
-        addLog("系统已硬复位 (Hard Reset) - 所有资源已释放。", "info");
+        addLog("系统已硬复位，所有资源已释放。", "info");
     }, [abortDarkroom, addLog]);
 
     const restoreSession = useCallback((item: any) => {
@@ -155,7 +155,7 @@ export const useStudioArchitect = () => {
         const restoredFrames = item.plan.conceptFrames || item.plan.frames.map((desc: string, i: number) => ({ id: i + 1, description: desc, status: 'pending' }));
         setFrames(restoredFrames);
         setLogs([]); setElapsedTime(0);
-        addLog(`暗房会话已恢复 | 档案ID: ${item.id}`, 'info');
+        addLog(`暗房会话已恢复｜档案编号：${item.id}`, 'info');
     }, [handleReset, addLog]);
 
     const handleVoiceInput = useCallback(() => {
@@ -178,7 +178,7 @@ export const useStudioArchitect = () => {
     }, [isGeneratingRandom]);
 
     const handleStartPlanning = useCallback(async () => {
-        if (!userInput.trim() || !keyConfigured || appState !== AppState.IDLE) return;
+        if (!userInput.trim() || appState !== AppState.IDLE) return;
         if (planningAbortController.current) planningAbortController.current.abort();
         planningAbortController.current = new AbortController();
         const signal = planningAbortController.current.signal;
@@ -188,7 +188,10 @@ export const useStudioArchitect = () => {
         setFrames([]); setLogs([]); setSelectedConceptUrl(undefined); setElapsedTime(0); setSelectedProposalId(null);
         setCurrentHistoryId(null); 
         try {
-            addLog(`接收到导演指令 (Director: ${directorModel.toUpperCase()})，正在构建平行宇宙...`, 'info');
+            if (!keyConfigured) {
+                addLog("检测到网关状态异常，已启用降级策略继续生成。", "network");
+            }
+            addLog(`接收到导演指令（文本模型：${directorModel}），正在构建平行宇宙...`, 'info');
             const generatedPlan = await generateShootPlan(userInput, (text) => { 
                 if(isShootingRef.current) setStreamingPlanText(text); 
             }, directorModel, 'dramatic', signal);
@@ -198,7 +201,7 @@ export const useStudioArchitect = () => {
             const proposalFrames: Frame[] = variants.slice(0, 12).map((variantDesc, index) => {
                 let vType: 'strict' | 'balanced' | 'creative' = 'balanced';
                 if (index < 4) vType = 'strict'; else if (index < 8) vType = 'balanced'; else vType = 'creative';
-                const microCasting = generatedPlan.continuity?.character?.details?.join(", ") || generateMicroCasting();
+                const microCasting = generatedPlan.continuity?.character?.details?.join("、") || generateMicroCasting();
                 return {
                     id: -1 - index, description: variantDesc, status: 'pending',
                     metadata: { model: imageModel, provider: 'Hybrid', strategy: 'Concept', resolution: 'Std', variant: variantDesc, variantType: vType, type: 'reference', castingTraits: microCasting }
@@ -210,7 +213,7 @@ export const useStudioArchitect = () => {
             setAppState(AppState.CONCEPT);
             const historyId = await addToHistory(generatedPlan, userInput);
             setCurrentHistoryId(historyId || null); 
-            addLog(`平行宇宙构建完成。请导演检视 12 种可能性。`, 'success');
+            addLog(`平行宇宙构建完成。请导演检视 12 种可能方案。`, 'success');
             await executeFrameBatch(proposalFrames, generatedPlan, 'flash', connectionMode.mode === 'proxy', setFrames, setPlan);
         } catch (e: any) {
             if (e.message !== "Aborted") {
@@ -225,7 +228,7 @@ export const useStudioArchitect = () => {
     const handleExpandUniverse = async () => {
         if (!plan) return;
         setIsExpandingUniverse(true); isShootingRef.current = true;
-        addLog("🚀 正在探测新的平行时空 (Expanding Universe)...", 'info');
+        addLog("正在探测新的平行时空...", 'info');
         try {
             const newVariants = await expandParallelUniverses(plan, 6, textModel);
             const startIdx = frames.length;
@@ -346,7 +349,7 @@ export const useStudioArchitect = () => {
                 await shootStreamBatch(chunkFrames, plan, strategy, connectionMode.mode === 'proxy', setFrames, setPlan);
             };
              try {
-                addLog(`[流水线] 启动并行编剧 (Target: 20 Frames)...`, 'network');
+                addLog(`[流水线] 启动并行编剧（目标 20 帧）...`, 'network');
                 const allDescriptions = await generateMoreFrames(
                     plan, 
                     needed, 
@@ -373,7 +376,7 @@ export const useStudioArchitect = () => {
         setIsExtending(true); isShootingRef.current = true;
         const activeVariantMetadata: FrameMetadata = frames[0]?.metadata || { model: imageModel, provider: 'Hybrid', strategy: 'Concept', resolution: 'Std' };
         const activeStyle = activeVariantMetadata.variant;
-        addLog(`[编剧部] 正在构思 ${count} 个新分镜 (Extending)...`, 'network');
+        addLog(`[编剧部] 正在构思 ${count} 个新分镜...`, 'network');
         const startId = frames.length + 1;
         const CHUNK_SIZE = 5;
         const onChunkReady = async (newScripts: string[], chunkIndex: number) => {
@@ -464,7 +467,7 @@ export const useStudioArchitect = () => {
         handleClearInput, 
         handleAutoFillKey: () => {
             if (hasDemoProxyKey) setManualKeyInput(DEMO_PROXY_KEY);
-            else addValidationLog("后端网关模式下通常无需前端 Key（可留空）。");
+            else addValidationLog("后端网关模式下通常无需前端密钥（可留空）。");
         },
         handleClearKey: () => { setCustomApiKey(null); setManualKeyInput(''); setConnectionMode(getConnectionStatus()); setValidationLogs([]); },
         handleToggleConnectionMode: () => {

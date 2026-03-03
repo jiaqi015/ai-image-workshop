@@ -42,7 +42,7 @@ const OptionRenderer = ({ text, isUser }: { text: string, isUser: boolean }) => 
                 let content = opt;
                 
                 if (match) {
-                    label = match[1] === 'Option' ? `OPTION ${match[2]}` : `方案 ${match[2]}`;
+                    label = `方案 ${match[2]}`;
                     content = match[3].trim();
                 }
 
@@ -231,7 +231,7 @@ export const ContractCard: React.FC<ContractCardProps> = ({
                     items={[
                         { label: "身份设定", value: continuity.character.description },
                         { label: "身材设定", value: continuity.character.body || "标准" },
-                        { label: "面部特征", value: continuity.character.details?.join(", ") || "无特殊" }
+                        { label: "面部特征", value: continuity.character.details?.join("、") || "无特殊" }
                     ]} 
                 />
 
@@ -242,7 +242,7 @@ export const ContractCard: React.FC<ContractCardProps> = ({
                     items={[
                         { label: "造型方案", value: continuity.wardrobe.description },
                         { label: "材质面料", value: continuity.wardrobe.material },
-                        { label: "单品清单", value: continuity.wardrobe.accessories?.join(", ") || "简约配置" }
+                        { label: "单品清单", value: continuity.wardrobe.accessories?.join("、") || "简约配置" }
                     ]} 
                 />
 
@@ -375,7 +375,7 @@ export const ContractCard: React.FC<ContractCardProps> = ({
              <div className="relative rounded-lg overflow-hidden border border-white/10 group cursor-zoom-in shadow-lg">
                 <img 
                   src={visualReferenceImageUrl} 
-                  alt="Visual Reference" 
+                  alt="视觉参考图" 
                   className="w-full h-auto object-cover opacity-90 group-hover:opacity-100 transition-opacity duration-500 hover:scale-105 transform"
                 />
              </div>
