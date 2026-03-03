@@ -3,7 +3,7 @@ import { ShootPlan, FrameMetadata, RuntimeBlueprint, OptionBlueprint } from "../
 import { Infrastructure } from "../api/client";
 
 const ASIAN_REALISM_SUBJECT_PREFIX =
-    "(Real Asian adult human:1.7), (East Asian facial structure:1.5), (natural human skin texture, pores, subtle imperfections:1.4), black or dark-brown hair, dark-brown eyes";
+    "(Real Asian adult human age 23+:1.7), (East Asian facial structure:1.5), (natural human skin texture, pores, subtle imperfections:1.4), black or dark-brown hair, dark-brown eyes";
 
 const ASIAN_REALISM_NEGATIVE = [
     "western face",
@@ -146,7 +146,7 @@ Aesthetic Reference: "${cleanVariant}"
 Who: ${charDesc}.
 Wearing: ${wardrobe}.
 Action: ${mainDesc}${resolvedConfig ? `, ${resolvedConfig.palette.expression}, ${resolvedConfig.palette.posture}` : ""}.
-(Constraint: Subject MUST be a real Asian human adult. Do NOT whitewash. Do NOT switch ethnicity.)
+(Constraint: Subject MUST be a real Asian human adult age 23+. Do NOT whitewash. Do NOT switch ethnicity. No minor cues.)
 
 [ENVIRONMENT]
 Location: ${env}.

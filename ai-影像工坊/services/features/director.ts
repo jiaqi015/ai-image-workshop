@@ -29,7 +29,7 @@ const FALLBACK_PLAN: ShootPlan = {
 };
 
 const ASIAN_REALISM_CONSTRAINT =
-    "真实亚洲成年人（东亚骨相、自然皮肤纹理、真实人体比例，不可切换为非亚洲族裔）";
+    "真实亚洲成年人（23岁以上，东亚骨相、自然皮肤纹理、真实人体比例，不可切换为非亚洲族裔）";
 
 const addAsianRealismPrefix = (text: string): string => {
     const value = String(text || "").trim();
@@ -96,7 +96,7 @@ const Adjudicator = {
             kind: "text",
             where: "GLOBAL",
             strength: "MUST",
-            text: "Subject must be a real Asian adult human with natural skin texture. No non-Asian casting.",
+            text: "Subject must be a real Asian adult human (age 23+) with natural skin texture. No non-Asian casting.",
         });
         analysis.hardLocks.explicitTraits.forEach(t => {
             hardLocks.push({ kind: "text", where: "GLOBAL", strength: "SHOULD", text: t });
@@ -171,8 +171,9 @@ ${styleDirective}
 
 === 🌏 GLOBAL CASTING PROTOCOL (CRITICAL) ===
 - **MANDATORY ETHNICITY: ASIAN / EAST ASIAN (NO EXCEPTION)**.
-- Subject must always be a **real Asian adult human** with natural skin texture and human imperfections.
+- Subject must always be a **real Asian adult human (age 23+)** with natural skin texture and human imperfections.
 - Even if user input mentions non-Asian ethnicity, you must still keep Asian casting.
+- Styling can include academy-style uniforms or lingerie-inspired layering ONLY when clearly adult, with zero minor cues.
 
 === 1. MULTI-OPTION PROTOCOL (FOR UI PARSING) ===
 - For \`continuity.character.description\` (Identity), \`continuity.character.body\` (Body Type), and \`continuity.wardrobe.description\`:
@@ -192,7 +193,7 @@ ${styleDirective}
   "productionNotes": { "lighting": "...", "palette": "...", "composition": "..." },
   "continuity": { 
      "character": { 
-        "description": "4+ DISTINCT IDENTITY OPTIONS using || separator. (e.g. Student || Office Lady || Rebel...)", 
+        "description": "4+ DISTINCT IDENTITY OPTIONS using || separator. (e.g. Night-shift clerk || Office worker || Street musician || Freelance editor ...)", 
         "body": "4+ DISTINCT BODY TYPE OPTIONS using || separator. (e.g. Skinny || Curvy || Muscular || Soft...)",
         "details": ["Feature A", "Feature B"], 
         "origin": "director" 
@@ -237,7 +238,7 @@ ${styleDirective}
             ? `\n[CONSTRAINT] Subject Gender: ${analysis.hardLocks.gender}. Must be explicitly described in 'character' description.` 
             : "";
 
-        const userPrompt = `PROJECT: ${analysis.coreSubject}${genderInstruction}\n[Instruction]: Interpret this with ORGANIC, HUMAN, FILM texture. No digital art feel. Subject must be a REAL ASIAN ADULT HUMAN. Micro-casting Inspiration: "${creativeBrief.microCasting}"`;
+        const userPrompt = `PROJECT: ${analysis.coreSubject}${genderInstruction}\n[Instruction]: Interpret this with ORGANIC, HUMAN, FILM texture. No digital art feel. Subject must be a REAL ASIAN ADULT HUMAN (23+). Emphasize documentary details: feet sole texture, heavy shadow contrast, skin pores, fabric pressure marks. Micro-casting Inspiration: "${creativeBrief.microCasting}"`;
 
         const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }];
         const targetModel = model || Infrastructure.getModelPreferences().textModel;
@@ -308,7 +309,7 @@ ${styleDirective}
         Task: Create ${count} NEW visual style variants for "${plan.title}".
         Strategy: "Organic Textures".
         Requirements: NO CYBERPUNK. NO TECH. NO AI ART. Use Analog Film stocks.
-        Subject Constraint: Must depict a real Asian adult human (East Asian), no non-Asian casting.
+        Subject Constraint: Must depict a real Asian adult human (23+, East Asian), no non-Asian casting, no minor cues.
         Output JSON: { "variants": ["方案N: ...", "方案N+1: ..."] }
         `;
 
@@ -399,8 +400,9 @@ ${styleDirective}
         2. Vary shot types (Close-up, Wide, Low-angle).
         3. KEEP SUBJECT CONSISTENT.
         4. ALIGN WITH THE [Visual Style Lock] defined above.
-        5. Subject must be a real Asian adult human (East Asian), natural skin texture.
-        6. Output strictly JSON: { "frames": ["Shot 1 description", "Shot 2 description", ...] }
+        5. Subject must be a real Asian adult human (23+, East Asian), natural skin texture.
+        6. Add concrete tactile details in each frame (e.g. feet sole dust, heavy shadow edges, pressure marks on fabric/skin).
+        7. Output strictly JSON: { "frames": ["Shot 1 description", "Shot 2 description", ...] }
         `;
 
         try {

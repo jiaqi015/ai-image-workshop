@@ -5,7 +5,7 @@ import { ShootPlan } from "../../../types";
 const clean = (s: string) => s.replace(/(\r\n|\n|\r)/gm, " ").trim();
 const cleanOptions = (text: string) => text.replace(/(Option|方案)\s*[A-Z0-9]+[:\uff1a]/gi, "").replace(/\|\|/g, " OR ").trim();
 const ASIAN_REALISM_SUBJECT_PREFIX =
-    "(Real Asian adult human:1.7), (East Asian facial structure:1.5), (natural human skin texture, pores, subtle imperfections:1.4), black or dark-brown hair, dark-brown eyes";
+    "(Real Asian adult human age 23+:1.7), (East Asian facial structure:1.5), (natural human skin texture, pores, subtle imperfections:1.4), black or dark-brown hair, dark-brown eyes";
 
 export class PromptRenderer {
 
@@ -64,7 +64,7 @@ Aesthetic: "${cleanStyle}"
 Who: ${clean(who)}. ${ethnicEnforcement}.
 Wearing: ${clean(wear)}.
 Action: ${clean(action)}.
-(Hard Constraint: Subject MUST be a real Asian human adult. Do NOT switch ethnicity.)
+(Hard Constraint: Subject MUST be a real Asian human adult age 23+. Do NOT switch ethnicity. No minor cues.)
 
 [ENVIRONMENT]
 Location: ${clean(where)}.

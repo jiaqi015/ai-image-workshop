@@ -17,9 +17,10 @@
     "quality:gate": "npm run typecheck && npm run build && npm run test:regression"
   },
   "dependencies": {
+    "@google/genai": "^1.33.0",
+    "@vercel/blob": "^2.3.0",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3",
-    "@google/genai": "^1.33.0"
+    "react-dom": "^19.2.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

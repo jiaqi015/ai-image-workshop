@@ -45,7 +45,7 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
               <div className="bg-amber-500/10 text-amber-500 p-2 rounded border border-amber-500/20">
                 <FilmIcon className="w-4 h-4" />
               </div>
-              <span className="tracking-widest text-xs">制作档案库</span>
+              <span className="tracking-widest text-xs">全站制作档案库</span>
             </h2>
             <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-full">✕</button>
           </div>
@@ -55,7 +55,7 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
             {history.length === 0 ? (
               <div className="h-40 flex flex-col items-center justify-center text-zinc-700 space-y-4">
                 <CameraIcon className="w-10 h-10 opacity-20" />
-                <span className="text-xs font-mono uppercase tracking-widest">暂无历史记录</span>
+                <span className="text-xs font-mono uppercase tracking-widest">暂无全站记录</span>
               </div>
             ) : (
               history.map((item) => (

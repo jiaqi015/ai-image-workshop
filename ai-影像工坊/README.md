@@ -74,6 +74,7 @@ npm run dev
 - `BYTE_KEY`
 - `MINIMAX_KEY`
 - `ZHIPU_KEY`
+- `BLOB_READ_WRITE_TOKEN`（开启全站历史回溯必填）
 
 可选（高级）：
 
@@ -126,6 +127,21 @@ npm run dev
 `GET /api/ai?action=metrics` 返回网关运行遥测（请求量、错误类型、fallback统计、厂商健康快照）。
 `GET /api/ai?action=dashboard&period=day|week` 返回日/周聚合看板指标。  
 `GET /api/ai?action=alerts&period=day|week` 返回阈值告警结果。
+
+## 6.1 全站历史回溯（Vercel Blob）
+
+启用 `BLOB_READ_WRITE_TOKEN` 后，历史系统会自动切换为“云端优先”：
+
+- `GET /api/history?action=health`：检查 Blob 连通性
+- `GET /api/history?action=list&limit=60`：读取全站历史（所有用户）
+- `POST /api/history` + `{ "action":"upsert", "item":{...} }`：写入/更新历史
+- `POST /api/history` + `{ "action":"delete", "id":"..." }`：删除历史
+
+存储结构：
+
+- `history/latest/*.json`：每条历史的最新快照
+- `history/snapshots/*`：历史版本快照
+- `history/images/*`：历史图片（自动把 data URL 上传为 Blob 公网地址）
 
 Provider 状态语义（重要）：
 

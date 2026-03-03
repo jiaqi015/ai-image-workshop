@@ -1,116 +1,115 @@
-
-import { Infrastructure } from "../../api/client";
 import { SafetySentinel } from "../guardrails/safetySentinel";
 
 // ==========================================
-// 灵感引擎 Pro (Inspiration Engine Professional)
-// 职责: 利用 Gemini 3 Pro 的推理能力，将随机的灵感碎片熔炼成大师级摄影指令
-// 风格: 亚洲美学特化 (中/日/港台) - 私房、情绪、蒙太奇
+// 灵感引擎 Pro（真实纪实闪光版）
+// 职责: 产出“可拍、可控、真实”的高张力中文提示词
+// 设计原则:
+// 1) 角色合同不可变（真实亚洲成年人 23+）
+// 2) 只随机镜头参数与叙事变量
+// 3) 风格核固定为纪实直闪 / 粗颗粒 / 厚黑阴影
 // ==========================================
 
-// 1. 灵感分子库 (Inspiration Molecules) - 扩展至 10x 组合可能性
-const MOLECULES = {
-    // 角色 (Who)
-    SUBJECTS: [
-        "刚失恋的昭和风少女", "疲惫的便利店夜班店员", "满身纹身的地下贝斯手", "眼神空洞的玩偶修复师", 
-        "穿着校服逃课的学生", "在浴缸里睡着的女人", "对着镜子剪头发的人", "满脸伤痕的拳击手",
-        "穿着旗袍的神秘客", "迷失在重庆大厦的旅人", "在天台放烟花的少年", "正在卸妆的京剧演员",
-        "雨夜中的杀手", "在这个城市没有家的流浪诗人", "拥有金鱼般记忆的女孩", "像猫一样的女人"
-    ],
-    // 场景 (Where)
-    LOCATIONS: [
-        "布满蒸汽的公共浴室", "凌晨三点的24小时洗衣房", "贴满小广告的电梯间", "长满青苔的废弃泳池",
-        "霓虹闪烁的九龙城寨暗巷", "堆满旧书和唱片的狭窄房间", "在此刻下雪的东京铁塔下", "摇晃的绿皮火车车厢",
-        "充满消毒水味的医院走廊", "红色灯光的复古发廊", "透明雨伞下的涩谷街头", "空无一人的午夜地铁",
-        "廉价的情人旅馆", "夏日的学校天台", "烟雾缭绕的麻将馆", "水族馆的蓝色幽光中"
-    ],
-    // 情绪/氛围 (Mood)
-    MOODS: [
-        "极度暧昧", "疏离与孤独", "躁动不安", "湿润且粘稠", "濒临崩溃的边缘", 
-        "像梦一样虚幻", "具有攻击性的性感", "压抑的暴力美学", "世纪末的颓废感", "冷酷的理智",
-        "热恋后的空虚", "无法言说的秘密", "对未知的恐惧", "沉溺于过去", "野蛮生长"
-    ],
-    // 视觉元素/道具 (Props/Visuals)
-    ELEMENTS: [
-        "死去的昆虫", "融化的冰淇淋", "燃烧的香烟", "破碎的镜子", "散落一地的药片",
-        "鲜红的口红印", "缠绕的耳机线", "金鱼缸", "过期罐头", "老式胶片相机",
-        "纠缠的肢体", "半个西瓜", "透明雨衣", "发光的灯管", "流血的石膏像"
-    ],
-    // 摄影风格/流派 (Style)
-    STYLES: [
-        "王家卫式抽帧 (Wong Kar-wai Step-printing)", 
-        "荒木经惟式私房 (Araki Eroticism)", 
-        "森山大道式粗颗粒黑白 (Moriyama High Contrast)", 
-        "蜷川实花式高饱和 (Ninagawa Acid Color)", 
-        "筱山纪信式少女写真 (Kishin Shinoyama)",
-        "滨田英明式日系清透 (Hideaki Hamada)",
-        "盖·伯丁式超现实 (Guy Bourdin Surrealism)",
-        "胶片漏光 Lomo 风格",
-        "90年代港片质感",
-        "王兵式原生纪录片感"
-    ]
-};
+const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
 
-const getRandom = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+const SUBJECT_POOL = [
+  "短发东亚女性，成年 23+，眼神疲惫但清醒",
+  "东亚男性，成年 25+，面部有轻微胡渣与黑眼圈",
+  "东亚女性，成年 27+，妆面微脱、皮肤有真实毛孔",
+  "东亚男性，成年 30+，颧骨明显，脸部有浅色旧疤",
+];
+
+const WARDROBE_POOL = [
+  "旧 T 恤与牛仔下装，褶皱明显",
+  "工装外套与运动裤，边缘磨损",
+  "学院风制服（成人版），领口与袖口有使用痕迹",
+  "内衣外搭造型（成人 editorial），外层透明衬衫",
+];
+
+const LOCATION_POOL = [
+  "夏日天台，混凝土地面返热",
+  "便利店后巷，地面有积水与烟头",
+  "旧居民楼楼道，墙皮剥落",
+  "夜班出租车后座，窗玻璃有指纹",
+  "公共洗衣房角落，荧光灯频闪",
+];
+
+const CAMERA_POOL = [
+  "35mm 近距离抓拍，轻微歪构图",
+  "50mm 中近景，低机位仰拍",
+  "28mm 广角贴脸，边缘轻微拉伸",
+  "35mm 半身，机位略高，压缩背景",
+];
+
+const ACTION_POOL = [
+  "抬手整理头发，动作停在半拍",
+  "俯身系鞋带，脚底短暂暴露",
+  "靠墙坐下，膝盖抬起，肩线不对称",
+  "回头看向镜头，呼吸可见",
+  "手指擦过嘴角，视线游离",
+];
+
+const DETAIL_POOL = [
+  "脚底沾灰与细小划痕可见",
+  "皮肤有毛孔、细汗、轻微痘印",
+  "眼下暗沉与法令纹真实保留",
+  "布料勒痕与折痕真实可见",
+  "锁骨与颈侧有高光溢出",
+];
+
+const SHADOW_POOL = [
+  "机顶直闪，厚黑硬阴影，背景掉入黑场",
+  "单点硬光，脸部高光炸点，暗部保留噪点",
+  "反差拉高，阴影区发黑但有颗粒层次",
+];
+
+const PROP_POOL = [
+  "融化的冰淇淋",
+  "被踩扁的纸杯",
+  "塑料袋与旧报纸",
+  "褪色的雨伞",
+  "廉价首饰与钥匙串",
+];
+
+const MOOD_POOL = [
+  "疏离",
+  "疲惫",
+  "挑衅",
+  "冷静",
+  "不安",
+];
+
+const buildPrompt = () => {
+  const subject = pick(SUBJECT_POOL);
+  const wardrobe = pick(WARDROBE_POOL);
+  const location = pick(LOCATION_POOL);
+  const camera = pick(CAMERA_POOL);
+  const action = pick(ACTION_POOL);
+  const detailA = pick(DETAIL_POOL);
+  const detailB = pick(DETAIL_POOL.filter((d) => d !== detailA));
+  const shadow = pick(SHADOW_POOL);
+  const prop = pick(PROP_POOL);
+  const mood = pick(MOOD_POOL);
+
+  return `
+【角色合同（不可变）】
+真实亚洲成年人（23岁以上），东亚骨相，真实皮肤纹理与人体比例；严禁未成年语义与幼态化。
+
+【分镜参数（可变）】
+场景：${location}。服装：${wardrobe}。镜头：${camera}。
+动作：${action}。道具：${prop}。情绪：${mood}。
+
+【真实细节】
+${detailA}；${detailB}。
+
+【光影与质感】
+${shadow}；CCD/早期数码颗粒，允许轻微过曝与失焦，不做塑料磨皮，不做卡通化。
+  `.replace(/\n{2,}/g, "\n").trim();
+};
 
 export const InspirationProEngine = {
-    
-    /**
-     * 生成大师级灵感提示词
-     */
-    generateMasterpiece: async (signal?: AbortSignal): Promise<string> => {
-        // 1. 随机抽取灵感分子
-        const seeds = {
-            subject: getRandom(MOLECULES.SUBJECTS),
-            location: getRandom(MOLECULES.LOCATIONS),
-            mood: getRandom(MOLECULES.MOODS),
-            element: getRandom(MOLECULES.ELEMENTS),
-            style: getRandom(MOLECULES.STYLES)
-        };
-
-        // 2. 构建 Meta-Prompt
-        const systemPrompt = `
-        Role: A legendary Art Director & Photographer (Fusion of Wong Kar-wai, Nobuyoshi Araki, and Daido Moriyama).
-        Task: Synthesize a coherent, artistic, and visually stunning photography prompt based on the provided random fragments.
-        Language: Chinese (中文).
-        
-        Input Fragments:
-        - Subject: ${seeds.subject}
-        - Location: ${seeds.location}
-        - Mood: ${seeds.mood}
-        - Key Element: ${seeds.element}
-        - Aesthetic Style: ${seeds.style}
-        
-        Requirements:
-        1. **Logic Consistency**: Ensure the subject and location make sense together. If they conflict, create a surreal justification.
-        2. **Visual Poetry**: Don't just list words. Describe the lighting, texture, and the specific moment.
-        3. **Format**: Return a single paragraph describing the shot (approx 80-120 words).
-        4. **Safety**: Avoid explicit NSFW or gore. Sublimate into "Artistic Tension".
-        5. **No Explanations**: Just output the final prompt text.
-        
-        Example Output: 
-        "王家卫美学风格。一名刚失恋的短发少女，独自坐在凌晨三点的便利店窗边。窗外是倾盆大雨和模糊的霓虹灯光。她手里握着一罐过期的凤梨罐头，眼神空洞地注视着玻璃上的倒影。高对比度的冷暖色调对冲，画面带有明显的胶片颗粒感和轻微的动态模糊，传递出一种都市中极致的疏离与孤独感。"
-        `;
-
-        try {
-            // 3. 统一文本路由：使用当前用户选择的文本模型
-            const targetModel = Infrastructure.getModelPreferences().textModel;
-            const resultText = await Infrastructure.routeRequest(
-                targetModel,
-                [{ role: "system", content: systemPrompt }],
-                undefined,
-                signal
-            );
-
-            // 4. 安全过筛 (Final Safety Check)
-            const safePrompt = SafetySentinel.sanitize(resultText);
-            
-            return safePrompt || `${seeds.style}。${seeds.subject}在${seeds.location}，伴随着${seeds.element}，充满${seeds.mood}。`;
-
-        } catch (e) {
-            console.error("InspirationProEngine Failed:", e);
-            // 兜底：直接拼接
-            return `${seeds.style}。${seeds.subject}出现在${seeds.location}，画面中包含${seeds.element}，整体氛围${seeds.mood}。`;
-        }
-    }
+  generateMasterpiece: async (): Promise<string> => {
+    const prompt = buildPrompt();
+    return SafetySentinel.sanitize(prompt) || prompt;
+  },
 };
+

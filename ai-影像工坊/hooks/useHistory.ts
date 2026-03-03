@@ -13,6 +13,7 @@ import { ShootPlan, Frame } from '../types';
 export const useHistory = (addLog: (msg: string, type?: any) => void) => {
     const [history, setHistory] = useState<HistoryItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const buildHistoryId = () => `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
     // 初始化加载
     useEffect(() => {
@@ -47,7 +48,7 @@ export const useHistory = (addLog: (msg: string, type?: any) => void) => {
         }
 
         const newItem: HistoryItem = { 
-            id: Date.now().toString(), 
+            id: buildHistoryId(), 
             timestamp: Date.now(), 
             userInput, 
             plan: dehydratedPlan 

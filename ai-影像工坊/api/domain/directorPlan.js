@@ -197,8 +197,10 @@ Rules:
 4. visualVariants should include at least 12 distinct variants.
 5. frames should include at least 12 shot descriptions.
 6. Keep language concise and production-friendly.
-7. Subject must always be a REAL ASIAN ADULT HUMAN (East Asian). No non-Asian casting.
+7. Subject must always be a REAL ASIAN ADULT HUMAN (age 23+, East Asian). No non-Asian casting.
 8. Subject must look REAL: natural skin texture, pores, subtle imperfections. No stylized doll look.
+9. Styling may include academy-style uniform or lingerie-inspired layering ONLY when clearly adult, with zero minor cues.
+10. Each frame should include at least one tactile realism detail (feet sole dust, heavy shadow edge, fabric pressure mark, skin texture).
 
 Required JSON shape:
 {
@@ -229,7 +231,7 @@ Micro-casting cue:
 ${microCasting || "natural human details"}
 
 Global hard constraint:
-Subject must always be a real Asian adult human (East Asian), with natural skin texture and realistic body proportion.
+Subject must always be a real Asian adult human (age 23+, East Asian), with natural skin texture and realistic body proportion.
 `.trim();
 
   return [
@@ -257,7 +259,7 @@ const buildBlueprintToken = (plan, analysis = {}) => {
     kind: "text",
     where: "GLOBAL",
     strength: "MUST",
-    text: "Subject must be a real Asian adult human with natural skin texture. No non-Asian casting.",
+    text: "Subject must be a real Asian adult human (age 23+) with natural skin texture. No non-Asian casting.",
   });
 
   const charOptions = splitOptions(plan?.continuity?.character?.description);

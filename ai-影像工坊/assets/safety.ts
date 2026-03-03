@@ -13,10 +13,14 @@ export interface SafetyRule {
     action: SafetyAction;
     replacements?: string[]; 
     whitelistContext?: string[];
+    allowInAdultContext?: boolean;
 }
 
 export const SAFETY_CONFIG = {
-    SENSITIVE_SUBJECTS: ['child', 'kid', 'teen', 'baby', 'minor', 'student', 'underage']
+    SENSITIVE_SUBJECTS: [
+        'child', 'kid', 'teen', 'baby', 'minor', 'underage',
+        '未成年', '儿童', '小孩', '幼女', '幼男', '萝莉', '正太'
+    ]
 };
 
 // --- 核弹级风控指令 (The Nuclear Optimizer) ---
@@ -78,7 +82,8 @@ export const SAFETY_STRATEGIES = {
             category: 'NSFW_SOFT',
             action: 'SOFTEN',
             replacements: ["summer wear", "clothing", "fabric", "garment", "fashion piece"],
-            whitelistContext: ["beach", "pool", "fashion"]
+            whitelistContext: ["beach", "pool", "fashion"],
+            allowInAdultContext: true
         }
     ] as SafetyRule[],
 

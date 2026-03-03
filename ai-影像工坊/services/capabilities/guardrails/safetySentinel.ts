@@ -64,6 +64,10 @@ export const SafetySentinel = {
                     return "BLOCK: Safety violation detected.";
                 }
 
+                if (rule.allowInAdultContext && context.ageGroup !== 'MINOR') {
+                    continue;
+                }
+
                 processedText = processedText.replace(regex, (match) => {
                     if (isStrict && rule.category.startsWith('NSFW')) return "clothing"; 
                     if (rule.replacements && rule.replacements.length > 0) {
