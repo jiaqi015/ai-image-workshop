@@ -207,8 +207,8 @@ export const useStudioArchitect = () => {
             setPlan(generatedPlan);
             setFrames(proposalFrames); 
             setAppState(AppState.CONCEPT);
-            await addToHistory(generatedPlan, userInput);
-            setCurrentHistoryId(Date.now().toString()); 
+            const historyId = await addToHistory(generatedPlan, userInput);
+            setCurrentHistoryId(historyId || null); 
             addLog(`平行宇宙构建完成。请导演检视 12 种可能性。`, 'success');
             await executeFrameBatch(proposalFrames, generatedPlan, 'flash', connectionMode.mode === 'proxy', setFrames, setPlan);
         } catch (e: any) {

@@ -154,36 +154,63 @@ export const useDarkroom = (
          // 确保有一个活跃的控制器，但不重置它（允许叠加）
          if (!abortControllerRef.current) abortControllerRef.current = new AbortController();
          const signal = abortControllerRef.current.signal;
+         const policy = ExecutionPolicy.resolve(strategy, isProxy);
          
-         addLog(`流式任务注入: ${frames.length} 帧进入队列`, 'network');
+         addLog(`流式任务注入: ${frames.length} 帧进入队列 | 并发: ${policy.concurrency}`, 'network');
 
-         frames.forEach(async (frame, i) => {
-             // 简单的错峰，防止瞬间并发过高触发429
-             await new Promise(r => setTimeout(r, i * 800)); 
-             if (signal.aborted) return;
+         const inFlight = new Set<Promise<void>>();
 
-             let targetModel: 'pro' | 'flash' = strategy === 'pro' ? 'pro' : 'flash';
-             // Hybrid simple logic for stream
-             if (strategy === 'hybrid') targetModel = 'flash'; 
+         const launchFrame = (frame: Frame, index: number) => {
+            const task = (async () => {
+                if (signal.aborted || !isShootingRef.current) return;
 
-             const metadata: FrameMetadata = {
-                model: getModelPreferences().imageModel,
-                provider: isProxy ? 'Proxy' : 'Direct',
-                strategy: strategy,
-                resolution: targetModel === 'pro' ? '4K' : 'Std',
-                variant: frame.metadata?.variant,
-                variantType: frame.metadata?.variantType, 
-                type: 'shot',
-                castingTraits: frame.metadata?.castingTraits 
-            };
+                let targetModel: 'pro' | 'flash' = strategy === 'pro' ? 'pro' : 'flash';
+                if (strategy === 'hybrid') {
+                    targetModel = ExecutionPolicy.routeHybridFrame(frame.description, index, frames.length);
+                }
 
-             setActiveRequests(p => p + 1);
-             try {
-                 await processFrameWithRetry(plan, frame, targetModel, metadata, setFrames, setPlan, signal);
-             } finally {
-                 setActiveRequests(p => Math.max(0, p - 1));
+                const metadata: FrameMetadata = {
+                    model: getModelPreferences().imageModel,
+                    provider: isProxy ? 'Proxy' : 'Direct',
+                    strategy: strategy,
+                    resolution: targetModel === 'pro' ? '4K' : 'Std',
+                    variant: frame.metadata?.variant,
+                    variantType: frame.metadata?.variantType,
+                    type: 'shot',
+                    castingTraits: frame.metadata?.castingTraits
+                };
+
+                setActiveRequests(p => p + 1);
+                try {
+                    await processFrameWithRetry(plan, frame, targetModel, metadata, setFrames, setPlan, signal);
+                } finally {
+                    setActiveRequests(p => Math.max(0, p - 1));
+                }
+            })();
+
+            inFlight.add(task);
+            task.finally(() => inFlight.delete(task));
+        };
+
+         for (let i = 0; i < frames.length; i++) {
+             if (signal.aborted || !isShootingRef.current) break;
+
+             while (inFlight.size >= policy.concurrency) {
+                 await Promise.race(inFlight);
+                 if (signal.aborted || !isShootingRef.current) break;
              }
-         });
+             if (signal.aborted || !isShootingRef.current) break;
+
+             if (i > 0 && policy.staggerDelay > 0) {
+                 await new Promise(r => setTimeout(r, policy.staggerDelay));
+             }
+
+             launchFrame(frames[i], i);
+         }
+
+         if (inFlight.size > 0) {
+            await Promise.allSettled(Array.from(inFlight));
+         }
     }, [addLog, processFrameWithRetry]);
 
     // 暴露中止方法

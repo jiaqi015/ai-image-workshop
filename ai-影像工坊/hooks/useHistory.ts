@@ -61,6 +61,8 @@ export const useHistory = (addLog: (msg: string, type?: any) => void) => {
             console.error("Save failed", e);
             addLog("错误: 拍摄计划归档失败 (存储空间不足?)", "error");
         }
+
+        return newItem.id;
     }, [addLog]);
 
     // 关键升级：更新历史记录 (回写图片)
