@@ -22,6 +22,11 @@ import {
   markProviderValidated,
   markProviderValidationFailure,
 } from "./domain/providerValidation.js";
+import {
+  buildDirectorPacket,
+  buildDirectorPlanMessages,
+  normalizeDirectorPlan,
+} from "./domain/directorPlan.js";
 
 const DEFAULT_ROUTING = {
   policy: {
@@ -1209,6 +1214,47 @@ export default async function handler(req, res) {
 
     if (action === "health" || action === "validate") {
       sendJson(res, traceId, 200, healthPayload(), requestMeta);
+      return;
+    }
+
+    if (action === "director_plan") {
+      const userIdea = String(body.userIdea || "").trim();
+      if (!userIdea) {
+        sendJson(res, traceId, 400, { ok: false, error: "userIdea is required" }, requestMeta);
+        return;
+      }
+
+      const analysis = body.analysis && typeof body.analysis === "object" ? body.analysis : {};
+      const creativeBrief = body.creativeBrief && typeof body.creativeBrief === "object" ? body.creativeBrief : {};
+      const tension = String(body.tension || "dramatic");
+      const messages = buildDirectorPlanMessages({
+        userIdea,
+        analysis,
+        creativeBrief,
+        tension,
+      });
+
+      const execution = await runTextChat({ model: body.model, messages });
+      const rawText = String(execution.result?.text || "");
+      const plan = normalizeDirectorPlan({
+        rawText,
+        userIdea,
+        analysis,
+      });
+      const directorPacket = buildDirectorPacket({
+        plan,
+        userIdea,
+        analysis,
+        tension,
+      });
+
+      sendJson(res, traceId, 200, {
+        ok: true,
+        provider: execution.provider,
+        model: execution.model,
+        plan,
+        directorPacket,
+      }, requestMeta);
       return;
     }
 

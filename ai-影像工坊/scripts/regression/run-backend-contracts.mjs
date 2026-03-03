@@ -170,6 +170,44 @@ test('POST image without prompt returns 400', async () => {
   assert.match(String(res.body?.error || ''), /prompt is required/);
 });
 
+test('POST director_plan without userIdea returns 400', async () => {
+  const handler = await loadHandler({ AI_GATEWAY_TOKEN: undefined });
+  const res = await invoke(handler, {
+    method: 'POST',
+    body: { action: 'director_plan', userIdea: '' },
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.body?.ok, false);
+  expectTrace(res);
+  assert.match(String(res.body?.error || ''), /userIdea is required/i);
+});
+
+test('POST director_plan returns clear error when no provider key is configured', async () => {
+  const handler = await loadHandler({
+    AI_GATEWAY_TOKEN: undefined,
+    OPENAI_KEY: undefined,
+    GOOGLE_KEY: undefined,
+    ALI_KEY: undefined,
+    BYTE_KEY: undefined,
+    MINIMAX_KEY: undefined,
+    ZHIPU_KEY: undefined,
+  });
+
+  const res = await invoke(handler, {
+    method: 'POST',
+    body: {
+      action: 'director_plan',
+      userIdea: '昏暗室内，一位女性面对镜子',
+      tension: 'dramatic',
+    },
+  });
+
+  assert.equal(res.status, 500);
+  assert.equal(res.body?.ok, false);
+  expectTrace(res);
+  assert.match(String(res.body?.error || ''), /没有可用的厂商或 Key/i);
+});
+
 test('POST unsupported action returns 400', async () => {
   const handler = await loadHandler({ AI_GATEWAY_TOKEN: undefined });
   const res = await invoke(handler, {

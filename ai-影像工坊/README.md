@@ -119,6 +119,7 @@ npm run dev
 - 文本对话：`{ "action":"chat", "model":"gpt-5.1", "messages":[{"role":"user","content":"..."}] }`
 - 生图：`{ "action":"image", "model":"gpt-image-1", "prompt":"..." }`
 - 通用生成：`{ "action":"generate", "model":"...", "contents":"..." }`
+- 导演计划（结构化）：`{ "action":"director_plan", "model":"gpt-5.1", "userIdea":"...", "tension":"dramatic", "analysis":{}, "creativeBrief":{} }`
 
 `GET /api/ai?action=models` 返回全量模型目录 + 当前可用状态。  
 `GET /api/ai?action=health` 返回各厂商就绪状态。
@@ -136,6 +137,7 @@ Provider 状态语义（重要）：
 ## 7. 关键文件
 
 - `api/ai.js`：后端统一网关（多厂商/多 key/重试）
+- `api/domain/directorPlan.js`：导演计划域（prompt 编排、计划清洗、blueprint token、director packet）
 - `config/ai-routing.json`：模型路由策略（文本与生图分离）
 - `config/ai-runtime-aliases.json`：运行时模型别名（展示模型名 -> 厂商真实调用 ID）
 - `config/ai-alert-thresholds.json`：指标告警阈值（successRate/p95/429/fallback/auth）

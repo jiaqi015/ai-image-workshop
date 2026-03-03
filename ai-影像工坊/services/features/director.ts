@@ -188,23 +188,19 @@ ${styleDirective}
 
         const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }];
         const targetModel = model || Infrastructure.getModelPreferences().textModel;
+        const postProcessPlan = async (rawPlan: any): Promise<ShootPlan> => {
+            const rawData = rawPlan && typeof rawPlan === "object" ? rawPlan : { ...FALLBACK_PLAN };
 
-        try {
-            if (onChunk) onChunk(`正在接入文本模型: ${targetModel}\n`);
-            const fullText = await Infrastructure.routeRequest(targetModel, messages, onChunk, signal);
-            
-            const rawData = JSONHealer.heal(fullText, FALLBACK_PLAN);
-            
             if (!rawData.continuity) rawData.continuity = FALLBACK_PLAN.continuity;
+            if (!rawData.continuity.character) rawData.continuity.character = { ...FALLBACK_PLAN.continuity.character };
             if (!rawData.continuity.character.body) rawData.continuity.character.body = "Default Body Type";
-            
-            // --- 3. BLUEPRINT INJECTION (New Architecture) ---
-            // Construct the Adjudicated Blueprint and inject it into the plan
-            const blueprintToken = Adjudicator.buildBlueprint(rawData, analysis);
-            
-            // Inject into details so it travels with the plan, but verify details array exists
-            if (!rawData.continuity.character.details) rawData.continuity.character.details = [];
-            rawData.continuity.character.details.unshift(blueprintToken);
+
+            // Ensure blueprint token exists and is current.
+            const details: string[] = Array.isArray(rawData.continuity.character.details)
+                ? [...rawData.continuity.character.details]
+                : [];
+            const blueprintToken = details.find((item) => String(item || "").startsWith("BP::")) || Adjudicator.buildBlueprint(rawData, analysis);
+            rawData.continuity.character.details = [blueprintToken, ...details.filter((item) => !String(item || "").startsWith("BP::"))];
 
             try {
                  if (rawData.frames) rawData.frames = await LocalizationService.processPlanFrames(rawData.frames, "Movie Frame", targetModel);
@@ -213,8 +209,36 @@ ${styleDirective}
             } catch (e) {
                  console.warn("Localization failed", e);
             }
-            
+
             return rawData as ShootPlan;
+        };
+
+        if (Infrastructure.isBackendEnabled()) {
+            try {
+                if (onChunk) onChunk(`正在接入导演域服务: ${targetModel}\n`);
+                const backendResult = await Infrastructure.generateDirectorPlan({
+                    userIdea,
+                    analysis,
+                    creativeBrief,
+                    tension,
+                    model: targetModel,
+                }, onChunk, signal);
+                const backendPlan = JSONHealer.heal(JSON.stringify(backendResult?.plan || {}), FALLBACK_PLAN);
+                if (backendResult?.directorPacket && typeof backendResult.directorPacket === "object") {
+                    (backendPlan as any).directorPacket = backendResult.directorPacket;
+                }
+                return await postProcessPlan(backendPlan);
+            } catch (e: any) {
+                if (e.message === "Aborted" || signal?.aborted) throw e;
+                if (onChunk) onChunk(`\n[系统警报] 后端导演域降级 (${e.message})，切换本地编排...\n`);
+            }
+        }
+
+        try {
+            if (onChunk) onChunk(`正在接入文本模型: ${targetModel}\n`);
+            const fullText = await Infrastructure.routeRequest(targetModel, messages, onChunk, signal);
+            const rawData = JSONHealer.heal(fullText, FALLBACK_PLAN);
+            return await postProcessPlan(rawData);
 
         } catch (e: any) {
             if (e.message === "Aborted" || signal?.aborted) throw e;

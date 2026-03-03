@@ -161,6 +161,42 @@ export interface ShootGuide {
   emotionalSpectrum: string[];
 }
 
+export interface DirectorShotPacket {
+  shotId: string;
+  beatIndex: number;
+  description: string;
+  camera: string;
+  mood: string;
+  promptPack: {
+    base: string;
+    style: string;
+    variantHint?: string;
+  };
+  negativePack: string[];
+}
+
+export interface DirectorPacket {
+  project: {
+    premise: string;
+    title: string;
+    tension: string;
+    complexityLevel: string;
+  };
+  styleProfile: {
+    visualSignature: string;
+    lightingRule: string;
+    paletteRule: string;
+    compositionRule: string;
+  };
+  characterProfile: {
+    identityAnchor: string;
+    bodyAnchor: string;
+    wardrobeAnchor: string;
+    detailAnchors: string[];
+  };
+  shots: DirectorShotPacket[];
+}
+
 export interface Frame {
   id: number;
   description: string;
@@ -193,6 +229,7 @@ export interface ShootPlan {
   visualVariants?: string[];
   conceptFrames?: Frame[];
   selectedConceptId?: number;
+  directorPacket?: DirectorPacket;
 }
 
 export enum AppState {

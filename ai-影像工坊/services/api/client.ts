@@ -101,6 +101,21 @@ type ProviderRuntimeStatus = {
     lastValidationStatus?: number;
 };
 
+type DirectorPlanRequest = {
+    userIdea: string;
+    analysis?: any;
+    creativeBrief?: any;
+    tension?: string;
+    model?: string;
+};
+
+type DirectorPlanResponse = {
+    plan: any;
+    directorPacket?: any;
+    provider?: string;
+    model?: string;
+};
+
 const readLS = (key: string, fallback: string) => {
     if (typeof window === "undefined") return fallback;
     const value = localStorage.getItem(key);
@@ -643,6 +658,50 @@ export const Infrastructure = {
     routeRequest: async (model: string, messages: any[], onChunk?: (text: string) => void, signal?: AbortSignal): Promise<string> => {
         const provider = Infrastructure.getProvider();
         return withRetry(() => provider.generateText(model || selectedTextModel, messages, onChunk, signal), 3, 1000, signal);
+    },
+
+    generateDirectorPlan: async (
+        payload: DirectorPlanRequest,
+        onChunk?: (text: string) => void,
+        signal?: AbortSignal
+    ): Promise<DirectorPlanResponse> => {
+        const userIdea = String(payload?.userIdea || "").trim();
+        if (!userIdea) throw new Error("userIdea is required");
+
+        if (backendEnabled) {
+            const targetModel = payload?.model || selectedTextModel;
+            const data = await callBackend(
+                {
+                    action: "director_plan",
+                    model: targetModel,
+                    userIdea,
+                    tension: payload?.tension || "dramatic",
+                    analysis: payload?.analysis || {},
+                    creativeBrief: payload?.creativeBrief || {},
+                },
+                signal
+            );
+
+            if (!data?.plan) throw new Error("Backend 未返回导演计划");
+
+            if (onChunk) {
+                const progress = [
+                    `[Director Domain] Provider: ${data.provider || "unknown"}`,
+                    `[Director Domain] Model: ${data.model || targetModel}`,
+                    `[Director Domain] Plan ready`,
+                ].join("\n");
+                onChunk(progress);
+            }
+
+            return {
+                plan: data.plan,
+                directorPacket: data.directorPacket,
+                provider: data.provider,
+                model: data.model,
+            };
+        }
+
+        throw new Error("Backend disabled for director_plan");
     },
 
     callProxy: async (modelList: string[], messages: any[], stream: boolean = false, onChunk?: (text: string) => void, signal?: AbortSignal): Promise<string> => {
