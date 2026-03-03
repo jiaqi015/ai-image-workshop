@@ -1,6 +1,24 @@
 import fs from "node:fs";
 import path from "node:path";
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
+import {
+  createTraceId,
+  getTelemetrySnapshot,
+  recordError,
+  recordFallbackSuccess,
+  recordFallbackTriggered,
+  recordOutcomeByStatus,
+  recordProviderAttempt,
+  recordRateLimited,
+  recordRequestStart,
+  recordUnauthorized,
+} from "./domain/telemetry.js";
+import {
+  getProviderValidationState,
+  isAuthFailure,
+  markProviderValidated,
+  markProviderValidationFailure,
+} from "./domain/providerValidation.js";
 
 const DEFAULT_ROUTING = {
   policy: {
@@ -189,6 +207,21 @@ const setRateLimitHeaders = (res, rateInfo) => {
   res.setHeader("X-RateLimit-Limit", String(rateInfo.limit));
   res.setHeader("X-RateLimit-Remaining", String(rateInfo.remaining));
   res.setHeader("X-RateLimit-Reset", String(Math.ceil(rateInfo.resetAt / 1000)));
+};
+
+const setTraceHeader = (res, traceId) => {
+  if (!res?.setHeader || !traceId) return;
+  res.setHeader("X-Trace-Id", traceId);
+};
+
+const sendJson = (res, traceId, status, payload = {}, options = {}) => {
+  const shouldRecordOutcome = options.recordOutcome !== false;
+  setTraceHeader(res, traceId);
+  if (shouldRecordOutcome) recordOutcomeByStatus(status);
+  res.status(status).json({
+    ...payload,
+    traceId,
+  });
 };
 
 const fetchWithTimeout = async (url, options = {}, timeoutMs = UPSTREAM_TIMEOUT_MS) => {
@@ -811,6 +844,7 @@ const runWithProviderFallback = async ({ taskType, requestedModel, run }) => {
 
   let lastError = null;
   const errors = [];
+  let hadFailure = false;
 
   for (const candidate of candidates) {
     const provider = candidate.provider;
@@ -823,19 +857,47 @@ const runWithProviderFallback = async ({ taskType, requestedModel, run }) => {
       const key = pickKey(provider);
       if (!key) break;
 
+      const startedAt = Date.now();
       try {
         const result = await run({ provider, model, key, baseUrl: creds.baseUrl });
+        recordProviderAttempt({
+          provider,
+          model,
+          status: 200,
+          success: true,
+          latencyMs: Date.now() - startedAt,
+        });
+        markProviderValidated(provider);
+        if (hadFailure) recordFallbackSuccess();
         return { provider, model, result };
       } catch (error) {
         lastError = error;
+        const status = Number(error?.status || 0);
+        const message = error instanceof Error ? error.message : String(error || "Unknown");
+        const retryable = isRetryableStatus(status);
+        recordProviderAttempt({
+          provider,
+          model,
+          status,
+          success: false,
+          retryable,
+          latencyMs: Date.now() - startedAt,
+          errorMessage: message,
+        });
+        if (isAuthFailure(error)) {
+          markProviderValidationFailure(provider, error);
+        }
+        if (!hadFailure) {
+          hadFailure = true;
+          recordFallbackTriggered();
+        }
         errors.push({
           provider,
           model,
-          status: Number(error?.status || 0),
-          message: error instanceof Error ? error.message : String(error || "Unknown"),
+          status,
+          message,
         });
-        const status = Number(error?.status || 0);
-        if (isRetryableStatus(status)) {
+        if (retryable) {
           cooldownKey(provider, key, cooldownMs);
           continue;
         }
@@ -955,11 +1017,21 @@ const healthPayload = () => {
   const providers = {};
   for (const provider of Object.keys(PROVIDER_ENV)) {
     const creds = providerCredentials?.[provider] || { keys: [], baseUrl: "" };
+    const enabled = providerEnabled(provider);
+    const hasKey = Boolean((creds.keys || []).length);
+    const hasBaseUrl = providerNeedsBaseUrl(provider) ? Boolean(creds.baseUrl) : true;
+    const configured = Boolean(enabled && hasKey && hasBaseUrl);
+    const validation = getProviderValidationState(provider);
     providers[provider] = {
-      enabled: providerEnabled(provider),
-      ready: providerUsable(provider),
-      hasKey: Boolean((creds.keys || []).length),
-      hasBaseUrl: providerNeedsBaseUrl(provider) ? Boolean(creds.baseUrl) : true,
+      enabled,
+      configured,
+      validated: configured ? Boolean(validation?.validated) : false,
+      ready: configured,
+      hasKey,
+      hasBaseUrl,
+      lastValidatedAt: validation?.lastValidatedAt || null,
+      lastValidationError: validation?.lastError || "",
+      lastValidationStatus: Number(validation?.lastStatus || 0),
     };
   }
 
@@ -985,6 +1057,7 @@ export default async function handler(req, res) {
   }
 
   maybePruneRateLimitState();
+  const traceId = createTraceId();
 
   try {
     const actionFromGet = req.query?.action || "health";
@@ -992,18 +1065,28 @@ export default async function handler(req, res) {
     const actionFromPost = bodyFromPost.action || "health";
     const action = req.method === "POST" ? actionFromPost : actionFromGet;
 
+    recordRequestStart({ action, method: req.method });
+
     if (!isAuthorized(req)) {
-      res.status(401).json({ ok: false, error: "Unauthorized" });
+      recordUnauthorized();
+      sendJson(res, traceId, 401, { ok: false, error: "Unauthorized" }, { recordOutcome: false });
       return;
     }
 
     const rate = checkRateLimit(req, action);
     setRateLimitHeaders(res, rate);
     if (!rate.ok) {
-      res.status(429).json({
-        ok: false,
-        error: `Rate limit exceeded (${RATE_LIMIT_RPM}/min)`,
-      });
+      recordRateLimited();
+      sendJson(
+        res,
+        traceId,
+        429,
+        {
+          ok: false,
+          error: `Rate limit exceeded (${RATE_LIMIT_RPM}/min)`,
+        },
+        { recordOutcome: false }
+      );
       return;
     }
 
@@ -1015,7 +1098,7 @@ export default async function handler(req, res) {
         const imageUsable = flattenModels("image", { onlyUsable: true });
         const health = healthPayload();
 
-        res.status(200).json({
+        sendJson(res, traceId, 200, {
           ok: true,
           textModels: text.list,
           imageModels: image.list,
@@ -1039,26 +1122,35 @@ export default async function handler(req, res) {
         return;
       }
 
-      res.status(200).json(healthPayload());
+      if (action === "metrics") {
+        sendJson(res, traceId, 200, {
+          ok: true,
+          telemetry: getTelemetrySnapshot(),
+          health: healthPayload(),
+        });
+        return;
+      }
+
+      sendJson(res, traceId, 200, healthPayload());
       return;
     }
 
     if (req.method !== "POST") {
-      res.status(405).json({ ok: false, error: "Method Not Allowed" });
+      sendJson(res, traceId, 405, { ok: false, error: "Method Not Allowed" });
       return;
     }
 
     const body = bodyFromPost;
 
     if (action === "health" || action === "validate") {
-      res.status(200).json(healthPayload());
+      sendJson(res, traceId, 200, healthPayload());
       return;
     }
 
     if (action === "chat") {
       const messages = Array.isArray(body.messages) ? body.messages : [];
       const execution = await runTextChat({ model: body.model, messages });
-      res.status(200).json({
+      sendJson(res, traceId, 200, {
         ok: true,
         provider: execution.provider,
         model: execution.model,
@@ -1076,7 +1168,7 @@ export default async function handler(req, res) {
       });
 
       const text = execution.result?.text || "";
-      res.status(200).json({
+      sendJson(res, traceId, 200, {
         ok: true,
         provider: execution.provider,
         model: execution.model,
@@ -1095,12 +1187,12 @@ export default async function handler(req, res) {
     if (action === "image") {
       const prompt = body.prompt || "";
       if (!prompt) {
-        res.status(400).json({ ok: false, error: "prompt is required" });
+        sendJson(res, traceId, 400, { ok: false, error: "prompt is required" });
         return;
       }
 
       const execution = await runImageGenerate({ model: body.model, prompt });
-      res.status(200).json({
+      sendJson(res, traceId, 200, {
         ok: true,
         provider: execution.provider,
         model: execution.model,
@@ -1109,10 +1201,23 @@ export default async function handler(req, res) {
       return;
     }
 
-    res.status(400).json({ ok: false, error: `Unsupported action: ${action}` });
+    if (action === "metrics") {
+      sendJson(res, traceId, 200, {
+        ok: true,
+        telemetry: getTelemetrySnapshot(),
+        health: healthPayload(),
+      });
+      return;
+    }
+
+    sendJson(res, traceId, 400, { ok: false, error: `Unsupported action: ${action}` });
   } catch (error) {
     const status = Number(error?.status || 500);
     const message = error instanceof Error ? error.message : "Unknown error";
-    res.status(status >= 400 && status < 600 ? status : 500).json({ ok: false, error: message });
+    recordError(error);
+    sendJson(res, traceId, status >= 400 && status < 600 ? status : 500, {
+      ok: false,
+      error: message,
+    });
   }
 }

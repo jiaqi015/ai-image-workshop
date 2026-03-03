@@ -73,6 +73,13 @@ const expectRateHeaders = (headers) => {
   assert.ok(headers['X-RateLimit-Reset'], 'missing X-RateLimit-Reset header');
 };
 
+const expectTrace = (res) => {
+  assert.equal(typeof res.headers['X-Trace-Id'], 'string', 'missing X-Trace-Id header');
+  assert.ok(String(res.headers['X-Trace-Id']).startsWith('tr_'));
+  assert.equal(typeof res.body?.traceId, 'string', 'missing traceId in body');
+  assert.equal(res.body.traceId, res.headers['X-Trace-Id']);
+};
+
 test('GET health returns stable provider shape', async () => {
   const handler = await loadHandler({
     AI_GATEWAY_TOKEN: undefined,
@@ -88,10 +95,13 @@ test('GET health returns stable provider shape', async () => {
   assert.equal(res.status, 200);
   assert.equal(res.body?.ok, true);
   expectRateHeaders(res.headers);
+  expectTrace(res);
 
   for (const provider of PROVIDERS) {
     assert.ok(res.body?.providers?.[provider], `missing provider ${provider}`);
     assert.equal(typeof res.body.providers[provider].enabled, 'boolean');
+    assert.equal(typeof res.body.providers[provider].configured, 'boolean');
+    assert.equal(typeof res.body.providers[provider].validated, 'boolean');
     assert.equal(typeof res.body.providers[provider].ready, 'boolean');
     assert.equal(typeof res.body.providers[provider].hasKey, 'boolean');
   }
@@ -109,6 +119,7 @@ test('GET models returns catalog and grouped providers', async () => {
   assert.equal(res.status, 200);
   assert.equal(res.body?.ok, true);
   expectRateHeaders(res.headers);
+  expectTrace(res);
 
   assert.ok(Array.isArray(res.body?.textModels), 'textModels must be an array');
   assert.ok(Array.isArray(res.body?.imageModels), 'imageModels must be an array');
@@ -143,6 +154,7 @@ test('POST chat returns clear error when no provider key is configured', async (
 
   assert.equal(res.status, 500);
   assert.equal(res.body?.ok, false);
+  expectTrace(res);
   assert.match(String(res.body?.error || ''), /没有可用的厂商或 Key/i);
 });
 
@@ -154,6 +166,7 @@ test('POST image without prompt returns 400', async () => {
   });
   assert.equal(res.status, 400);
   assert.equal(res.body?.ok, false);
+  expectTrace(res);
   assert.match(String(res.body?.error || ''), /prompt is required/);
 });
 
@@ -165,6 +178,7 @@ test('POST unsupported action returns 400', async () => {
   });
   assert.equal(res.status, 400);
   assert.equal(res.body?.ok, false);
+  expectTrace(res);
   assert.match(String(res.body?.error || ''), /Unsupported action/);
 });
 
@@ -177,6 +191,7 @@ test('gateway token auth blocks unauthenticated requests and allows authenticate
     headers: {},
   });
   assert.equal(unauthorized.status, 401);
+  expectTrace(unauthorized);
 
   const byHeader = await invoke(handler, {
     method: 'GET',
@@ -184,6 +199,7 @@ test('gateway token auth blocks unauthenticated requests and allows authenticate
     headers: { 'x-gateway-token': 'token-abc' },
   });
   assert.equal(byHeader.status, 200);
+  expectTrace(byHeader);
 
   const byBearer = await invoke(handler, {
     method: 'GET',
@@ -191,6 +207,18 @@ test('gateway token auth blocks unauthenticated requests and allows authenticate
     headers: { authorization: 'Bearer token-abc' },
   });
   assert.equal(byBearer.status, 200);
+  expectTrace(byBearer);
+});
+
+test('GET metrics returns telemetry snapshot', async () => {
+  const handler = await loadHandler({ AI_GATEWAY_TOKEN: undefined });
+  const res = await invoke(handler, { method: 'GET', query: { action: 'metrics' } });
+  assert.equal(res.status, 200);
+  expectRateHeaders(res.headers);
+  expectTrace(res);
+  assert.equal(res.body?.ok, true);
+  assert.equal(typeof res.body?.telemetry?.requests?.total, 'number');
+  assert.equal(typeof res.body?.telemetry?.routing?.fallbackTriggered, 'number');
 });
 
 const main = async () => {

@@ -37,7 +37,8 @@ export default function App() {
   const textModelsByProvider: Record<string, string[]> = catalog?.textModelsByProvider || {};
   const imageModelsByProvider: Record<string, string[]> = catalog?.imageModelsByProvider || {};
   const providerByModel: Record<string, string> = catalog?.providerByModel || {};
-  const providerStatus: Record<string, { ready?: boolean }> = catalog?.providers || {};
+  const providerStatus: Record<string, { enabled?: boolean; configured?: boolean; validated?: boolean; ready?: boolean }> =
+      catalog?.providers || {};
 
   const resolveProviderFromGroups = (model: string, groups: Record<string, string[]>) => {
       for (const [provider, models] of Object.entries(groups)) {
@@ -82,7 +83,10 @@ export default function App() {
       const label = providerLabel(provider);
       const status = providerStatus[provider];
       if (!status) return label;
-      return status.ready ? label : `${label} (未配Key)`;
+      if (status.enabled === false) return `${label} (已禁用)`;
+      if (!status.configured) return `${label} (未配置)`;
+      if (status.validated) return label;
+      return `${label} (待验证)`;
   };
 
   const cycleTextModel = () => {

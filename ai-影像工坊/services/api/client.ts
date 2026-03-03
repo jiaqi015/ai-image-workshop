@@ -91,9 +91,14 @@ type ModelPreferences = {
 
 type ProviderRuntimeStatus = {
     enabled?: boolean;
+    configured?: boolean;
+    validated?: boolean;
     ready?: boolean;
     hasKey?: boolean;
     hasBaseUrl?: boolean;
+    lastValidatedAt?: string | null;
+    lastValidationError?: string;
+    lastValidationStatus?: number;
 };
 
 const readLS = (key: string, fallback: string) => {

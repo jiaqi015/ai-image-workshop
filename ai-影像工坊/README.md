@@ -122,6 +122,14 @@ npm run dev
 
 `GET /api/ai?action=models` 返回全量模型目录 + 当前可用状态。  
 `GET /api/ai?action=health` 返回各厂商就绪状态。
+`GET /api/ai?action=metrics` 返回网关运行遥测（请求量、错误类型、fallback统计、厂商健康快照）。
+
+Provider 状态语义（重要）：
+
+- `enabled`：路由配置层是否启用该厂商
+- `configured`：已配置可运行条件（key/baseUrl）
+- `validated`：运行期已实际验证通过（动态状态）
+- `ready`：兼容字段，等价于 `configured`
 
 ## 7. 关键文件
 
