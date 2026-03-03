@@ -1,0 +1,380 @@
+AI 影像工坊（前端编排侧）深度架构说明书
+版本: v1.0
+日期: 2026-03-03
+适用代码基线: 当前工作区 /Users/jiaqi/Documents/rz/ai-影像工坊
+
+=====================================================================
+0. 文档目的
+=====================================================================
+本说明书用于完整解释前端“编排与生成控制层”的重构后架构，重点覆盖：
+1) 分层与模块边界
+2) 端到端关键流程（规划、定调、拍摄、重试、回放）
+3) 稳定性与一致性机制（母版锁定、自动筛片）
+4) 可恢复性与可观测性（历史同步与 UX 指标）
+5) 后续扩展规范与风险清单
+
+本说明书不是 UI 使用手册，也不是算法论文。它是工程实现视角的系统设计文档。
+
+
+=====================================================================
+1. 执行摘要（Executive Summary）
+=====================================================================
+当前架构已经从“单体大 Hook + 随机扩散逻辑”演进为“薄门面 + 多专职 Hook + 工作流编排器”的结构。
+核心变化：
+- `useStudioArchitect` 从超重编排器，收敛为 Facade（状态装配与能力拼接）。
+- 历史同步、自动筛片、概念自动选优、基础设施副作用、UX 指标统计全部独立化。
+- 规划与拍摄流程分别通过 `usePlanningWorkflow` / `useShootingWorkflow` 承载。
+- 纯业务拼装（构建候选帧、构建拍摄帧、同步导演包）下沉到 `sessionOrchestrator`。
+
+结果：
+- 可维护性提升：职责单一、改动点收敛。
+- 回归风险降低：逻辑复用通过纯函数实现。
+- 一致性增强：母版模式可使输出趋于可控、可复现。
+
+
+=====================================================================
+2. 架构目标与非目标
+=====================================================================
+2.1 架构目标
+- G1: 让“输入想法 -> 生成候选 -> 锁定方案 -> 批量出图”形成稳定流水线。
+- G2: 让一致性（身份/风格/构图）可被显式约束，而非依赖随机好运气。
+- G3: 让流程中断后可恢复（历史快照 + 状态回写）。
+- G4: 让运行质量可量化（首图耗时、完成率、重试恢复率、回访率）。
+- G5: 控制主 Hook 复杂度，避免再次膨胀。
+
+2.2 非目标
+- NG1: 不在此层处理供应商底层协议细节（交给 Infrastructure/Gateway）。
+- NG2: 不在此层实现审美生成算法本身（由 Director/Camera/Policy 承担）。
+- NG3: 不保证单次 100% 出图成功；目标是失败可回退、流程可持续。
+
+
+=====================================================================
+3. 分层视图（Layered View）
+=====================================================================
+3.1 总览
+
+[Presentation Layer]
+  App.tsx / PlanningWorkspace / Gallery / HistorySidebar
+            |
+            v
+[Orchestration Facade Layer]
+  useStudioArchitect (thin)
+    + useStudioInfra
+    + useHistorySync
+    + useAutoCuration
+    + useConceptSelection
+    + useUxMetrics
+    + useWorkflowMachine
+    + usePlanningWorkflow
+    + useShootingWorkflow
+            |
+            v
+[Domain Workflow Layer]
+  sessionOrchestrator (pure functions)
+            |
+            v
+[Service Layer]
+  application/studioFacade -> services/public -> feature engines / infra client
+            |
+            v
+[Gateway + Provider Layer]
+  API client / routing / retry / fallback / provider calls
+
+3.2 关键原则
+- P1 单向依赖: UI 不直接碰内部引擎，统一走 Facade。
+- P2 薄门面: `useStudioArchitect` 只编排，不吞业务细节。
+- P3 纯函数优先: 帧构建与计划同步在 `sessionOrchestrator` 无副作用实现。
+- P4 副作用外置: 初始化、历史同步、自动筛片、指标统计分别独立。
+- P5 一致性优先: master mode 打开时，优先稳定而非探索。
+
+
+=====================================================================
+4. 目录与模块职责
+=====================================================================
+4.1 Facade / 主入口
+- 文件: hooks/useStudioArchitect.ts
+- 角色: 主装配器
+- 责任:
+  - 管理 UI 共享状态（plan/frames/selectedProposalId/logs 等）
+  - 聚合各子 Hook 能力并暴露统一 API 给 App/UI
+  - 对工作流 Hook 传入上下文（state refs、setters、日志器）
+
+4.2 工作流状态机
+- 文件: hooks/useWorkflowMachine.ts, domain/workflow/stateMachine.ts
+- 角色: 状态转换守门
+- 责任:
+  - AppState 严格转移：IDLE -> PLANNING -> CONCEPT -> SHOOTING
+  - 限制非法跳转，降低“状态漂移”
+
+4.3 规划工作流
+- 文件: hooks/workflows/usePlanningWorkflow.ts
+- 角色: “方案生成阶段”的业务流程器
+- 责任:
+  - 接收用户输入并触发生成计划
+  - 生成候选方案帧（概念帧）
+  - 支持追加候选、重写候选、生成相近候选
+  - 将阶段快照写入历史（planning -> concept）
+
+4.4 拍摄工作流
+- 文件: hooks/workflows/useShootingWorkflow.ts
+- 角色: “批量拍摄阶段”的业务流程器
+- 责任:
+  - 锁定主方案并构建拍摄队列
+  - 在非母版模式下补充分镜文本并分块注入
+  - 支持续拍与失败重试（同参数/降级参数）
+
+4.5 纯业务编排器
+- 文件: domain/workflow/sessionOrchestrator.ts
+- 角色: 纯函数“拼装中心”
+- 责任:
+  - `buildConceptProposalFrames`
+  - `buildShootFrames`
+  - `buildChunkFrames`
+  - `syncPlanWithDirectorPacket`
+- 特征: 无 React 依赖、无 IO、副作用最小化、易单测。
+
+4.6 基础设施副作用 Hook
+- 文件: hooks/useStudioInfra.ts
+- 责任:
+  - 系统初始化（刷新模型目录 + 网关连通性）
+  - 输入与模式持久化（localStorage）
+  - 拍摄计时器维护
+  - 模型偏好同步
+
+4.7 历史同步 Hook
+- 文件: hooks/useHistorySync.ts
+- 责任:
+  - 拍摄/概念阶段帧回写（带 signature 去重）
+  - 任务状态回写（planning/concept/shooting/completed/failed）
+  - history id 清空时重置内部去重状态
+
+4.8 自动筛片 Hook
+- 文件: hooks/useAutoCuration.ts
+- 责任:
+  - 在 SHOOTING 且队列清空时触发自动筛片
+  - 按策略打分并标注 keep/drop
+  - 输出筛片摘要统计
+
+4.9 概念自动选优 Hook
+- 文件: hooks/useConceptSelection.ts
+- 责任:
+  - 在 CONCEPT 阶段自动选中最优候选
+  - 避免无选中状态导致流程阻塞
+
+4.10 UX 指标 Hook
+- 文件: hooks/useUxMetrics.ts
+- 责任:
+  - 任务启动、重试尝试、重试恢复、任务完结统计
+  - 首图时间统计（滑窗）
+  - 产出摘要指标（completionRate / recoveryRate / returningRate）
+
+
+=====================================================================
+5. 关键数据与状态模型
+=====================================================================
+5.1 核心实体
+- ShootPlan: 全局拍摄计划（含 continuity / frames / directorPacket）
+- Frame: 单帧状态单元
+  status ∈ { scripting, pending, generating, completed, failed }
+  metadata 包含 model/strategy/resolution/variant/curationStatus 等
+
+5.2 关键状态变量
+- appState: 全局流程阶段
+- plan: 当前计划（含概念与拍摄上下文）
+- frames: 当前渲染序列（概念帧或正片帧）
+- selectedProposalId: 被锁定的方案 ID
+- currentHistoryId: 当前任务在历史系统中的主键
+
+5.3 设计取舍
+- 双集合（plan + frames）并存以兼顾“计划快照”与“高频 UI 更新”，
+  通过 orchestrator 和历史同步降低漂移风险。
+
+
+=====================================================================
+6. 端到端流程详解
+=====================================================================
+6.1 启动规划（handleStartPlanning）
+1) 守卫: appState 必须为 IDLE，输入不能为空。
+2) 切换状态: PLAN_REQUESTED。
+3) 先写 draft 历史（taskStatus=planning）保证可恢复。
+4) 调用 `generateShootPlan` 生成结构化计划。
+5) 若 masterMode 打开，先 `applyMasterProfileToPlan`。
+6) 用 `buildConceptProposalFrames` 生成候选帧。
+7) 设置 plan/frames，状态转 PLAN_READY（即 CONCEPT）。
+8) 更新历史为 concept 状态并回写概念帧。
+9) 并发预生成候选图。
+
+6.2 方案扩展与重写
+- handleExpandUniverse: 追加随机候选（masterMode 禁止）
+- handleRewriteProposal: 只重写指定候选并重生图
+- handleGenerateRelatedProposals: 基于某候选生成相近候选簇
+
+6.3 锁定并开机（handleConfirmShoot）
+1) 校验 selectedProposalId 对应的候选图已完成。
+2) 状态切 SHOOT_REQUESTED（CONCEPT -> SHOOTING）。
+3) 计算 runtimeStrategy（masterMode 强制 pro）。
+4) 构建目标镜头描述：
+   - masterMode: 固定模板 `buildMasterShotList`
+   - 非 masterMode: 使用 directorPacket 或既有 frames
+5) `buildShootFrames` 生成初始拍摄队列（含 scripting 占位）。
+6) 先下发 pending 批次渲染。
+7) 非 masterMode 且数量不足时，调用 `generateMoreFrames` 分块注入。
+8) 全部描述回写到 plan（syncPlanWithDirectorPacket）。
+
+6.4 续拍与重试
+- handleGenerateMore: 追加 count 帧
+  - masterMode: 确定性模板续拍
+  - 非 masterMode: 生成文本后按 chunk 渲染
+- handleRetryFrame:
+  - same: 同参数重试
+  - fallback: 降级到 flash + 描述降复杂
+  - 触发 onRetryAttempt 记录 UX 指标
+
+
+=====================================================================
+7. 一致性与质量控制
+=====================================================================
+7.1 母版锁定（master mode）
+- 含义: 输出稳定优先，探索性降低。
+- 影响:
+  - runtime strategy 倾向高质量路径
+  - 候选扩展能力收敛
+  - 拍摄镜头由固定姿态模板生成
+
+7.2 自动筛片
+- 触发条件: appState=SHOOTING 且 activeRequests=0
+- 去重策略: signature 对比（frame id + curation status/score）
+- 默认策略: keepRatio=20%，minKeep=4，maxKeep=20
+- 结果: 每帧写入 curationStatus/curationScore/curationReason
+
+7.3 自动概念选优
+- 规则:
+  - 优先 metadata.curationScore
+  - 无评分时按 variantType 兜底：balanced > strict > creative
+- 目标: 避免用户进入“无选中方案”死角
+
+
+=====================================================================
+8. 历史与恢复能力
+=====================================================================
+8.1 帧级回写
+- 仅在 CONCEPT / SHOOTING 且队列空闲时回写。
+- 使用 signature 避免重复写入。
+
+8.2 状态级回写
+- 按派生状态写入 taskStatus:
+  planning / concept / shooting / completed / failed
+
+8.3 会话恢复
+- restoreSession 优先恢复 renderFrames
+- 若无 renderFrames 则回退 conceptFrames
+- 最后才回退 plan.frames 文本占位
+
+
+=====================================================================
+9. 可观测性（UX Metrics）
+=====================================================================
+9.1 指标项
+- tasksStarted
+- tasksCompleted
+- tasksFailed
+- firstImageMsSamples（最近 50 条）
+- retriesAttempted
+- retriesRecovered
+- sessionsStarted
+- returningSessions
+
+9.2 派生指标
+- avgFirstImageMs
+- completionRate
+- recoveryRate
+- returningRate
+
+9.3 统计时机
+- 任务启动时 markTaskStarted
+- 重试触发时 markRetryAttempt
+- 首图出现时记录首图耗时
+- 任务终态时按 completed/failed 计数
+
+
+=====================================================================
+10. 并发与性能策略
+=====================================================================
+10.1 渲染执行
+- Darkroom 负责并发控制、错峰、重试。
+- 工作流层不直接实现网络重试，只负责队列组织。
+
+10.2 分块注入
+- 文本扩展按 chunk（默认 5）滚动下发，平衡延迟与吞吐。
+
+10.3 大状态更新
+- 通过局部 patch（replace by frame id）更新队列，避免全量重建。
+
+
+=====================================================================
+11. 错误处理与降级
+=====================================================================
+- 规划失败: PLAN_FAILED + 历史标记 failed。
+- 拍摄单帧失败: 允许同参数重试。
+- 重试仍失败: 允许 fallback 模式降复杂与降模型。
+- 网关不可用: 初始化阶段直接告警并设置 keyConfigured=false。
+
+
+=====================================================================
+12. 边界与扩展规范
+=====================================================================
+12.1 推荐扩展点
+- 新增流程能力: 优先进 workflow hooks。
+- 新增纯业务算法: 放入 sessionOrchestrator 或 policy。
+- 新增副作用能力: 独立 hook（与主 Facade 解耦）。
+
+12.2 禁止事项
+- 不要把新业务逻辑再塞回 useStudioArchitect 主体。
+- 不要在 UI 组件内直接操作底层 service 实现细节。
+- 不要在副作用 hook 中修改不属于其职责的状态。
+
+
+=====================================================================
+13. 已知风险与后续建议
+=====================================================================
+13.1 已知风险
+- plan 与 frames 双源在复杂并发场景下仍有一致性风险（已降低，未归零）。
+- 指标为本地持久化，跨端不可汇总。
+- 自动筛片是启发式评分，需持续调阈值。
+
+13.2 后续建议（按优先级）
+- R1: 为 sessionOrchestrator 补全单元测试（纯函数高收益）。
+- R2: 引入“事件日志总线”统一记录 workflow 事件。
+- R3: 将 uxMetrics 上报到后端，支持跨会话分析。
+- R4: 进一步把 history patch 规则抽象成策略对象。
+
+
+=====================================================================
+14. 文件清单（本次架构核心）
+=====================================================================
+hooks/useStudioArchitect.ts
+hooks/workflows/usePlanningWorkflow.ts
+hooks/workflows/useShootingWorkflow.ts
+hooks/useStudioInfra.ts
+hooks/useHistorySync.ts
+hooks/useAutoCuration.ts
+hooks/useConceptSelection.ts
+hooks/useUxMetrics.ts
+domain/workflow/sessionOrchestrator.ts
+domain/workflow/stateMachine.ts
+services/routing/policy.ts
+application/studioFacade.ts
+services/public.ts
+
+配套图文件（SVG，可放大）：
+docs/architecture/studio-architecture.svg
+
+
+=====================================================================
+15. 验证记录
+=====================================================================
+本说明书对应代码已在当前工作区通过：
+- npm run typecheck
+- npm run build
+
+结论：当前架构处于“分层清晰、可演进、可回归”的可维护状态。

@@ -22,20 +22,26 @@
   
 - **`services/api/` (The Network Layer)**: 
   - Handling HTTP, Retries, Proxy routing, and Error normalization.
+
+- **`api/gateway/` (Backend Gateway Kernel)**:
+  - `runtimeConfig.ts/js`: provider/model/env/runtime policy loading.
+  - `providerAdapterProtocol.ts/js`: adapter contract enforcement (`chat/generate/image`).
+  - Goal: split routing policy from handler glue code.
   
 - **`hooks/` (The Orchestration Layer)**: 
   - Connects UI to Services. Manages React State and Side Effects.
   - **Rule**: Hooks should NOT contain complex business logic (e.g., prompt parsing).
 
-- **`services/public.ts` (The Gateway)**: 
+- **`application/studioFacade.ts` (The Application Facade)**:
   - The ONLY allowed import source for the UI/Hooks layer.
+  - `services/public.ts` is retained as a compatibility bridge.
 
 ## 2. The Four Iron Laws (四大铁律)
 
 ### Law 1: Orchestration Isolation (编排隔离)
-**Hooks must ONLY depend on `services/public.ts`, `assets/`, or `types/`.**
+**Hooks must ONLY depend on `application/studioFacade.ts`, `assets/`, or `types/`.**
 - ❌ **Forbidden**: `import { DirectorEngine } from "../services/features/director"`
-- ✅ **Allowed**: `import { generateShootPlan } from "../services/public"`
+- ✅ **Allowed**: `import { generateShootPlan } from "../application/studioFacade"`
 - **Why**: Allows refactoring of internal services without breaking the UI.
 
 ### Law 2: Assets Purity (资产纯净)
@@ -47,16 +53,16 @@
 ### Law 3: Policy Independence (策略独立)
 **Features determine HOW, Orchestration determines WHEN.**
 - Features (e.g., `camera.ts`) should expose *capabilities* (e.g., `shootFrame`).
-- Hooks (e.g., `useDarkroom.ts`) should determine *concurrency*, *retries*, and *batching*.
+- Hooks (e.g., `useRenderOrchestrator.ts`) should determine *concurrency*, *retries*, and *batching*.
 
 ### Law 4: The Public Barrier (公共屏障)
-**`services/public.ts` is the API Surface.**
-- If a function isn't exported in `public.ts`, it is **internal/private**.
+**`application/studioFacade.ts` is the API Surface.**
+- If a function isn't exported in `studioFacade.ts`, it is **internal/private**.
 - UI components should never reach deep into `services/capabilities/...`.
 
 ## 3. Key Patterns (核心模式)
 
-- **Facade Pattern**: `useStudioArchitect` hides the complexity of 10+ state variables from `App.tsx`.
+- **Facade Pattern**: `useStudioOrchestrator` hides the complexity of 10+ state variables from `App.tsx`.
 - **Semantic Isolation**: `CameraEngine` physically separates "Subject" prompts from "Style" prompts to prevent style bleeding.
-- **Resilience Layer**: `Infrastructure` handles 429 Rate Limits and Network Errors transparently, so the UI doesn't crash.
+- **Resilience Layer**: `GatewayClient` handles 429 Rate Limits and Network Errors transparently, so the UI doesn't crash.
 - **JSON Healing**: We assume LLMs output broken JSON and fix it aggressively (`JSONHealer`).

@@ -7,7 +7,7 @@ import {
   expandParallelUniverses,
   generateMicroCasting,
   generateShootPlan,
-} from '../../services/public';
+} from '../../application/studioFacade';
 import { buildConceptProposalFrames } from '../../domain/workflow/sessionOrchestrator';
 import { canExpandConceptUniverse } from '../../services/routing/policy';
 import type { WorkflowEvent } from '../../domain/workflow/stateMachine';
@@ -46,6 +46,16 @@ interface PlanningWorkflowParams {
     setFrames: Setter<Frame[]>,
     setPlan: Setter<ShootPlan | null>
   ) => Promise<void>;
+  shootStreamBatch: (
+    frames: Frame[],
+    plan: ShootPlan,
+    strategy: 'pro' | 'flash' | 'hybrid',
+    setFrames: Setter<Frame[]>,
+    setPlan: Setter<ShootPlan | null>
+  ) => Promise<void>;
+  setRewritingFrameIds: Setter<number[]>;
+  setExpandingFromProposalId: Setter<number | null>;
+  onTaskStarted: () => void;
 }
 
 const buildDraftPlan = (userInput: string): ShootPlan => ({
@@ -117,6 +127,10 @@ export const usePlanningWorkflow = ({
   addToHistory,
   updateHistoryItem,
   executeFrameBatch,
+  shootStreamBatch,
+  setRewritingFrameIds,
+  setExpandingFromProposalId,
+  onTaskStarted,
 }: PlanningWorkflowParams) => {
   const handleStartPlanning = useCallback(
     async (options?: { conceptCount?: number }) => {
@@ -136,9 +150,11 @@ export const usePlanningWorkflow = ({
       setElapsedTime(0);
       setSelectedProposalId(null);
       setCurrentHistoryId(null);
+      onTaskStarted();
       let activeHistoryId: string | null = null;
 
       try {
+        addLog('已理解你的需求，正在拆解并规划可执行方案。', 'info');
         const draftPlan = buildDraftPlan(userInput);
         const draftId = await addToHistory(draftPlan, userInput, { taskStatus: 'planning' });
         activeHistoryId = draftId || null;
@@ -216,6 +232,7 @@ export const usePlanningWorkflow = ({
       transitionWorkflow,
       updateHistoryItem,
       userInput,
+      onTaskStarted,
     ]
   );
 
@@ -258,8 +275,118 @@ export const usePlanningWorkflow = ({
     }
   }, [addLog, executeFrameBatch, frames.length, imageModel, isShootingRef, masterMode, plan, setFrames, setIsExpandingUniverse, setPlan, textModel]);
 
+  const handleRewriteProposal = useCallback(
+    async (frameId: number) => {
+      if (!plan || appState !== AppState.CONCEPT) return;
+      const target = frames.find((frame) => frame.id === frameId);
+      if (!target) return;
+
+      setRewritingFrameIds((prev) => (prev.includes(frameId) ? prev : [...prev, frameId]));
+      addLog(`候选 ${frameId} 正在重写提示词并重新生成...`, 'network');
+
+      try {
+        const rewrites = await expandParallelUniverses(plan, 1, textModel);
+        const rewrittenDesc = String(rewrites?.[0] || target.description).trim();
+        const rewrittenFrame: Frame = {
+          ...target,
+          description: rewrittenDesc,
+          status: 'pending',
+          error: undefined,
+          metadata: {
+            ...(target.metadata || {
+              model: imageModel,
+              provider: 'Gateway',
+              strategy: 'Concept',
+              resolution: 'Std',
+            }),
+            variant: rewrittenDesc,
+            variantType: target.metadata?.variantType || 'balanced',
+            type: 'reference',
+          },
+        };
+
+        setFrames((prev) => prev.map((frame) => (frame.id === frameId ? rewrittenFrame : frame)));
+        setPlan((prev) =>
+          prev
+            ? {
+                ...prev,
+                conceptFrames: (prev.conceptFrames || []).map((frame) => (frame.id === frameId ? rewrittenFrame : frame)),
+              }
+            : prev
+        );
+        await shootStreamBatch([rewrittenFrame], plan, 'flash', setFrames, setPlan);
+        addLog(`候选 ${frameId} 已重写完成。`, 'success');
+      } catch (error: any) {
+        const message = error?.message || '未知错误';
+        addLog(`候选 ${frameId} 重写失败: ${message}`, 'error');
+      } finally {
+        setRewritingFrameIds((prev) => prev.filter((id) => id !== frameId));
+      }
+    },
+    [addLog, appState, frames, imageModel, plan, setFrames, setPlan, setRewritingFrameIds, shootStreamBatch, textModel]
+  );
+
+  const handleGenerateRelatedProposals = useCallback(
+    async (frameId: number, count = 4) => {
+      if (!plan || appState !== AppState.CONCEPT) return;
+      const seed = frames.find((frame) => frame.id === frameId);
+      if (!seed) return;
+
+      setExpandingFromProposalId(frameId);
+      setIsExpandingUniverse(true);
+      addLog(`基于候选 ${frameId} 正在追加 ${count} 个相近方案...`, 'network');
+
+      try {
+        const variants = await expandParallelUniverses(plan, count, textModel);
+        const minId = frames.reduce((min, frame) => Math.min(min, frame.id), 0);
+        const startId = minId <= 0 ? minId - 1 : -1;
+        const seedVariant = seed.metadata?.variant || seed.description;
+        const newFrames: Frame[] = variants.map((desc, index) => ({
+          id: startId - index,
+          description: desc,
+          status: 'pending',
+          metadata: {
+            model: imageModel,
+            provider: 'Hybrid',
+            strategy: 'Concept',
+            resolution: 'Std',
+            variant: `${desc} | 延展基线: ${seedVariant}`,
+            variantType: 'creative',
+            type: 'reference',
+          },
+        }));
+
+        setFrames((prev) => [...prev, ...newFrames]);
+        setPlan((prev) => (prev ? { ...prev, conceptFrames: [...(prev.conceptFrames || []), ...newFrames] } : null));
+        await shootStreamBatch(newFrames, plan, 'flash', setFrames, setPlan);
+        addLog(`候选 ${frameId} 的延展方案已生成。`, 'success');
+      } catch (error: any) {
+        const message = error?.message || '未知错误';
+        addLog(`延展方案失败: ${message}`, 'error');
+      } finally {
+        setIsExpandingUniverse(false);
+        setExpandingFromProposalId(null);
+      }
+    },
+    [
+      addLog,
+      appState,
+      frames,
+      imageModel,
+      plan,
+      setExpandingFromProposalId,
+      setFrames,
+      setIsExpandingUniverse,
+      setPlan,
+      shootStreamBatch,
+      textModel,
+    ]
+  );
+
   return {
     handleStartPlanning,
     handleExpandUniverse,
+    handleRewriteProposal,
+    handleGenerateRelatedProposals,
   };
 };

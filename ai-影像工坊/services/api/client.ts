@@ -131,13 +131,25 @@ export type DirectorPlanResponse = {
 };
 
 export type RandomPromptRequest = {
-    mode?: "fast" | "pro";
+    mode?: "fast" | "pro" | "basic";
+    tensionLevel?: "low" | "medium" | "high";
+    castPreference?: "asian_girl_23_plus" | "asian_woman_23_plus";
     targetLength?: number;
+    contactSheetCount?: number;
+    sequenceLength?: number;
+    sequenceIndex?: number;
 };
 
 export type RandomPromptResponse = {
     prompt: string;
+    shotInstruction?: string;
+    failureForecast?: Array<{ risk: string; mitigation: string }>;
     metadata?: Record<string, any>;
+};
+
+export type RandomPromptPairwiseFeedback = {
+    better?: Record<string, any>;
+    worse?: Record<string, any>;
 };
 
 const readLS = (key: string, fallback: string) => {
@@ -568,13 +580,21 @@ export const Infrastructure = {
 
     generateRandomPrompt: async (payload: RandomPromptRequest = {}, signal?: AbortSignal): Promise<RandomPromptResponse> => {
         const targetLength = Number(payload?.targetLength);
+        const contactSheetCount = Number(payload?.contactSheetCount);
+        const sequenceLength = Number(payload?.sequenceLength);
+        const sequenceIndex = Number(payload?.sequenceIndex);
         const data = await withRetry(
             () =>
                 callBackend(
                     {
                         action: "random_prompt",
                         mode: payload?.mode || "pro",
+                        tensionLevel: payload?.tensionLevel || "medium",
+                        castPreference: payload?.castPreference || "asian_girl_23_plus",
                         targetLength: Number.isFinite(targetLength) ? Math.floor(targetLength) : 200,
+                        contactSheetCount: Number.isFinite(contactSheetCount) ? Math.floor(contactSheetCount) : undefined,
+                        sequenceLength: Number.isFinite(sequenceLength) ? Math.floor(sequenceLength) : undefined,
+                        sequenceIndex: Number.isFinite(sequenceIndex) ? Math.floor(sequenceIndex) : undefined,
                     },
                     signal
                 ),
@@ -588,8 +608,25 @@ export const Infrastructure = {
 
         return {
             prompt,
+            shotInstruction: String(data?.shotInstruction || "").trim() || prompt,
+            failureForecast: Array.isArray(data?.failureForecast) ? data.failureForecast : [],
             metadata: data?.metadata && typeof data.metadata === "object" ? data.metadata : {},
         };
+    },
+
+    submitRandomPromptPairwiseFeedback: async (
+        payload: RandomPromptPairwiseFeedback,
+        signal?: AbortSignal
+    ): Promise<Record<string, any>> => {
+        const data = await callBackend(
+            {
+                action: "random_prompt_feedback",
+                better: payload?.better || {},
+                worse: payload?.worse || {},
+            },
+            signal
+        );
+        return data?.memory && typeof data.memory === "object" ? data.memory : {};
     },
 
     withTimeout,
@@ -630,3 +667,6 @@ export const Infrastructure = {
         return data.imageUrl;
     },
 };
+
+// DDD 命名升级：GatewayClient 更贴近职责语义；保留 Infrastructure 兼容旧调用方。
+export const GatewayClient = Infrastructure;

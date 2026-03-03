@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { HistoryItem } from '../components/HistorySidebar';
-import { dbService, MemoryManager } from '../services/public';
+import { dbService, MemoryManager } from '../application/studioFacade';
 import { ShootPlan, Frame } from '../types';
 
 type HistoryPatch = Partial<HistoryItem> & { plan?: ShootPlan };

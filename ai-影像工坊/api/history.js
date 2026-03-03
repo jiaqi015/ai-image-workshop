@@ -177,10 +177,8 @@ const clampLimits = (source) => {
 const readBlobTokenConfigured = () => Boolean(String(process.env.BLOB_READ_WRITE_TOKEN || "").trim());
 
 const buildEnvPolicy = () => {
-  const nodeEnv = String(process.env.NODE_ENV || "").toLowerCase();
-  const isProduction = nodeEnv === "production";
   const historyGatewayToken = String(process.env.HISTORY_GATEWAY_TOKEN || process.env.AI_GATEWAY_TOKEN || "").trim();
-  const allowAnonInProd = toBoolean(process.env.HISTORY_ALLOW_ANON_IN_PROD, false);
+  const allowAnonInProd = toBoolean(process.env.HISTORY_ALLOW_ANON_IN_PROD, true);
   const postgresConfigured = isPostgresConfigured();
   const databaseMode = normalizeDatabaseMode(process.env.HISTORY_DATABASE_MODE, postgresConfigured ? "hybrid" : "blob");
   const limits = clampLimits({
@@ -203,7 +201,7 @@ const buildEnvPolicy = () => {
     databaseMode,
     historyGatewayToken,
     allowAnonInProd,
-    requireHistoryToken: Boolean(historyGatewayToken) || (isProduction && !allowAnonInProd),
+    requireHistoryToken: Boolean(historyGatewayToken),
     postgres: {
       configured: postgresConfigured,
       connected: false,
@@ -218,7 +216,7 @@ const mergeWithEdgePolicy = (base, patch = {}) => {
   const allowAnonInProd = toBoolean(patch.allowAnonInProd, base.allowAnonInProd);
   const requireHistoryToken = toBoolean(
     patch.requireHistoryToken ?? patch.requireToken,
-    Boolean(base.historyGatewayToken) || (String(process.env.NODE_ENV || "").toLowerCase() === "production" && !allowAnonInProd)
+    Boolean(base.historyGatewayToken)
   );
   const limits = clampLimits({
     requestBodyLimitBytes: patch.requestBodyLimitBytes ?? patch.maxBodyBytes ?? base.requestBodyLimitBytes,
@@ -412,7 +410,7 @@ const isAuthorized = (req, policy) => {
 
 const getAuthErrorMessage = (policy) => {
   if (policy?.requireHistoryToken && !policy?.historyGatewayToken) {
-    return "HISTORY_GATEWAY_TOKEN/AI_GATEWAY_TOKEN 未配置：生产环境默认要求历史接口鉴权。";
+    return "当前策略要求历史接口鉴权，但 HISTORY_GATEWAY_TOKEN/AI_GATEWAY_TOKEN 未配置。";
   }
   return "Unauthorized";
 };

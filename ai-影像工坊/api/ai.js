@@ -1,5 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import {
   createTraceId,
@@ -27,118 +25,26 @@ import {
   buildDirectorPlanMessages,
   normalizeDirectorPlan,
 } from "./domain/directorPlan.js";
-import { generateRandomPromptSkill } from "./domain/randomPromptSkill.js";
-
-const DEFAULT_ROUTING = {
-  policy: {
-    keyStrategy: "round_robin",
-    cooldownMs: 60000,
-    maxRetries: 2,
-    pinnedModelFallback: "same_provider",
-  },
-  providers: {
-    openai: { enabled: true },
-    google: { enabled: true },
-    ali: { enabled: true },
-    byte: { enabled: true },
-    minimax: { enabled: true },
-    zhipu: { enabled: true },
-  },
-  text: {
-    providerOrder: ["openai", "google", "ali", "byte", "minimax", "zhipu"],
-    models: {
-      openai: ["gpt-5.1", "gpt-5", "gpt-5-mini"],
-      google: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-pro-preview"],
-      ali: ["qwen-max", "qwen-plus", "qwen-turbo"],
-      byte: [
-        "doubao-1-5-pro-32k-250115",
-        "doubao-1-5-lite-32k-250115",
-        "doubao-seed-2-0-pro",
-        "doubao-seed-2-0-lite",
-        "doubao-seed-1-8",
-      ],
-      minimax: ["MiniMax-M2.5", "MiniMax-M2.5-highspeed", "MiniMax-M2.1"],
-      zhipu: ["glm-4.7", "glm-4.6", "glm-4.5-flash"],
-    },
-    defaultModel: "gpt-5.1",
-  },
-  image: {
-    providerOrder: ["openai", "google", "byte", "ali", "minimax", "zhipu"],
-    models: {
-      openai: ["gpt-image-1", "dall-e-3", "dall-e-2"],
-      google: ["gemini-3-pro-image-preview", "gemini-2.5-flash-image"],
-      ali: ["wan2.2-t2i-plus", "wan2.2-t2i-flash", "wanx2.1-t2i-plus"],
-      byte: [
-        "doubao-seedream-4-0-250828",
-        "doubao-seedream-3-0-t2i-250415",
-        "doubao-seedream-5-0-lite",
-        "doubao-seedream-4-5",
-      ],
-      minimax: ["image-01"],
-      zhipu: ["glm-image", "cogview-4", "cogview-3-flash"],
-    },
-    defaultModel: "gpt-image-1",
-  },
-};
-
-const PROVIDER_ENV = {
-  openai: {
-    keyVars: ["OPENAI_KEY", "OPENAI_API_KEY", "OPENAI_KEYS"],
-    baseVars: ["OPENAI_BASE_URL", "PROXY_BASE_URL"],
-    defaultBase: "https://api.openai.com/v1",
-  },
-  google: {
-    keyVars: ["GOOGLE_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_KEYS", "GEMINI_KEYS"],
-    baseVars: ["GOOGLE_BASE_URL"],
-    defaultBase: "",
-  },
-  ali: {
-    keyVars: ["ALI_KEY", "ALI_API_KEY", "ALI_KEYS"],
-    baseVars: ["ALI_BASE_URL"],
-    defaultBase: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-  },
-  byte: {
-    keyVars: ["BYTE_KEY", "BYTE_API_KEY", "BYTE_KEYS", "DOUBAO_API_KEY", "DOUBAO_KEYS"],
-    baseVars: ["BYTE_BASE_URL", "DOUBAO_BASE_URL"],
-    defaultBase: "https://ark.cn-beijing.volces.com/api/v3",
-  },
-  minimax: {
-    keyVars: ["MINIMAX_KEY", "MINIMAX_API_KEY", "MINIMAX_KEYS"],
-    baseVars: ["MINIMAX_BASE_URL"],
-    defaultBase: "https://api.minimax.io/v1",
-  },
-  zhipu: {
-    keyVars: ["ZHIPU_KEY", "ZHIPU_API_KEY", "ZHIPU_KEYS"],
-    baseVars: ["ZHIPU_BASE_URL"],
-    defaultBase: "https://open.bigmodel.cn/api/paas/v4",
-  },
-};
+import { generateRandomPromptSkill, recordPromptPairwiseFeedbackSkill } from "./domain/randomPromptSkill.js";
+import { getNorthstarSnapshot } from "./domain/northstarMetrics.js";
+import {
+  OPENAI_COMPAT_ENDPOINTS,
+  PROVIDER_ENV,
+  readGatewayRuntimeConfig,
+  providerNeedsBaseUrl,
+  toPositiveInt,
+} from "./gateway/runtimeConfig.js";
+import { getProviderTaskRunner, validateProviderAdapter } from "./gateway/providerAdapterProtocol.js";
 
 const keyRuntimeState = new Map();
 const rateLimitState = new Map();
-
-const toPositiveInt = (value, fallback) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
-};
 
 const UPSTREAM_TIMEOUT_MS = toPositiveInt(process.env.AI_UPSTREAM_TIMEOUT_MS, 45000);
 const GOOGLE_UPSTREAM_TIMEOUT_MS = toPositiveInt(process.env.AI_GOOGLE_TIMEOUT_MS, UPSTREAM_TIMEOUT_MS);
 const RATE_LIMIT_RPM = toPositiveInt(process.env.AI_RATE_LIMIT_RPM, 120);
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const GATEWAY_TOKEN = String(process.env.AI_GATEWAY_TOKEN || "").trim();
-const NODE_ENV = String(process.env.NODE_ENV || "").toLowerCase();
-const IS_PRODUCTION = NODE_ENV === "production";
-const ALLOW_ANON_IN_PROD = String(process.env.AI_ALLOW_ANON_IN_PROD || "").trim() === "1";
-const REQUIRE_GATEWAY_TOKEN = Boolean(GATEWAY_TOKEN) || (IS_PRODUCTION && !ALLOW_ANON_IN_PROD);
-const DEFAULT_ALERT_THRESHOLDS = {
-  successRateMin: 0.92,
-  p95LatencyMsMax: 12000,
-  rateLimitRateMax: 0.05,
-  fallbackFailureRateMax: 0.2,
-  providerAuthFailuresMax: 5,
-  minRequestsForAlerting: 20,
-};
+const REQUIRE_GATEWAY_TOKEN = Boolean(GATEWAY_TOKEN);
 
 const resolveRuntimeModel = (provider, model) => {
   const normalizedProvider = String(provider || "").trim();
@@ -156,11 +62,6 @@ const resolveRuntimeModel = (provider, model) => {
   if (typeof topLevel === "string" && topLevel.trim()) return topLevel.trim();
 
   return normalizedModel;
-};
-
-const normalizeBaseUrl = (baseUrl) => {
-  if (!baseUrl) return "";
-  return String(baseUrl).replace(/\/$/, "");
 };
 
 const readHeader = (req, name) => {
@@ -199,9 +100,6 @@ const isAuthorized = (req) => {
 };
 
 const getAuthErrorMessage = () => {
-  if (REQUIRE_GATEWAY_TOKEN && !GATEWAY_TOKEN) {
-    return "AI_GATEWAY_TOKEN 未配置：生产环境默认要求鉴权。请在 Vercel 配置 AI_GATEWAY_TOKEN，并在前端填入网关访问令牌。";
-  }
   return "Unauthorized";
 };
 
@@ -325,93 +223,9 @@ const withTimeout = async (promise, timeoutMs, message) => {
   }
 };
 
-const parseKeys = (...rawValues) => {
-  const unique = new Set();
-  for (const raw of rawValues) {
-    if (!raw) continue;
-    const chunks = String(raw)
-      .split(/\r?\n|,/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    for (const key of chunks) unique.add(key);
-  }
-  return [...unique];
-};
-
-const firstEnv = (vars = []) => {
-  for (const key of vars) {
-    if (process.env[key]) return process.env[key];
-  }
-  return "";
-};
-
-const deepMerge = (base, override) => {
-  if (!override || typeof override !== "object") return base;
-  const output = Array.isArray(base) ? [...base] : { ...base };
-  for (const [k, v] of Object.entries(override)) {
-    if (v && typeof v === "object" && !Array.isArray(v) && typeof output[k] === "object" && !Array.isArray(output[k])) {
-      output[k] = deepMerge(output[k], v);
-    } else {
-      output[k] = v;
-    }
-  }
-  return output;
-};
-
-const loadRoutingConfig = () => {
-  try {
-    const file = path.join(process.cwd(), "config", "ai-routing.json");
-    if (!fs.existsSync(file)) return DEFAULT_ROUTING;
-    const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-    return deepMerge(DEFAULT_ROUTING, parsed);
-  } catch {
-    return DEFAULT_ROUTING;
-  }
-};
-
-const loadRuntimeAliasConfig = () => {
-  try {
-    const file = path.join(process.cwd(), "config", "ai-runtime-aliases.json");
-    if (!fs.existsSync(file)) return {};
-    const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-};
-
-const loadAlertThresholdConfig = () => {
-  try {
-    const file = path.join(process.cwd(), "config", "ai-alert-thresholds.json");
-    if (!fs.existsSync(file)) return DEFAULT_ALERT_THRESHOLDS;
-    const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-    if (!parsed || typeof parsed !== "object") return DEFAULT_ALERT_THRESHOLDS;
-    return deepMerge(DEFAULT_ALERT_THRESHOLDS, parsed);
-  } catch {
-    return DEFAULT_ALERT_THRESHOLDS;
-  }
-};
-
-const routingConfig = loadRoutingConfig();
-const runtimeModelAliases = loadRuntimeAliasConfig();
-const alertThresholds = loadAlertThresholdConfig();
+const { routingConfig, runtimeModelAliases, alertThresholds, providerCredentials } = readGatewayRuntimeConfig();
 
 const providerEnabled = (provider) => Boolean(routingConfig?.providers?.[provider]?.enabled);
-
-const buildProviderCredentials = () => {
-  const credentials = {};
-  for (const provider of Object.keys(PROVIDER_ENV)) {
-    const conf = PROVIDER_ENV[provider];
-    const keys = parseKeys(...conf.keyVars.map((k) => process.env[k]));
-    const baseUrl = normalizeBaseUrl(firstEnv(conf.baseVars) || conf.defaultBase || "");
-    credentials[provider] = { keys, baseUrl };
-  }
-  return credentials;
-};
-
-const providerCredentials = buildProviderCredentials();
-
-const providerNeedsBaseUrl = (provider) => provider !== "google";
 
 const providerUsable = (provider) => {
   const creds = providerCredentials?.[provider] || { keys: [], baseUrl: "" };
@@ -652,29 +466,6 @@ const buildOpenAICompatibleError = (taskLabel, status, txt, provider, model) => 
   }
 
   return Object.assign(new Error(`${taskLabel} Error ${status}: ${cleanMessage.slice(0, 220)}`), { status });
-};
-
-const OPENAI_COMPAT_ENDPOINTS = {
-  openai: {
-    chat: ["/chat/completions"],
-    image: ["/images/generations"],
-  },
-  ali: {
-    chat: ["/chat/completions"],
-    image: ["/images/generations"],
-  },
-  byte: {
-    chat: ["/chat/completions"],
-    image: ["/images/generations"],
-  },
-  minimax: {
-    chat: ["/chat/completions", "/text/chatcompletion_v2"],
-    image: ["/images/generations", "/image_generation"],
-  },
-  zhipu: {
-    chat: ["/chat/completions"],
-    image: ["/images/generations"],
-  },
 };
 
 const buildOpenAICompatUrl = (baseUrl, endpointPath) =>
@@ -959,7 +750,7 @@ const PROVIDER_ADAPTERS = {
 const getProviderAdapter = (provider) => {
   const adapter = PROVIDER_ADAPTERS?.[provider];
   if (!adapter) throw Object.assign(new Error(`未实现厂商适配器: ${provider}`), { status: 500 });
-  return adapter;
+  return validateProviderAdapter(provider, adapter);
 };
 
 const isRetryableStatus = (status) => status === 429 || (status >= 500 && status < 600);
@@ -1061,14 +852,17 @@ const runTextChat = async ({ model, messages }) => {
   return runWithProviderFallback({
     taskType: "text",
     requestedModel: model,
-    run: async ({ provider, model: resolvedModel, key, baseUrl }) =>
-      getProviderAdapter(provider).chat({
+    run: async ({ provider, model: resolvedModel, key, baseUrl }) => {
+      const adapter = getProviderAdapter(provider);
+      const runTask = getProviderTaskRunner({ provider, adapter, task: "chat" });
+      return runTask({
         provider,
         model: resolveRuntimeModel(provider, resolvedModel),
         messages,
         key,
         baseUrl,
-      }),
+      });
+    },
   });
 };
 
@@ -1076,8 +870,10 @@ const runTextGenerate = async ({ model, contents, config, messages }) => {
   return runWithProviderFallback({
     taskType: "text",
     requestedModel: model,
-    run: async ({ provider, model: resolvedModel, key, baseUrl }) =>
-      getProviderAdapter(provider).generate({
+    run: async ({ provider, model: resolvedModel, key, baseUrl }) => {
+      const adapter = getProviderAdapter(provider);
+      const runTask = getProviderTaskRunner({ provider, adapter, task: "generate" });
+      return runTask({
         provider,
         model: resolveRuntimeModel(provider, resolvedModel),
         contents,
@@ -1085,7 +881,8 @@ const runTextGenerate = async ({ model, contents, config, messages }) => {
         messages,
         key,
         baseUrl,
-      }),
+      });
+    },
   });
 };
 
@@ -1094,14 +891,17 @@ const runImageGenerate = async ({ model, prompt }) => {
   return runWithProviderFallback({
     taskType: "image",
     requestedModel: model,
-    run: async ({ provider, model: resolvedModel, key, baseUrl }) =>
-      getProviderAdapter(provider).image({
+    run: async ({ provider, model: resolvedModel, key, baseUrl }) => {
+      const adapter = getProviderAdapter(provider);
+      const runTask = getProviderTaskRunner({ provider, adapter, task: "image" });
+      return runTask({
         provider,
         model: resolveRuntimeModel(provider, resolvedModel),
         prompt: normalizedPrompt,
         key,
         baseUrl,
-      }),
+      });
+    },
   });
 };
 
@@ -1312,6 +1112,16 @@ export default async function handler(req, res) {
         return;
       }
 
+      if (action === "northstar") {
+        const period = String(req.query?.period || "day");
+        sendJson(res, traceId, 200, {
+          ok: true,
+          northstar: getNorthstarSnapshot({ period }),
+          health: healthPayload(),
+        }, requestMeta);
+        return;
+      }
+
       sendJson(res, traceId, 200, healthPayload(), requestMeta);
       return;
     }
@@ -1372,7 +1182,12 @@ export default async function handler(req, res) {
     if (action === "random_prompt") {
       const generated = generateRandomPromptSkill({
         mode: body.mode,
+        tensionLevel: body.tensionLevel,
+        castPreference: body.castPreference,
         targetLength: body.targetLength,
+        contactSheetCount: body.contactSheetCount,
+        sequenceLength: body.sequenceLength,
+        sequenceIndex: body.sequenceIndex,
       });
 
       sendJson(
@@ -1382,7 +1197,27 @@ export default async function handler(req, res) {
         {
           ok: true,
           prompt: generated.prompt,
+          shotInstruction: generated.shotInstruction,
+          failureForecast: Array.isArray(generated.failureForecast) ? generated.failureForecast : [],
           metadata: generated.metadata,
+        },
+        requestMeta
+      );
+      return;
+    }
+
+    if (action === "random_prompt_feedback") {
+      const memory = recordPromptPairwiseFeedbackSkill({
+        better: body.better || {},
+        worse: body.worse || {},
+      });
+      sendJson(
+        res,
+        traceId,
+        200,
+        {
+          ok: true,
+          memory,
         },
         requestMeta
       );
@@ -1468,6 +1303,16 @@ export default async function handler(req, res) {
         ok: true,
         alerts: evaluateAlerts({ period, thresholds: alertThresholds }),
         thresholds: alertThresholds,
+      }, requestMeta);
+      return;
+    }
+
+    if (action === "northstar") {
+      const period = String(body.period || "day");
+      sendJson(res, traceId, 200, {
+        ok: true,
+        northstar: getNorthstarSnapshot({ period }),
+        health: healthPayload(),
       }, requestMeta);
       return;
     }

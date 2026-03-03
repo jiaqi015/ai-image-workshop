@@ -1,6 +1,6 @@
 
 import { SAFETY_STRATEGIES, SAFETY_CONFIG, SAFETY_OPTIMIZER_SYSTEM_PROMPT, SAFETY_SUBLIMATION_SYSTEM_PROMPT } from "../../../assets/safety";
-import { Infrastructure } from "../../api/client";
+import { GatewayClient } from "../../api/client";
 import { IntentClassifier } from "../../policies/intentClassifier"; // V2 Dependency
 import { SublimationPolicy } from "../../policies/sublimationPolicy"; // V2 Dependency
 
@@ -68,7 +68,7 @@ export const SafetySentinel = {
                     continue;
                 }
 
-                processedText = processedText.replace(regex, (match) => {
+                processedText = processedText.replace(regex, () => {
                     if (isStrict && rule.category.startsWith('NSFW')) return "clothing"; 
                     if (rule.replacements && rule.replacements.length > 0) {
                         return rule.replacements[Math.floor(Math.random() * rule.replacements.length)];
@@ -84,8 +84,8 @@ export const SafetySentinel = {
     optimizeWithAI: async (riskyPrompt: string): Promise<string> => {
         console.warn("SafetySentinel: Triggering AI Optimization (Level 2)...");
         try {
-            const targetModel = Infrastructure.getModelPreferences().textModel;
-            const optimized = await Infrastructure.routeRequest(targetModel, [
+            const targetModel = GatewayClient.getModelPreferences().textModel;
+            const optimized = await GatewayClient.routeRequest(targetModel, [
                 { role: 'system', content: SAFETY_OPTIMIZER_SYSTEM_PROMPT },
                 { role: 'user', content: riskyPrompt }
             ]);
@@ -119,8 +119,8 @@ export const SafetySentinel = {
 
         // Fallback to basic AI Sublimation
         try {
-            const targetModel = Infrastructure.getModelPreferences().textModel;
-            const sublimated = await Infrastructure.routeRequest(targetModel, [
+            const targetModel = GatewayClient.getModelPreferences().textModel;
+            const sublimated = await GatewayClient.routeRequest(targetModel, [
                 { role: 'system', content: SAFETY_SUBLIMATION_SYSTEM_PROMPT },
                 { role: 'user', content: eroticPrompt }
             ]);

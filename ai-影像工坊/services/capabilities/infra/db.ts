@@ -1,5 +1,5 @@
 import { HistoryItem } from "../../../components/HistorySidebar";
-import { Infrastructure } from "../../api/client";
+import { GatewayClient } from "../../api/client";
 
 // ==========================================
 // 持久化存储层 (Cloud-first History Persistence)
@@ -38,7 +38,7 @@ const withGatewayHeaders = (headers?: HeadersInit): Record<string, string> => {
     }
   }
 
-  const token = String(Infrastructure.getApiKey() || "").trim();
+  const token = String(GatewayClient.getApiKey() || "").trim();
   if (token) {
     output["x-gateway-token"] = token;
     output.Authorization = `Bearer ${token}`;

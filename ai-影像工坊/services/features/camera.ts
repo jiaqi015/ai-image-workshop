@@ -1,6 +1,6 @@
 
 import { ShootPlan, FrameMetadata, RuntimeBlueprint, OptionBlueprint } from "../../types";
-import { Infrastructure } from "../api/client";
+import { GatewayClient } from "../api/client";
 
 const ASIAN_REALISM_SUBJECT_PREFIX =
     "(Ultra-photorealistic East Asian adult human age 23+:1.8), (East Asian facial structure:1.6), (natural human skin texture, pores, subtle imperfections:1.5), black or dark-brown hair, dark-brown eyes";
@@ -170,7 +170,7 @@ Avoid: ${negativePromptBlock}.
         let finalPrompt = CameraEngine.constructPrompt(plan, description, metadata);
         
         try {
-            return await Infrastructure.runWithRetry(
+            return await GatewayClient.runWithRetry(
                 () => CameraEngine._executeRequest(finalPrompt, modelType, signal),
                 signal
             );
@@ -182,7 +182,7 @@ Avoid: ${negativePromptBlock}.
             
             if (isQuota && modelType === 'pro') {
                  try {
-                    return await Infrastructure.runWithRetry(
+                    return await GatewayClient.runWithRetry(
                         () => CameraEngine._executeRequest(finalPrompt, 'flash', signal),
                         signal
                     );
@@ -196,7 +196,7 @@ Avoid: ${negativePromptBlock}.
             if (isRefusal) {
                 const safePrompt = `Cinematic photo of a real Asian adult human: ${description}. Style: ${metadata.variant}. Natural skin texture, high quality.`;
                 try {
-                    return await Infrastructure.runWithRetry(
+                    return await GatewayClient.runWithRetry(
                         () => CameraEngine._executeRequest(safePrompt, modelType, signal),
                         signal
                     );
@@ -204,7 +204,7 @@ Avoid: ${negativePromptBlock}.
                     if (signal?.aborted) throw new Error("Aborted");
                     const fallbackPrompt = "Photorealistic portrait of a real Asian adult human, cinematic lighting, natural skin texture, high contrast, 8k resolution.";
                     try {
-                        return await Infrastructure.runWithRetry(
+                        return await GatewayClient.runWithRetry(
                             () => CameraEngine._executeRequest(fallbackPrompt, 'flash', signal),
                             signal
                         );
@@ -232,6 +232,6 @@ Avoid: ${negativePromptBlock}.
     },
 
     _executeRequest: async (prompt: string, modelType: 'pro' | 'flash', signal?: AbortSignal): Promise<string> => {
-        return Infrastructure.generateImage(prompt, modelType, signal);
+        return GatewayClient.generateImage(prompt, modelType, signal);
     }
 };

@@ -4,6 +4,10 @@ const state = {
   themes: {},
   emotions: {},
   issues: {},
+  pairwise: {
+    wins: {},
+    totals: 0,
+  },
   totals: {
     observed: 0,
     accepted: 0,
@@ -26,6 +30,18 @@ const ensureSlot = (bucket, key) => {
 const normalizeKey = (value, fallback = "unknown") => {
   const key = String(value || "").trim();
   return key || fallback;
+};
+
+const toFeatureKey = (sample = {}) => {
+  const theme = normalizeKey(sample?.themeKey || sample?.theme, "unknown-theme");
+  const emotion = normalizeKey(sample?.emotion, "unknown-emotion");
+  const camera = normalizeKey(sample?.camera, "unknown-camera");
+  return `theme:${theme}|emotion:${emotion}|camera:${camera}`;
+};
+
+const extractThemeFromFeatureKey = (value = "") => {
+  const matched = String(value || "").match(/theme:([^|]+)/);
+  return matched ? normalizeKey(matched[1], "unknown-theme") : "unknown-theme";
 };
 
 const computeThemeWeight = (slot) => {
@@ -105,20 +121,87 @@ export const rememberPromptOutcomeSkill = ({
 export const snapshotPromptMemorySkill = () => {
   const themeSummary = summarizeThemes();
   const issueHotspots = summarizeIssues();
+  const pairwiseThemeBiasByKey = pairwiseThemeBiasByKeySkill();
 
   return {
     totals: { ...state.totals },
     preferredThemes: themeSummary.preferredThemes,
     discouragedThemes: themeSummary.discouragedThemes,
     themeWeightByKey: themeSummary.themeWeightByKey,
+    pairwiseThemeBiasByKey,
     issueHotspots,
+    pairwise: {
+      totals: state.pairwise.totals,
+      wins: { ...state.pairwise.wins },
+    },
   };
+};
+
+export const rememberPairwisePreferenceSkill = ({ better = {}, worse = {} } = {}) => {
+  const winnerKey = toFeatureKey(better);
+  const loserKey = toFeatureKey(worse);
+  if (!winnerKey || !loserKey || winnerKey === loserKey) return;
+
+  const pairKey = `${winnerKey}>>${loserKey}`;
+  state.pairwise.wins[pairKey] = (state.pairwise.wins[pairKey] || 0) + 1;
+  state.pairwise.totals += 1;
+};
+
+export const pairwiseThemeBiasByKeySkill = ({ memory = {} } = {}) => {
+  const winsMap = memory?.pairwise?.wins || state.pairwise.wins || {};
+  const bucket = {};
+
+  for (const [key, countRaw] of Object.entries(winsMap)) {
+    const [winnerKey, loserKey] = String(key || "").split(">>");
+    if (!winnerKey || !loserKey) continue;
+    const count = Number(countRaw || 0);
+    if (!Number.isFinite(count) || count <= 0) continue;
+
+    const winnerTheme = extractThemeFromFeatureKey(winnerKey);
+    const loserTheme = extractThemeFromFeatureKey(loserKey);
+
+    if (!bucket[winnerTheme]) bucket[winnerTheme] = { wins: 0, losses: 0 };
+    if (!bucket[loserTheme]) bucket[loserTheme] = { wins: 0, losses: 0 };
+
+    bucket[winnerTheme].wins += count;
+    bucket[loserTheme].losses += count;
+  }
+
+  const output = {};
+  for (const [themeKey, stat] of Object.entries(bucket)) {
+    const total = Number(stat.wins || 0) + Number(stat.losses || 0);
+    if (total <= 0) continue;
+    const raw = (Number(stat.wins || 0) - Number(stat.losses || 0)) / total;
+    output[themeKey] = Number(clamp(raw, -0.5, 0.5).toFixed(3));
+  }
+  return output;
+};
+
+export const pairwisePreferenceBoostSkill = ({ sample = {}, memory = {} } = {}) => {
+  const featureKey = toFeatureKey(sample);
+  if (!featureKey) return 0;
+  const winsMap = memory?.pairwise?.wins || state.pairwise.wins || {};
+
+  let wins = 0;
+  let losses = 0;
+  for (const [key, count] of Object.entries(winsMap)) {
+    if (key.startsWith(`${featureKey}>>`)) wins += Number(count || 0);
+    if (key.includes(`>>${featureKey}`)) losses += Number(count || 0);
+  }
+
+  const total = wins + losses;
+  if (total <= 0) return 0;
+  return clamp((wins - losses) / total, -0.4, 0.4);
 };
 
 export const __unsafeResetPromptMemorySkill = () => {
   state.themes = {};
   state.emotions = {};
   state.issues = {};
+  state.pairwise = {
+    wins: {},
+    totals: 0,
+  };
   state.totals = {
     observed: 0,
     accepted: 0,

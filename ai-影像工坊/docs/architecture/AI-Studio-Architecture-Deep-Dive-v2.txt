@@ -1,0 +1,714 @@
+AI 影像工坊（前端编排与能力域）深度架构说明书
+版本: v2.0
+日期: 2026-03-03
+作者: Codex 架构重写版
+适用代码基线: /Users/jiaqi/Documents/rz/ai-影像工坊
+基线提交: af2ef30（工作区为 dirty 状态，含大量在研改动）
+
+========================================================================
+0. 文档定位与重写背景
+========================================================================
+
+你提出的目标是“0 操作得到稳定、一致、有张力、审美高级的私房照”。
+这不是单点算法问题，而是系统级问题：
+- 输入层是否足够收敛（是否允许随机扩散）
+- 编排层是否可控（状态机、并发、回退是否导致风格漂移）
+- 策略层是否坚定（质量优先 vs 速度优先）
+- 能力层是否可追溯（每一张图是否可解释、可重放）
+
+本 v2 说明书不是对 v1 的增补，而是基于当前代码真实结构的“重新建模”：
+- 入口已从“超大 useStudioArchitect”演进为 `useStudioOrchestrator` 主编排。
+- `useStudioArchitect.ts` 现在只是别名导出。
+- 规划与拍摄链路明确拆分为两个 workflow。
+- 渲染执行器独立成 `useRenderOrchestrator`，并有自己的并发控制语义。
+- 策略、历史、筛片、指标、基础设施副作用被拆为专职模块。
+
+这意味着：系统已经有“可工程化稳定”的骨架，但距离“0 操作高一致高审美”还有关键缺口。
+
+
+========================================================================
+1. 执行摘要（给业务与技术双视角）
+========================================================================
+
+1.1 当前架构结论
+
+当前代码已具备中大型产品的可维护框架，核心优点是：
+- Facade 化：UI 不直接耦合底层引擎。
+- 工作流化：规划与拍摄的职责边界清晰。
+- 策略化：通过 policy 控制并发/模型路由/一致性模式。
+- 可恢复化：历史系统可以云优先 + 本地兜底。
+- 可观测化：有 UX 指标闭环（完成率、首图时间、重试恢复率）。
+
+1.2 你“失望”的工程根因（非情绪，纯技术）
+
+如果目标是“0 操作 + 高稳定 + 高级感”，目前主要短板不在渲染速度，而在“确定性与质量闸门”：
+- 仍允许过多自由扩散入口（扩展宇宙、重写候选、混合路由），一致性先天受挑战。
+- fallback 链路偏“先可用再一致”，导致同任务内风格可能漂移。
+- 质量判定以启发式为主，缺少强制质量门控（未达标不交付）。
+- 缺少会话级“审美合同 hash/签名”并贯穿所有子流程验证。
+
+1.3 本文档给出的改造方向
+
+- 方向 A: OneTap 强约束执行面（默认把探索能力关掉，不靠用户点按钮）
+- 方向 B: 一致性合同前置（角色/风格/光线/镜头语言签名化）
+- 方向 C: 质量闸门后置（自动筛片升级为自动复拍闭环）
+- 方向 D: 指标升级（从 UX 指标扩展到“风格稳定度、身份漂移率、审美合规率”）
+
+
+========================================================================
+2. 代码基线与模块地图
+========================================================================
+
+2.1 入口与门面
+
+- `hooks/useStudioArchitect.ts`
+  当前仅一行：
+  `export { useStudioOrchestrator as useStudioArchitect } from "./useStudioOrchestrator";`
+
+- `hooks/useStudioOrchestrator.ts`
+  当前真正的前端总编排入口。
+  负责：
+  - 聚合所有状态
+  - 调度 planning/shooting workflows
+  - 接入历史、筛片、选优、基础设施、指标
+  - 向 UI 暴露统一命令接口
+
+2.2 Workflow 层
+
+- `hooks/workflows/usePlanningWorkflow.ts`
+  规划阶段（IDLE -> PLANNING -> CONCEPT）
+
+- `hooks/workflows/useShootingWorkflow.ts`
+  拍摄阶段（CONCEPT -> SHOOTING）
+
+2.3 Render 执行层
+
+- `hooks/useRenderOrchestrator.ts`
+  执行渲染任务、并发控制、取消、重试、资源回收。
+
+2.4 Domain 纯函数层
+
+- `domain/workflow/sessionOrchestrator.ts`
+  核心纯函数：
+  - `buildConceptProposalFrames`
+  - `buildShootFrames`
+  - `buildChunkFrames`
+  - `syncPlanWithDirectorPacket`
+
+- `domain/workflow/stateMachine.ts`
+  AppState 状态机。
+
+2.5 策略层
+
+- `services/routing/policy.ts`
+  - `resolveRuntimeStrategy`
+  - `selectFrameModelType`
+  - `canExpandConceptUniverse`
+
+- `services/policies/executionPolicy.ts`
+  并发、错峰、超时、hybrid 路由规则。
+
+- `services/policies/masterSessionPolicy.ts`
+  母版一致性策略、镜头模板、筛片打分。
+
+2.6 能力域与基础设施
+
+- `application/studioFacade.ts` -> `services/public.ts`（稳定服务面）
+- `services/features/director.ts`（导演域）
+- `services/features/camera.ts`（相机域）
+- `services/api/client.ts`（网关客户端）
+- `services/capabilities/infra/db.ts`（云优先历史持久化）
+- `services/capabilities/memory/memoryManager.ts`（图像内存生命周期）
+
+2.7 Side-effect 专职 Hook
+
+- `hooks/useStudioInfra.ts`：初始化、模型目录、网关连通、计时器、模型偏好
+- `hooks/useHistorySync.ts`：帧签名去重回写 + 状态回写
+- `hooks/useAutoCuration.ts`：母版模式下自动筛片
+- `hooks/useConceptSelection.ts`：概念阶段自动选优
+- `hooks/useUxMetrics.ts`：任务质量与恢复指标统计
+
+
+========================================================================
+3. 当前分层架构图（文本版）
+========================================================================
+
++---------------------------------------------------------------+
+| Presentation Layer                                             |
+| App / PlanningWorkspace / Gallery / HistorySidebar / Panels    |
++------------------------------+--------------------------------+
+                               |
+                               v
++---------------------------------------------------------------+
+| Orchestration Facade Layer                                     |
+| useStudioOrchestrator                                          |
+|  - state aggregation                                            |
+|  - command surface                                               |
+|  - workflow coordination                                         |
++--------------------+----------------------+---------------------+
+                     |                      |
+                     v                      v
+      +--------------------------+   +---------------------------+
+      | Planning Workflow        |   | Shooting Workflow         |
+      | usePlanningWorkflow      |   | useShootingWorkflow       |
+      +-------------+------------+   +-------------+-------------+
+                    |                              |
+                    +-------------+----------------+
+                                  v
+                    +-------------------------------+
+                    | Render Orchestrator           |
+                    | useRenderOrchestrator         |
+                    | semaphore + abort + retry     |
+                    +---------------+---------------+
+                                    |
+                                    v
+                    +-------------------------------+
+                    | Domain Pure Functions         |
+                    | sessionOrchestrator           |
+                    | stateMachine                  |
+                    +---------------+---------------+
+                                    |
+                                    v
+                    +-------------------------------+
+                    | Service Facade                |
+                    | studioFacade / services.public|
+                    +-------+-----------------------+
+                            |
+            +---------------+------------------------------+
+            |                                              |
+            v                                              v
++-------------------------------+            +-------------------------------+
+| Feature Engines               |            | Infrastructure                |
+| DirectorEngine / CameraEngine |            | GatewayClient / db / memory   |
++-------------------------------+            +-------------------------------+
+
+
+========================================================================
+4. 关键端到端链路（流程级）
+========================================================================
+
+4.1 规划链路（Start Planning）
+
+入口方法：`handleStartPlanning`（usePlanningWorkflow）
+
+执行要点：
+1. 守卫：`appState === IDLE` 且 `userInput` 非空。
+2. 中断旧规划：若有 `planningAbortController` 先 abort。
+3. 状态流转：`PLAN_REQUESTED`。
+4. 初始化上下文：清空流式文本、帧、日志、候选选中、历史指针。
+5. 先写 draft 历史：`taskStatus=planning`，保证可恢复。
+6. 调用导演能力：`generateShootPlan`（可能走后端导演域，失败降级本地）。
+7. masterMode 开启时，先 `applyMasterProfileToPlan`。
+8. 构建概念帧：`buildConceptProposalFrames(plan, conceptCount, imageModel, microCasting)`。
+9. 状态流转：`PLAN_READY` -> CONCEPT。
+10. 回写历史：计划与概念帧进入历史项。
+11. 预渲染概念图：`executeFrameBatch(..., 'flash', ...)`。
+
+关键价值：
+- 把“先可恢复再执行”作为第一原则，避免中途失败导致任务丢失。
+
+4.2 候选增强链路
+
+- `handleExpandUniverse`：追加候选（masterMode 禁用）
+- `handleRewriteProposal`：重写单一候选并流式重生图
+- `handleGenerateRelatedProposals`：基于 seed 候选扩展相近风格簇
+
+说明：
+这些能力提升探索效率，但天然削弱“一键一致性”。
+它们适合创意探索，不适合作为默认 OneTap 主路径。
+
+4.3 锁定开拍链路（Confirm Shoot）
+
+入口方法：`handleConfirmShoot`（useShootingWorkflow）
+
+执行要点：
+1. 校验主候选：`selectedProposalId` 对应 frame 必须 completed 且有 imageUrl。
+2. 状态流转：`SHOOT_REQUESTED`，进入 SHOOTING。
+3. 设定 runtimeStrategy：`resolveRuntimeStrategy(strategy, masterMode)`。
+4. 拿到镜头描述基线：
+   - masterMode: `buildMasterShotList`（确定性模板）
+   - 非 masterMode: 优先 `directorPacket.shots`，否则回退 `plan.frames`
+5. 构建拍摄帧：`buildShootFrames`，目标默认 20 帧。
+6. 首批 pending 立即 `shootStreamBatch`。
+7. 若非 masterMode 且脚本不足，调用 `generateMoreFrames` 分块补脚本并 onChunkReady 边出边拍。
+8. `syncPlanWithDirectorPacket` 确保计划和镜头数据一致。
+
+4.4 续拍与失败重试
+
+- `handleGenerateMore(count)`：追加镜头
+  - masterMode: 走确定性 shot list
+  - 非 masterMode: 走生成脚本 + chunk 拍摄
+
+- `handleRetryFrame(frameId, mode)`：失败重试
+  - mode=same：同参数重试
+  - mode=fallback：降级策略（flash + 降复杂描述）
+
+
+========================================================================
+5. 并发、取消、重试与资源生命周期
+========================================================================
+
+5.1 Render 执行器的并发模型
+
+`useRenderOrchestrator` 核心设计：
+- `executeFrameBatch`：阻塞式批处理（legacy/hard refresh）
+- `shootStreamBatch`：流式非阻塞提交
+- 全局 semaphore：`acquireSlot/releaseSlot` + `activeBatchLimitsRef`
+  - 当多个批次叠加时，用最小并发上限保护系统不被打爆。
+
+工程意义：
+- 这不是简单 Promise.all。
+- 它是“可叠加批次 + 共享并发配额”的协作调度器。
+
+5.2 取消语义
+
+- `abortControllerRef` 贯穿生成请求。
+- `abortAll` 会：
+  - abort 当前请求
+  - 清空并发队列等待者
+  - activeRequests 归零
+  - 释放所有 blob 资源
+
+5.3 重试与降级
+
+单帧处理 `processFrameWithRetry`：
+- 先生成 + 最短可见等待（1s）
+- 成功后写 frame、同步到 plan
+- 失败分类（限流/超时/鉴权/策略拦截/未知）
+- 摄像域内部还有二级降级（Pro -> Flash，refusal 安全 prompt，再失败 placeholder）
+
+5.4 内存与持久化联动
+
+- 渲染态：`MemoryManager.allocate` 将 base64 转 blob URL，降低 React 状态体积。
+- 持久化态：`hydrateToBase64` 将 blob 恢复可存储数据。
+- 清理：重置/卸载/中止时统一释放 URL，防止内存泄漏。
+
+
+========================================================================
+6. 状态机与一致性保障
+========================================================================
+
+6.1 状态机定义
+
+状态：`IDLE | PLANNING | CONCEPT | SHOOTING`
+事件：
+- RESET
+- PLAN_REQUESTED / PLAN_READY / PLAN_FAILED
+- SHOOT_REQUESTED
+- RESTORE_TO_CONCEPT
+- FORCE_SET
+
+6.2 为什么状态机是关键
+
+你要“0 操作”，本质要求是“系统能自己走对流程”。
+如果状态机不严格，UI 交互就会出现：
+- 计划未完成就开拍
+- 历史恢复后状态错位
+- 任务重置后残留副作用
+
+当前状态机实现简洁但有效，已把主要非法跳转抑制住。
+
+6.3 历史状态推导
+
+`useHistorySync` 通过 `derivedHistoryStatus` 推导：
+- planning / concept / shooting / completed / failed
+并且带帧签名去重回写，避免高频重复写历史。
+
+
+========================================================================
+7. 服务面与能力域（Facade 到 Engine）
+========================================================================
+
+7.1 稳定服务面
+
+`services/public.ts` 提供稳定 API：
+- plan: `generateShootPlan`
+- image: `generateFrameImage`
+- variants: `expandParallelUniverses`
+- script: `generateMoreFrames`
+- infra: validate/get/set model/key/status 等
+
+价值：
+- UI 与 hooks 不直接感知底层 provider 差异。
+- 后续替换实现不破坏上层调用。
+
+7.2 导演域（DirectorEngine）
+
+职责：把 user idea 变成结构化 ShootPlan。
+关键机制：
+- `ScriptAnalyzer` + `AssetRecaller` 预处理
+- 风格指令注入（不同 tension）
+- 全局 casting 约束（亚洲成人真实性约束）
+- Blueprint 裁定（BP:: token）写入 continuity details
+- 后端导演域优先，失败降级本地 routeRequest
+- JSONHealer 保底结构修复
+- LocalizationService 统一本地化
+
+工程观察：
+导演域已经在“结构化计划输出”方面做了不少防抖与约束。
+
+7.3 相机域（CameraEngine）
+
+职责：把 plan + frame 描述变成可执行图像请求。
+关键机制：
+- blueprint 解析（Option A/B + palette progression）
+- prompt 分层构造（subject / environment / style / negative）
+- 免疫系统（负向词与风险约束）
+- 多级失败回退：原模型 -> 备用模型 -> 安全 prompt -> placeholder
+
+工程观察：
+这是当前“稳定性兜底”的核心价值来源，但也可能带来风格漂移（回退过多时）。
+
+
+========================================================================
+8. 网关、模型目录与历史持久化
+========================================================================
+
+8.1 GatewayClient
+
+职责：统一所有模型请求走后端网关。
+关键能力：
+- provider/model catalog 与可用目录刷新
+- withRetry + withTimeout
+- health 校验与模型偏好管理
+- chat/director_plan/random_prompt/image 统一调用
+
+8.2 历史持久化（dbService）
+
+`PersistenceService` 是 cloud-first：
+- 读写优先 `/api/history`
+- 云不可写/不可读时回退 IndexedDB
+- 本地与云端 merge by id + updatedAt
+- 有健康检查缓存 TTL（15 秒）
+
+8.3 这对“稳定一致”意味着什么
+
+- 任务不中断：即使云抖动也可本地继续。
+- 会话可恢复：可从历史恢复到 CONCEPT/SHOOTING 相关上下文。
+- 但尚未做到“跨设备强一致播放级复现”（缺少完整 replay contract）。
+
+
+========================================================================
+9. 质量与观测体系（当前 vs 目标）
+========================================================================
+
+9.1 当前已具备指标
+
+`useUxMetrics` 统计：
+- tasksStarted / tasksCompleted / tasksFailed
+- firstImageMsSamples
+- retriesAttempted / retriesRecovered
+- sessionsStarted / returningSessions
+
+这些指标对“产品可用性”有价值，但对“审美一致性”仍不够。
+
+9.2 当前自动筛片
+
+`useAutoCuration` + `masterSessionPolicy.curateFrames`：
+- 仅 masterMode + shooting完成后触发
+- 默认 keepRatio 0.2，minKeep 4，maxKeep 20
+- 打分依据：分辨率、模型、描述质量、风格关键词、风险词
+
+9.3 尚缺三类核心指标（建议）
+
+- Identity Drift Rate（身份漂移率）
+- Style Drift Rate（风格漂移率）
+- Prompt Compliance Rate（合同命中率）
+
+没有这三类指标，就无法客观证明“已经做到稳定一致高级”。
+
+
+========================================================================
+10. 为什么现在还不是“0 操作高稳定高级感”
+========================================================================
+
+10.1 入口层还不是严格 OneTap
+
+虽然已有 masterMode，但默认流程仍保留大量可变入口：
+- strategy 可随时切换
+- concept 扩展/重写/相关候选扩展可并发发生
+- fallback 导致实际执行参数偏离初始计划
+
+这会让“最少操作”与“最强一致”目标冲突。
+
+10.2 一致性合同缺少强制校验链
+
+现状有 blueprint token 与 master policy，但缺少：
+- 每帧执行前合同校验
+- 每帧执行后合同评分与阈值判定
+- 不达标自动重拍策略
+
+10.3 回退策略偏可用性优先
+
+当前回退路径保障“出图成功率”，但不是“审美一致性成功率”。
+在高审美产品里，失败并不可怕，漂移才可怕。
+
+10.4 质量门控位置偏后
+
+自动筛片发生在“已生成完成之后”，是后验过滤。
+如果目标是 OneTap 高级感，更需要前验控制 + 中途纠偏 + 后验兜底三段式。
+
+
+========================================================================
+11. 面向目标的代码架构改造建议（专业版）
+========================================================================
+
+11.1 建议一：引入 OneTap Runtime Profile（默认强约束）
+
+新增抽象：`OneTapProfile`（运行时配置快照）
+- 固定 strategy（建议 pro 或受控 hybrid）
+- 固定 conceptCount、targetCount
+- 固定重试预算与回退边界
+- 固定 quality gate 阈值
+- 关闭探索入口（expand/rewrite/related）
+
+落点建议：
+- `hooks/useStudioOrchestrator.ts` 初始化 profile
+- `workflows/*` 读取 profile，而不是读散落状态
+
+11.2 建议二：引入 Session Contract 签名
+
+新增：`SessionContract` + `contractHash`
+内容包括：
+- identity anchor
+- style signature
+- lighting/palette/composition locks
+- forbidden drift rules
+
+在每次 `shootStreamBatch` 前后执行：
+- pre-check：是否偏离合同
+- post-score：偏离程度是否超阈值
+
+11.3 建议三：把 Auto Curation 升级为 Auto Recovery
+
+当前是“筛片”；建议升级成“筛片 + 自动补拍”：
+- keep 数不足阈值时自动触发补拍
+- 仅使用合同内允许动作
+- 每轮补拍递减预算，超预算回退人工确认
+
+11.4 建议四：把 fallback 拆成两条通道
+
+- Availability fallback（保证出图）
+- Consistency fallback（保证风格）
+
+当前两者混在一起，建议增加策略参数：
+`fallbackMode: "availability" | "consistency"`
+OneTap 默认 consistency。
+
+11.5 建议五：引入“质量闸门状态机”
+
+在 AppState 之外加 QualityState：
+- GATE_PENDING
+- GATE_PASS
+- GATE_FAIL_RECOVERING
+- GATE_FAIL_ESCALATED
+
+这能明确“什么时候可交付给用户，什么时候必须继续自动修复”。
+
+
+========================================================================
+12. 可靠性设计建议（SLO/错误预算）
+========================================================================
+
+12.1 建议定义 SLO
+
+- SLO-1: 首图可见 P95 < 18s
+- SLO-2: 20 帧任务完成率 >= 97%
+- SLO-3: OneTap 会话风格漂移率 <= 8%
+- SLO-4: OneTap 会话身份漂移率 <= 5%
+
+12.2 错误预算策略
+
+- 当漂移率连续超阈值：
+  - 自动降并发
+  - 禁用 creative variant
+  - 强制进入 master shot list
+
+12.3 观测与告警
+
+建议打点：
+- frame_prompt_hash
+- contract_hash
+- fallback_level
+- drift_score_identity
+- drift_score_style
+- curation_keep_ratio
+
+
+========================================================================
+13. 测试架构建议（代码级可落地）
+========================================================================
+
+13.1 纯函数层单测（必须）
+
+目标文件：
+- `domain/workflow/sessionOrchestrator.ts`
+- `domain/workflow/stateMachine.ts`
+- `services/routing/policy.ts`
+- `services/policies/masterSessionPolicy.ts`
+
+重点用例：
+- buildShootFrames 在 targetCount 下补位是否正确
+- syncPlanWithDirectorPacket 是否保持 shotId/beatIndex 稳定
+- hybrid 路由在首尾帧与关键词条件下是否正确
+- curation 分数分布是否符合预期
+
+13.2 Hook 集成测试（建议）
+
+目标：
+- `usePlanningWorkflow`
+- `useShootingWorkflow`
+- `useRenderOrchestrator`
+
+重点验证：
+- abort 后不应回写过期结果
+- shootStreamBatch 多批次叠加并发不会突破最小上限
+- retry fallback 会正确改变 metadata.strategy/resolution
+
+13.3 合同回归测试（OneTap 关键）
+
+新增测试集：
+- 相同输入重复 20 次，检查风格漂移与身份漂移分布
+- fallback 出现时合同命中率是否下降
+- 自动补拍后的 keep 数是否达到最小交付阈值
+
+
+========================================================================
+14. 演进路线图（分阶段）
+========================================================================
+
+Phase 0（当前已完成）
+- 入口解耦
+- workflow 分层
+- render 并发器独立
+- 历史、筛片、指标分模块
+
+Phase 1（建议 1-2 周）
+- 引入 OneTapProfile
+- 封禁非 OneTap 入口（通过 profile switch）
+- 增加 fallbackMode
+
+Phase 2（建议 2-3 周）
+- SessionContract + contractHash
+- pre-check/post-score
+- 新增 drift 指标与可视化
+
+Phase 3（建议 2 周）
+- Auto Recovery（筛片+自动补拍）
+- QualityState 状态机
+- 交付级质量闸门
+
+Phase 4（持续）
+- A/B：OneTap strict vs OneTap adaptive
+- 优化 SLO 与成本
+
+
+========================================================================
+15. 风险与技术债清单
+========================================================================
+
+R1. 工作区改动量大且跨层
+- 当前 git status 显示大量文件变更与新增，架构稳定但回归风险高。
+
+R2. useStudioOrchestrator 状态聚合仍较重
+- 虽比旧架构好，但状态与命令仍可继续向子域收敛。
+
+R3. 质量门控尚未形成状态机
+- 筛片存在，但“交付判定 + 自动补救”链路不完整。
+
+R4. fallback 一致性策略未显式化
+- 可用性优先路径有价值，但需要与一致性路径隔离。
+
+R5. 指标偏 UX，缺少审美稳定指标
+- 无法严谨回答“现在到底稳不稳、是否高级”。
+
+
+========================================================================
+16. 对“这架构咋样”的专业结论
+========================================================================
+
+一句话结论：
+这是一个“已完成中期重构、可继续向生产级一致性系统演进”的架构。
+
+分项评价（满分 10）：
+- 可维护性: 8.5
+- 可扩展性: 8.0
+- 可恢复性: 8.5
+- 可观测性: 7.5
+- 一致性控制: 7.0
+- OneTap 交付能力: 6.5
+
+为什么不是更高：
+- 因为“0 操作高审美稳定”需要更强的合同化执行与质量闸门，而不是仅靠 workflow 拆分。
+
+
+========================================================================
+17. 立即可执行的 7 条落地动作（按优先级）
+========================================================================
+
+1. 新增 `OneTapProfile`，并作为默认模式启动。
+2. OneTap 下禁用 concept 扩展/重写/相关候选入口。
+3. 增加 `fallbackMode`，OneTap 默认 consistency。
+4. 为每次任务生成 `contractHash` 并写入每帧 metadata。
+5. 在拍摄后加入强制质量门控：keep 数不足自动补拍。
+6. 新增风格漂移与身份漂移打点并入 `useUxMetrics`。
+7. 建立 OneTap 回归基准集，每次改动都跑 drift 回归。
+
+
+========================================================================
+18. 附录 A：当前主流程伪代码（精简）
+========================================================================
+
+A.1 规划
+
+if state != IDLE or input empty: return
+reset planning context
+create draft history(status=planning)
+plan = generateShootPlan(input)
+if masterMode: plan = applyMasterProfileToPlan(plan)
+conceptFrames = buildConceptProposalFrames(plan)
+state = CONCEPT
+save history(plan, conceptFrames, status=concept)
+executeFrameBatch(conceptFrames, strategy=flash)
+
+A.2 开拍
+
+if no selected completed concept frame: return
+state = SHOOTING
+runtimeStrategy = resolveRuntimeStrategy(strategy, masterMode)
+framesToShoot = buildShootFrames(... target=20)
+shootStreamBatch(pending frames)
+if not masterMode and needed > 0:
+  generateMoreFrames(... onChunkReady => shootStreamBatch(chunk))
+syncPlanWithDirectorPacket
+
+A.3 重试
+
+if frame failed:
+  retry(mode=same or fallback)
+  fallback 会降低复杂度并偏向 flash
+
+
+========================================================================
+19. 附录 B：与 v1 相比的关键变化
+========================================================================
+
+- `useStudioArchitect` 从主实现变为 alias。
+- 真正编排入口迁移到 `useStudioOrchestrator`。
+- 渲染器明确分离为 `useRenderOrchestrator`。
+- planning/shooting workflow 进一步稳定化。
+- history/curation/concept selection/ux metrics 的职责边界更清晰。
+- service facade 与 policies 已形成可扩展骨架。
+
+
+========================================================================
+20. 结语
+========================================================================
+
+如果目标是“创意探索”，当前架构已经很好用。
+如果目标是“0 操作、稳定一致、有张力且高级”，当前架构已经到达“可实现的前夜”，
+但还需要把“一致性与质量”从策略选项升级为“系统硬约束”。
+
+这份 v2 文档的核心价值是：
+把你对结果质量的不满，转译成可执行的工程改造路线。
+

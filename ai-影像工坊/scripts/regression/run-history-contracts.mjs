@@ -418,14 +418,29 @@ test('upsert persists renderFrames data url into blob url', async () => {
   assert.match(imageUrl, /^memory:\/\/blob\//);
 });
 
-test('production requires history token by default and allows explicit bypass', async () => {
+test('production defaults to anonymous history access, but enforces token when configured', async () => {
   const memory = createMemoryBlobAdapter();
+
+  const openHandler = await loadHandler({
+    envOverrides: {
+      NODE_ENV: 'production',
+      BLOB_READ_WRITE_TOKEN: 'blob-test-token',
+      HISTORY_GATEWAY_TOKEN: undefined,
+      AI_GATEWAY_TOKEN: undefined,
+      HISTORY_ALLOW_ANON_IN_PROD: '0',
+    },
+    blobAdapter: memory,
+    fetchAdapter: memory.fetch,
+  });
+  const allowed = await invoke(openHandler, { method: 'GET', query: { action: 'list', limit: 1 } });
+  assert.equal(allowed.status, 200);
+  assert.equal(allowed.body?.ok, true);
 
   const lockedHandler = await loadHandler({
     envOverrides: {
       NODE_ENV: 'production',
       BLOB_READ_WRITE_TOKEN: 'blob-test-token',
-      HISTORY_GATEWAY_TOKEN: undefined,
+      HISTORY_GATEWAY_TOKEN: 'history-secret',
       AI_GATEWAY_TOKEN: undefined,
       HISTORY_ALLOW_ANON_IN_PROD: undefined,
     },
@@ -436,20 +451,13 @@ test('production requires history token by default and allows explicit bypass', 
   assert.equal(blocked.status, 401);
   assert.equal(blocked.body?.ok, false);
 
-  const openHandler = await loadHandler({
-    envOverrides: {
-      NODE_ENV: 'production',
-      BLOB_READ_WRITE_TOKEN: 'blob-test-token',
-      HISTORY_GATEWAY_TOKEN: undefined,
-      AI_GATEWAY_TOKEN: undefined,
-      HISTORY_ALLOW_ANON_IN_PROD: '1',
-    },
-    blobAdapter: memory,
-    fetchAdapter: memory.fetch,
+  const byHeader = await invoke(lockedHandler, {
+    method: 'GET',
+    query: { action: 'list', limit: 1 },
+    headers: { 'x-gateway-token': 'history-secret' },
   });
-  const allowed = await invoke(openHandler, { method: 'GET', query: { action: 'list', limit: 1 } });
-  assert.equal(allowed.status, 200);
-  assert.equal(allowed.body?.ok, true);
+  assert.equal(byHeader.status, 200);
+  assert.equal(byHeader.body?.ok, true);
 });
 
 test('edge config policy can enforce read-only and override auth requirement', async () => {

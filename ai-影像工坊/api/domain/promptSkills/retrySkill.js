@@ -14,6 +14,10 @@ export const planPromptRetrySkill = ({
   maxAttempts = 12,
   route = {},
   critic = {},
+  adversarial = {},
+  feasibility = {},
+  physics = {},
+  hardNegative = {},
   candidate = {},
   similarity = 0,
   currentTargetLength = 200,
@@ -31,6 +35,10 @@ export const planPromptRetrySkill = ({
   const hasConsistencyIssue = Number(breakdown.consistency || 0) < 90;
   const hasRealismIssue = Number(breakdown.realism || 0) < 88;
   const hasDiversityIssue = Number(breakdown.diversity || 0) < 90;
+  const hasAdversarialIssue = Number(adversarial?.score || 100) < 84;
+  const hasPhysicsIssue = Number(physics?.score || 100) < 80;
+  const hasFeasibilityIssue = Number(feasibility?.feasibilityScore || 100) < 76;
+  const hasHardNegative = Number(hardNegative?.penalty || 0) > 0;
 
   if (hasLengthIssue) {
     reasons.push("length");
@@ -46,6 +54,17 @@ export const planPromptRetrySkill = ({
     excludeThemeKey = String(candidate?.payload?.themeKey || excludeThemeKey || "");
     excludeEmotion = String(candidate?.payload?.emotion || "");
     nextMaxSimilarityAllowed = clamp(nextMaxSimilarityAllowed - 0.02, 0.38, 0.58);
+  }
+
+  if (hasAdversarialIssue || hasHardNegative) {
+    reasons.push("anti_ai");
+    excludeThemeKey = String(candidate?.payload?.themeKey || excludeThemeKey || "");
+    nextMaxSimilarityAllowed = clamp(nextMaxSimilarityAllowed - 0.01, 0.36, 0.58);
+  }
+
+  if (hasPhysicsIssue || hasFeasibilityIssue) {
+    reasons.push("shootability");
+    excludeEmotion = String(candidate?.payload?.emotion || excludeEmotion || "");
   }
 
   if (similarity > nextMaxSimilarityAllowed || hasDiversityIssue) {

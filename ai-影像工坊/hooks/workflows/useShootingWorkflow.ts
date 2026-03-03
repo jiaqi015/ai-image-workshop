@@ -12,7 +12,7 @@ import {
   applyMasterProfileToPlan,
   buildMasterShotList,
   generateMoreFrames,
-} from '../../services/public';
+} from '../../application/studioFacade';
 import { resolveRuntimeStrategy } from '../../services/routing/policy';
 import type { WorkflowEvent } from '../../domain/workflow/stateMachine';
 import { buildChunkFrames, buildShootFrames, syncPlanWithDirectorPacket } from '../../domain/workflow/sessionOrchestrator';
@@ -40,6 +40,7 @@ interface ShootingWorkflowParams {
   setRetryingFrameIds: Setter<number[]>;
   transitionWorkflow: (event: WorkflowEvent) => void;
   addLog: (message: string, type?: 'info' | 'success' | 'error' | 'network', latency?: number) => void;
+  onRetryAttempt: (frameId: number, mode: 'same' | 'fallback') => void;
   shootStreamBatch: (
     frames: Frame[],
     plan: ShootPlan,
@@ -70,6 +71,7 @@ export const useShootingWorkflow = ({
   setRetryingFrameIds,
   transitionWorkflow,
   addLog,
+  onRetryAttempt,
   shootStreamBatch,
 }: ShootingWorkflowParams) => {
   const handleConfirmShoot = useCallback(async () => {
@@ -294,7 +296,7 @@ export const useShootingWorkflow = ({
   );
 
   const handleRetryFrame = useCallback(
-    async (frameId: number) => {
+    async (frameId: number, mode: 'same' | 'fallback' = 'same') => {
       if (!plan) return;
       if (retryingFrameIdsRef.current.has(frameId)) return;
       const failedFrame = frames.find((f) => f.id === frameId);
@@ -302,10 +304,17 @@ export const useShootingWorkflow = ({
 
       retryingFrameIdsRef.current.add(frameId);
       setRetryingFrameIds((prev) => (prev.includes(frameId) ? prev : [...prev, frameId]));
+      onRetryAttempt(frameId, mode);
+
+      const fallbackTail = '保持主体与构图，简化背景层级，优先保证主体清晰。';
+      const fallbackDescription = failedFrame.description.includes(fallbackTail)
+        ? failedFrame.description
+        : `${failedFrame.description} ${fallbackTail}`;
 
       const runtimeStrategy = resolveRuntimeStrategy(strategy, masterMode);
       const retryFrame: Frame = {
         ...failedFrame,
+        description: mode === 'fallback' ? fallbackDescription : failedFrame.description,
         status: 'pending',
         error: undefined,
         metadata: {
@@ -315,6 +324,9 @@ export const useShootingWorkflow = ({
             strategy,
             resolution: strategy === 'pro' ? '4K' : 'Std',
           }),
+          strategy: mode === 'fallback' ? 'flash' : failedFrame.metadata?.strategy || strategy,
+          resolution: mode === 'fallback' ? 'Std' : failedFrame.metadata?.resolution || (strategy === 'pro' ? '4K' : 'Std'),
+          variantType: mode === 'fallback' ? 'balanced' : failedFrame.metadata?.variantType,
           curationStatus: 'pending',
           curationScore: undefined,
           curationReason: undefined,
@@ -332,14 +344,15 @@ export const useShootingWorkflow = ({
         };
       });
 
-      addLog(`正在重试第 ${frameId} 帧...`, 'network');
+      addLog(mode === 'fallback' ? `第 ${frameId} 帧换参数重试中...` : `第 ${frameId} 帧同参数重试中...`, 'network');
       isShootingRef.current = true;
       try {
         if (appState === AppState.CONCEPT) {
           await shootStreamBatch([retryFrame], plan, 'flash', setFrames, setPlan);
           return;
         }
-        await shootStreamBatch([retryFrame], plan, runtimeStrategy, setFrames, setPlan);
+        const retryStrategy = mode === 'fallback' ? 'flash' : runtimeStrategy;
+        await shootStreamBatch([retryFrame], plan, retryStrategy, setFrames, setPlan);
       } finally {
         retryingFrameIdsRef.current.delete(frameId);
         setRetryingFrameIds((prev) => prev.filter((id) => id !== frameId));
@@ -352,6 +365,7 @@ export const useShootingWorkflow = ({
       imageModel,
       isShootingRef,
       masterMode,
+      onRetryAttempt,
       plan,
       retryingFrameIdsRef,
       setFrames,

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
 import { AppState, Frame } from '../types';
-import { curateFrames, summarizeCuration } from '../services/public';
+import { curateFrames, summarizeCuration } from '../application/studioFacade';
 
 type Setter<T> = React.Dispatch<React.SetStateAction<T>>;
 

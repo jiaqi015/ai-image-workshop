@@ -20,6 +20,31 @@ const compact = (text) =>
     .replace(/，保留/g, "，留住")
     .replace(/，/g, "，");
 
+const truncateNatural = (text, cap, minLength = 0) => {
+  const source = clean(text);
+  if (!source || source.length <= cap) return source;
+
+  const normalized = source.replace(/[。！？!?]+/g, "。");
+  const sentences = normalized
+    .split("。")
+    .map((line) => clean(line))
+    .filter(Boolean);
+
+  let output = "";
+  for (const sentence of sentences) {
+    const next = output ? `${output}。${sentence}` : sentence;
+    if (`${next}。`.length > cap) break;
+    output = next;
+  }
+
+  if (output && `${output}。`.length >= Math.max(80, minLength - 10)) {
+    return clean(`${output}。`);
+  }
+
+  const hardCap = Math.max(0, cap - 1);
+  return clean(`${source.slice(0, hardCap).replace(/[，；、\s]+$/g, "")}。`);
+};
+
 const normalizeTexture = (value) =>
   String(value || "")
     .replace(/必须/g, "")
@@ -103,8 +128,7 @@ const trimToWindow = (text, window) => {
 
   output = `${sentences.join("。")}。`;
   if (output.length > window.max) {
-    const hardCap = Math.max(0, window.max - 1);
-    output = `${output.slice(0, hardCap).replace(/[，；、\s]+$/g, "")}。`;
+    output = truncateNatural(output, window.max, window.min);
   }
   return clean(output);
 };

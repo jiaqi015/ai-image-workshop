@@ -1,12 +1,109 @@
-import { evaluatePromptCriticSkill } from "./promptSkills/criticSkill.js";
-import { snapshotPromptMemorySkill, rememberPromptOutcomeSkill } from "./promptSkills/memorySkill.js";
-import { resolvePromptRouteSkill } from "./promptSkills/routerSkill.js";
-import { planPromptRetrySkill } from "./promptSkills/retrySkill.js";
-import { composeHumanRealismPromptSkill } from "./promptSkills/humanRealismSkill.js";
+import { evaluatePromptCriticSkill } from "../agents/skills/criticSkill.js";
+import { snapshotPromptMemorySkill, rememberPromptOutcomeSkill, rememberPairwisePreferenceSkill } from "../agents/skills/memorySkill.js";
+import { resolvePromptRouteSkill } from "../agents/skills/routerSkill.js";
+import { planPromptRetrySkill } from "../agents/skills/retrySkill.js";
+import { composeHumanRealismPromptSkill } from "../agents/skills/humanRealismSkill.js";
+import { solveRealityConstraintsSkill } from "../agents/skills/feasibilitySkill.js";
+import { evaluateActionPhysicsSkill } from "../agents/skills/actionPhysicsSkill.js";
+import { applyHardNegativeFilterSkill } from "../agents/skills/hardNegativeSkill.js";
+import { evaluateAdversarialCriticSkill } from "../agents/skills/adversarialCriticSkill.js";
+import { buildFailureForecastSkill } from "../agents/skills/failureForecastSkill.js";
+import { enforceMultimodalAnchorsSkill } from "../agents/skills/multimodalAnchorSkill.js";
+import { buildSequenceArcSkill, applyArcStageToPayloadSkill } from "../agents/skills/sequenceArcSkill.js";
+import { computeMasterStyleMetricsSkill } from "../agents/skills/masterStyleMetricsSkill.js";
+import { rankContactSheetSkill } from "../agents/skills/contactSheetSkill.js";
+import { createSkillLedger, recordSkillOutcome, runAgentSkill } from "./agentSkillContract.js";
 
 const HISTORY_LIMIT = 20;
 const DEFAULT_TARGET_LENGTH = 200;
 const recentHistory = [];
+
+const DEFAULT_MEMORY_SNAPSHOT = {
+  totals: { observed: 0 },
+  preferredThemes: [],
+  pairwiseThemeBiasByKey: {},
+  pairwise: { totals: 0 },
+};
+
+const DEFAULT_ROUTING_CONTEXT = {
+  mode: "pro",
+  tensionLevel: "medium",
+  targetLength: DEFAULT_TARGET_LENGTH,
+  maxAttempts: 4,
+  criticPassScore: 86,
+  maxSimilarityAllowed: 0.45,
+  diversity: 0.35,
+  exploration: 0.5,
+  preferredThemes: [],
+  discouragedThemes: [],
+  themeWeightByKey: {},
+};
+
+const DEFAULT_CRITIC = {
+  pass: false,
+  score: 0,
+  issues: ["critic_unavailable"],
+  breakdown: {},
+};
+
+const DEFAULT_RETRY_PLAN = {
+  nextTargetLength: DEFAULT_TARGET_LENGTH,
+  nextMaxSimilarityAllowed: 0.45,
+  nextPassScore: 80,
+  excludeThemeKey: "",
+  excludeEmotion: "",
+  reasons: ["retry_unavailable"],
+};
+
+const DEFAULT_FEASIBILITY = {
+  payload: {},
+  feasibilityScore: 0,
+  unshootableChecklist: ["feasibility_unavailable"],
+};
+
+const DEFAULT_PHYSICS = {
+  score: 0,
+  issues: ["physics_unavailable"],
+};
+
+const DEFAULT_ADVERSARIAL = {
+  score: 0,
+  issues: ["adversarial_unavailable"],
+};
+
+const DEFAULT_ANCHOR = {
+  prompt: "",
+  report: {},
+};
+
+const DEFAULT_HARD_NEGATIVE = {
+  prompt: "",
+  hits: [],
+  penalty: 0,
+};
+
+const DEFAULT_FAILURE_FORECAST = {
+  risks: [],
+};
+
+const runSkill = ({
+  ledger,
+  name,
+  input,
+  execute,
+  fallback,
+  validate,
+}) => {
+  const outcome = runAgentSkill({
+    name,
+    input,
+    execute,
+    fallback,
+    validate,
+  });
+  recordSkillOutcome(ledger, outcome);
+  return outcome.result;
+};
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const normalizeText = (value) =>
@@ -24,6 +121,23 @@ const pickDistinct = (items = [], count = 1) => {
     picked.push(pool.splice(index, 1)[0]);
   }
   return picked;
+};
+
+const TENSION_LEVELS = ["low", "medium", "high"];
+const CAST_PREFERENCES = ["asian_girl_23_plus", "asian_woman_23_plus"];
+const INTENSE_EMOTION_RE = /躁动|挑衅|不安|冲动|失重|对峙|压抑|闷热|短暂自由/;
+const RESTRAINED_EMOTION_RE = /松弛|克制|麻木|孤独|暧昧|疏离|疲惫但清醒/;
+
+const resolveTensionLevel = (value) => {
+  const normalized = String(value || "medium").toLowerCase();
+  if (TENSION_LEVELS.includes(normalized)) return normalized;
+  return "medium";
+};
+
+const resolveCastPreference = (value) => {
+  const normalized = String(value || "asian_girl_23_plus").toLowerCase();
+  if (CAST_PREFERENCES.includes(normalized)) return normalized;
+  return "asian_girl_23_plus";
 };
 
 const weightedPick = (items = [], weightResolver = () => 1) => {
@@ -46,9 +160,9 @@ const THEME_PACKS = [
     label: "躁动夜街",
     emotionPool: ["躁动", "挑衅", "不安", "疲惫但清醒"],
     castPool: [
-      "真实亚洲成年人23+，东亚骨相，眼神警觉",
-      "真实亚洲成年人23+，东亚面孔，动作松弛但防备",
-      "真实亚洲成年人23+，东亚轮廓，呼吸急促却克制",
+      "真实亚洲女孩23+，东亚骨相，眼神警觉",
+      "真实亚洲女孩23+，东亚面孔，动作松弛但防备",
+      "真实亚洲女孩23+，东亚轮廓，呼吸急促却克制",
     ],
     locationPool: ["便利店门口", "地铁换乘通道", "夜班出租车后座", "旧楼楼道", "天桥下路口"],
     timePool: ["凌晨一点", "夜里十一点", "雨后深夜", "收店前十分钟"],
@@ -71,9 +185,9 @@ const THEME_PACKS = [
     label: "亲密日常",
     emotionPool: ["暧昧", "亲密但疏离", "松弛", "低声对峙"],
     castPool: [
-      "真实亚洲成年人23+，眼神柔软但不讨好",
-      "真实亚洲成年人23+，表情克制，动作自然",
-      "真实亚洲成年人23+，面部有疲态和生活痕迹",
+      "真实亚洲女孩23+，眼神柔软但不讨好",
+      "真实亚洲女孩23+，表情克制，动作自然",
+      "真实亚洲女孩23+，面部有疲态和生活痕迹",
     ],
     locationPool: ["出租屋厨房", "狭窄阳台", "公共洗衣房角落", "浴室门口", "单人床边"],
     timePool: ["傍晚蓝调时段", "凌晨两点", "清晨六点", "雨天午后"],
@@ -96,9 +210,9 @@ const THEME_PACKS = [
     label: "冷感通勤",
     emotionPool: ["麻木", "克制", "孤独", "压抑"],
     castPool: [
-      "真实亚洲成年人23+，通勤状态，精神略透支",
-      "真实亚洲成年人23+，表情空白，眼神游离",
-      "真实亚洲成年人23+，脸上有轻微浮肿和疲态",
+      "真实亚洲女孩23+，通勤状态，精神略透支",
+      "真实亚洲女孩23+，表情空白，眼神游离",
+      "真实亚洲女孩23+，脸上有轻微浮肿和疲态",
     ],
     locationPool: ["早高峰地铁口", "公交站台", "写字楼电梯厅", "地下通道", "十字路口斑马线边"],
     timePool: ["清晨七点半", "工作日晚高峰", "阴天傍晚", "小雨天早晨"],
@@ -121,9 +235,9 @@ const THEME_PACKS = [
     label: "闷热天台",
     emotionPool: ["闷热", "冲动", "失重感", "短暂自由"],
     castPool: [
-      "真实亚洲成年人23+，呼吸明显，神态游离",
-      "真实亚洲成年人23+，身体放松但眼神紧绷",
-      "真实亚洲成年人23+，有汗感和真实皮肤质地",
+      "真实亚洲女孩23+，呼吸明显，神态游离",
+      "真实亚洲女孩23+，身体放松但眼神紧绷",
+      "真实亚洲女孩23+，有汗感和真实皮肤质地",
     ],
     locationPool: ["老楼天台", "水箱旁边", "广告牌阴影下", "栏杆附近", "屋顶边缘安全区域"],
     timePool: ["夏夜十点", "黄昏后十五分钟", "午后闷热时段", "雷雨前傍晚"],
@@ -142,6 +256,8 @@ const THEME_PACKS = [
     banPool: ["棚拍级干净背景", "过度戏剧打光", "韩系柔焦滤镜", "无瑕疵皮肤"],
   },
 ];
+
+const THEME_PACK_BY_KEY = new Map(THEME_PACKS.map((pack) => [pack.key, pack]));
 
 const mergeFingerprints = (parts = []) =>
   new Set(
@@ -172,6 +288,8 @@ const resolveTargetWindow = (targetLength) => {
 
 const tryCompactText = (text) =>
   String(text || "")
+    .replace(/真实亚洲女孩23\+，/g, "亚洲女孩23+，")
+    .replace(/真实亚洲女性23\+，/g, "亚洲女性23+，")
     .replace(/真实亚洲成年人23\+，/g, "亚洲成年人23+，")
     .replace(/，保留褶皱和磨损痕迹/g, "，保留褶皱磨损")
     .replace(/，不要偶像化脸谱/g, "，拒绝偶像脸")
@@ -179,6 +297,31 @@ const tryCompactText = (text) =>
     .replace(/，允许轻微糊焦和噪点/g, "，允许糊焦和噪点")
     .replace(/，不做精修润色/g, "，不做精修")
     .replace(/，/g, "，");
+
+const truncateNatural = (text, cap, minLength = 0) => {
+  const source = String(text || "").trim();
+  if (!source || source.length <= cap) return source;
+
+  const sentences = source
+    .replace(/[。！？!?]+/g, "。")
+    .split("。")
+    .map((line) => String(line || "").trim())
+    .filter(Boolean);
+
+  let output = "";
+  for (const sentence of sentences) {
+    const next = output ? `${output}。${sentence}` : sentence;
+    if (`${next}。`.length > cap) break;
+    output = next;
+  }
+
+  if (output && `${output}。`.length >= Math.max(80, minLength - 10)) {
+    return `${output}。`;
+  }
+
+  const hardCap = Math.max(0, cap - 1);
+  return `${source.slice(0, hardCap).replace(/[，；、\s]+$/g, "")}。`;
+};
 
 const WARDROBE_TOP_RE = /T恤|衬衫|外套|背心|风衣|西装|夹克|连帽|针织/;
 const WARDROBE_BOTTOM_RE = /裤|裙/;
@@ -231,12 +374,17 @@ const pickPropPair = (pool = []) => {
 const toSet = (input = []) => new Set((Array.isArray(input) ? input : []).map((item) => String(item || "").trim()).filter(Boolean));
 
 const pickThemePack = ({
+  forcedThemeKey = "",
   excludedThemeKeys = [],
   preferredThemeKeys = [],
   discouragedThemeKeys = [],
   themeWeightByKey = {},
   exploration = 0.6,
 } = {}) => {
+  if (forcedThemeKey && THEME_PACK_BY_KEY.has(forcedThemeKey)) {
+    return THEME_PACK_BY_KEY.get(forcedThemeKey);
+  }
+
   const recent = recentHistory.slice(-4);
   const lastTheme = recent.length > 0 ? recent[recent.length - 1].themeKey : "";
   const counts = new Map();
@@ -265,15 +413,54 @@ const pickThemePack = ({
   });
 };
 
-const pickEmotion = (pack, forcedAvoidEmotion, blockedEmotions = []) => {
+const pickEmotion = (pack, forcedAvoidEmotion, blockedEmotions = [], tensionLevel = "medium") => {
   const blocked = toSet([forcedAvoidEmotion, ...blockedEmotions]);
-  const choices = pack.emotionPool.filter((item) => !blocked.has(item));
-  return pick(choices.length ? choices : pack.emotionPool);
+  const allChoices = pack.emotionPool.filter((item) => !blocked.has(item));
+  if (!allChoices.length) return pick(pack.emotionPool);
+
+  if (tensionLevel === "high") {
+    const intense = allChoices.filter((item) => INTENSE_EMOTION_RE.test(item));
+    if (intense.length) return pick(intense);
+  }
+  if (tensionLevel === "low") {
+    const restrained = allChoices.filter((item) => RESTRAINED_EMOTION_RE.test(item));
+    if (restrained.length) return pick(restrained);
+  }
+  return pick(allChoices);
 };
 
 const needsNightCamera = (time, location) => /凌晨|深夜|夜|晚|雨后/.test(`${time}${location}`);
 
-const ensureSceneConsistency = (payload) => {
+const normalizeCastByPreference = (cast = "", castPreference = "asian_girl_23_plus") => {
+  const source = String(cast || "").trim();
+  const details = source
+    .replace(/^真实亚洲(?:女孩23\+|成年人23\+|女性23\+)?，?/g, "")
+    .replace(/^亚洲(?:女孩23\+|成年人23\+|女性23\+)?，?/g, "")
+    .trim();
+  const suffix = details || "东亚面孔，真实皮肤纹理可见";
+  const prefix = castPreference === "asian_woman_23_plus" ? "真实亚洲女性23+" : "真实亚洲女孩23+";
+  return `${prefix}，${suffix}`;
+};
+
+const applyTensionDirectives = (payload, tensionLevel = "medium") => {
+  if (!Array.isArray(payload.addOns)) payload.addOns = [];
+  if (tensionLevel === "high") {
+    payload.addOns = [...new Set([...payload.addOns, "张力拉高，抓动作临界前一秒，别演成戏"])];
+    if (!/停住|临界|掐灭|盯住/.test(String(payload.action || ""))) {
+      payload.action = `${payload.action}后在临界前一秒停住`;
+    }
+  } else if (tensionLevel === "low") {
+    payload.addOns = [...new Set([...payload.addOns, "张力收住，动作克制，不要过火"])];
+    if (String(payload.camera || "").includes("直闪") && !String(payload.camera || "").includes("弱直闪")) {
+      payload.camera = String(payload.camera).replace(/直闪/g, "弱直闪");
+    }
+  }
+  return payload;
+};
+
+const ensureSceneConsistency = (payload, { castPreference = "asian_girl_23_plus", tensionLevel = "medium" } = {}) => {
+  payload.cast = normalizeCastByPreference(payload.cast, castPreference);
+  applyTensionDirectives(payload, tensionLevel);
   const isConvenienceScene = String(payload.location).includes("便利店");
   if (isConvenienceScene && ![payload.propA, payload.propB].some((item) => item.includes("塑料袋") || item.includes("罐装饮料"))) {
     payload.propA = Math.random() > 0.5 ? "塑料袋" : "罐装饮料";
@@ -286,31 +473,40 @@ const ensureSceneConsistency = (payload) => {
 
 const buildCandidate = ({
   mode = "pro",
+  tensionLevel = "medium",
   targetLength = DEFAULT_TARGET_LENGTH,
   forcedAvoidEmotion = "",
   routingContext = {},
   retryState = {},
+  arcStage = null,
+  forcedThemeKey = "",
+  forcedCast = "",
+  castPreference = "asian_girl_23_plus",
+  lockLocation = "",
+  lockTime = "",
+  skillLedger = null,
 } = {}) => {
   const pack = pickThemePack({
+    forcedThemeKey,
     excludedThemeKeys: retryState.excludedThemeKeys,
     preferredThemeKeys: routingContext.preferredThemes,
     discouragedThemeKeys: routingContext.discouragedThemes,
     themeWeightByKey: routingContext.themeWeightByKey,
     exploration: routingContext.exploration,
   });
-  const location = pick(pack.locationPool);
-  const time = pick(pack.timePool);
+  const location = lockLocation || pick(pack.locationPool);
+  const time = lockTime || pick(pack.timePool);
   const isNight = needsNightCamera(time, location);
   const [wardrobeA, wardrobeB] = pickWardrobePair(pack.wardrobePool);
   const [propA, propB] = pickPropPair(pack.propPool);
   const [banA, banB, banC] = pickDistinct(pack.banPool, 3);
   const cameraPool = isNight ? pack.cameraNightPool : pack.cameraDayPool;
 
-  const payload = ensureSceneConsistency({
+  const basePayload = ensureSceneConsistency({
     themeKey: pack.key,
     themeLabel: pack.label,
-    emotion: pickEmotion(pack, forcedAvoidEmotion, retryState.excludedEmotions),
-    cast: pick(pack.castPool),
+    emotion: pickEmotion(pack, forcedAvoidEmotion, retryState.excludedEmotions, tensionLevel),
+    cast: forcedCast || pick(pack.castPool),
     location,
     time,
     atmosphere: pick(pack.atmospherePool),
@@ -325,21 +521,81 @@ const buildCandidate = ({
     banB,
     banC,
     addOns: pickDistinct(pack.addOnPool, pack.addOnPool.length),
+  }, { castPreference, tensionLevel });
+  const arcedPayload = runSkill({
+    ledger: skillLedger,
+    name: "sequence_arc.apply_stage",
+    input: { payload: basePayload, stage: arcStage },
+    execute: ({ payload, stage }) => applyArcStageToPayloadSkill({ payload, stage }),
+    fallback: ({ input }) => input.payload,
+  });
+  const consistentPayload = ensureSceneConsistency(arcedPayload, { castPreference, tensionLevel });
+  const feasibility = runSkill({
+    ledger: skillLedger,
+    name: "feasibility.solve_reality",
+    input: { payload: consistentPayload },
+    execute: ({ payload }) => solveRealityConstraintsSkill({ payload }),
+    fallback: ({ input }) => ({ ...DEFAULT_FEASIBILITY, payload: input.payload }),
+    validate: (result) => result && typeof result === "object" && result.payload && typeof result.payload === "object",
+  });
+  const payload = feasibility.payload;
+  const physics = runSkill({
+    ledger: skillLedger,
+    name: "physics.evaluate",
+    input: { payload },
+    execute: ({ payload: currentPayload }) => evaluateActionPhysicsSkill({ payload: currentPayload }),
+    fallback: () => DEFAULT_PHYSICS,
   });
 
   const window = resolveTargetWindow(targetLength);
-  let prompt = composeHumanRealismPromptSkill({
-    payload,
-    mode: mode === "fast" ? "fast" : "pro",
-    window,
+  let prompt = runSkill({
+    ledger: skillLedger,
+    name: "human_realism.compose_prompt",
+    input: {
+      payload,
+      mode: mode === "fast" ? "fast" : "pro",
+      window,
+    },
+    execute: (params) => composeHumanRealismPromptSkill(params),
+    fallback: ({ input }) => String(input?.payload?.cast || "真实亚洲女孩23+"),
   });
+  const anchor = runSkill({
+    ledger: skillLedger,
+    name: "anchor.enforce_multimodal",
+    input: { prompt, payload },
+    execute: ({ prompt: basePrompt, payload: currentPayload }) =>
+      enforceMultimodalAnchorsSkill({ prompt: basePrompt, payload: currentPayload }),
+    fallback: ({ input }) => ({ ...DEFAULT_ANCHOR, prompt: input.prompt }),
+  });
+  prompt = anchor.prompt;
+  const hardNegative = runSkill({
+    ledger: skillLedger,
+    name: "hard_negative.filter",
+    input: { prompt },
+    execute: ({ prompt: basePrompt }) => applyHardNegativeFilterSkill({ prompt: basePrompt }),
+    fallback: ({ input }) => ({ ...DEFAULT_HARD_NEGATIVE, prompt: input.prompt }),
+  });
+  prompt = hardNegative.prompt || prompt;
+
   if (prompt.length > window.max) {
     prompt = tryCompactText(prompt);
   }
   if (prompt.length > window.max) {
-    const hardCap = Math.max(0, window.max - 1);
-    prompt = `${prompt.slice(0, hardCap).replace(/[，；、\s]+$/g, "")}。`;
+    prompt = truncateNatural(prompt, window.max, window.min);
   }
+  const adversarial = runSkill({
+    ledger: skillLedger,
+    name: "adversarial.evaluate",
+    input: { prompt, payload, hardNegative },
+    execute: ({ prompt: currentPrompt, payload: currentPayload, hardNegative: currentHardNegative }) =>
+      evaluateAdversarialCriticSkill({
+        prompt: currentPrompt,
+        payload: currentPayload,
+        hardNegative: currentHardNegative,
+      }),
+    fallback: () => DEFAULT_ADVERSARIAL,
+  });
+
   const signature = mergeFingerprints([
     payload.themeKey,
     payload.emotion,
@@ -356,6 +612,7 @@ const buildCandidate = ({
     payload.banA,
     payload.banB,
     payload.banC,
+    payload.arcStage || "",
   ]);
 
   return {
@@ -365,6 +622,12 @@ const buildCandidate = ({
     length: prompt.length,
     target: window.target,
     range: [window.min, window.max],
+    feasibility,
+    physics,
+    hardNegative,
+    adversarial,
+    anchor,
+    arcStage: arcStage?.stageKey || "",
   };
 };
 
@@ -393,16 +656,167 @@ const resolveForcedEmotion = () => {
   return latest[0] && latest[0] === latest[1] ? latest[0] : "";
 };
 
-export const generateRandomPromptSkill = ({ mode = "pro", targetLength = DEFAULT_TARGET_LENGTH } = {}) => {
-  const memoryBefore = snapshotPromptMemorySkill();
-  const routingContext = resolvePromptRouteSkill({
-    mode,
-    targetLength,
-    recentHistory,
-    memory: memoryBefore,
+const toPositiveInt = (value, fallback) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.floor(parsed);
+};
+
+const buildContactSheetCandidates = ({
+  winner,
+  count = 6,
+  routingContext = {},
+  forceAvoidEmotion = "",
+  sequenceStages = [],
+  castPreference = "asian_girl_23_plus",
+  tensionLevel = "medium",
+  skillLedger = null,
+} = {}) => {
+  const targetCount = clamp(toPositiveInt(count, 6), 2, 8);
+  const candidates = [];
+  const lockedTheme = winner?.payload?.themeKey || "";
+  const lockedCast = winner?.payload?.cast || "";
+  const lockedLocation = winner?.payload?.location || "";
+  const lockedTime = winner?.payload?.time || "";
+
+  for (let i = 0; i < targetCount; i += 1) {
+    const stage = sequenceStages.length ? sequenceStages[i % sequenceStages.length] : null;
+    const candidate = buildCandidate({
+      mode: routingContext.mode || "pro",
+      tensionLevel,
+      targetLength: routingContext.targetLength || DEFAULT_TARGET_LENGTH,
+      forcedAvoidEmotion: i === 0 ? "" : forceAvoidEmotion,
+      routingContext,
+      retryState: {
+        excludedThemeKeys: [],
+        excludedEmotions: i === 0 ? [] : [winner?.payload?.emotion].filter(Boolean),
+      },
+      arcStage: stage,
+      forcedThemeKey: lockedTheme,
+      forcedCast: lockedCast,
+      castPreference,
+      lockLocation: lockedLocation,
+      lockTime: lockedTime,
+      skillLedger,
+    });
+
+    const similarity = calcMaxSimilarity(candidate.signature);
+    const critic = runSkill({
+      ledger: skillLedger,
+      name: "critic.evaluate",
+      input: {
+        candidate,
+        similarity,
+        maxSimilarityAllowed: routingContext.maxSimilarityAllowed || 0.45,
+        forceAvoidEmotion,
+        physics: candidate.physics,
+        adversarial: candidate.adversarial,
+        hardNegative: candidate.hardNegative,
+        anchor: candidate.anchor,
+      },
+      execute: (params) => evaluatePromptCriticSkill(params),
+      fallback: () => DEFAULT_CRITIC,
+    });
+    const metrics = runSkill({
+      ledger: skillLedger,
+      name: "metrics.compute_master_style",
+      input: {
+        prompt: candidate.prompt,
+        payload: candidate.payload,
+        critic,
+        adversarial: candidate.adversarial,
+        feasibility: candidate.feasibility,
+        physics: candidate.physics,
+      },
+      execute: (params) => computeMasterStyleMetricsSkill(params),
+      fallback: () => ({}),
+    });
+    const forecast = runSkill({
+      ledger: skillLedger,
+      name: "forecast.build_failure",
+      input: {
+        critic,
+        adversarial: candidate.adversarial,
+        feasibility: candidate.feasibility,
+        physics: candidate.physics,
+      },
+      execute: (params) => buildFailureForecastSkill(params),
+      fallback: () => DEFAULT_FAILURE_FORECAST,
+    });
+
+    candidates.push({
+      ...candidate,
+      similarity,
+      critic,
+      metrics,
+      forecast,
+    });
+  }
+
+  return candidates;
+};
+
+export const generateRandomPromptSkill = ({
+  mode = "pro",
+  tensionLevel = "medium",
+  castPreference = "asian_girl_23_plus",
+  targetLength = DEFAULT_TARGET_LENGTH,
+  contactSheetCount = undefined,
+  sequenceLength = 1,
+  sequenceIndex = 0,
+} = {}) => {
+  const normalizedTensionLevel = resolveTensionLevel(tensionLevel);
+  const normalizedCastPreference = resolveCastPreference(castPreference);
+  const skillLedger = createSkillLedger();
+  const memoryBefore = runSkill({
+    ledger: skillLedger,
+    name: "memory.snapshot.before",
+    input: {},
+    execute: () => snapshotPromptMemorySkill(),
+    fallback: () => DEFAULT_MEMORY_SNAPSHOT,
   });
+  const routed = runSkill({
+    ledger: skillLedger,
+    name: "router.resolve",
+    input: {
+      mode,
+      tensionLevel: normalizedTensionLevel,
+      targetLength,
+      recentHistory,
+      memory: memoryBefore,
+    },
+    execute: (params) => resolvePromptRouteSkill(params),
+    fallback: ({ input }) => ({
+      ...DEFAULT_ROUTING_CONTEXT,
+      mode: input.mode || DEFAULT_ROUTING_CONTEXT.mode,
+      tensionLevel: input.tensionLevel || DEFAULT_ROUTING_CONTEXT.tensionLevel,
+      targetLength: toPositiveInt(input.targetLength, DEFAULT_TARGET_LENGTH),
+    }),
+  });
+  const routingContext = { ...DEFAULT_ROUTING_CONTEXT, ...(routed || {}) };
 
   const normalizedMode = routingContext.mode;
+  const seqLength = clamp(toPositiveInt(sequenceLength, 1), 1, 8);
+  const sequenceStages =
+    seqLength > 1
+      ? runSkill({
+          ledger: skillLedger,
+          name: "sequence_arc.build",
+          input: { total: seqLength },
+          execute: ({ total }) => buildSequenceArcSkill({ total }),
+          fallback: () => [],
+          validate: (result) => Array.isArray(result),
+        })
+      : [];
+  const seqIndex = clamp(toPositiveInt(sequenceIndex, 0), 0, Math.max(0, sequenceStages.length - 1));
+  const selectedStage = sequenceStages.length ? sequenceStages[seqIndex] : null;
+  const resolvedSheetCount =
+    contactSheetCount === undefined
+      ? normalizedMode === "pro"
+        ? 6
+        : 0
+      : clamp(toPositiveInt(contactSheetCount, 0), 0, 8);
+
   const forceAvoidEmotion = resolveForcedEmotion();
   let passScoreFloor = routingContext.criticPassScore;
   let similarityCap = routingContext.maxSimilarityAllowed;
@@ -423,20 +837,40 @@ export const generateRandomPromptSkill = ({ mode = "pro", targetLength = DEFAULT
     attemptsUsed = attempt;
     const candidate = buildCandidate({
       mode: normalizedMode,
+      tensionLevel: normalizedTensionLevel,
       targetLength: targetLengthCursor,
       forcedAvoidEmotion: forceAvoidEmotion,
       routingContext,
       retryState,
+      arcStage: selectedStage,
+      castPreference: normalizedCastPreference,
+      skillLedger,
     });
     const similarity = calcMaxSimilarity(candidate.signature);
-    const critic = evaluatePromptCriticSkill({
-      candidate,
-      similarity,
-      maxSimilarityAllowed: similarityCap,
-      forceAvoidEmotion,
+    const critic = runSkill({
+      ledger: skillLedger,
+      name: "critic.evaluate",
+      input: {
+        candidate,
+        similarity,
+        maxSimilarityAllowed: similarityCap,
+        forceAvoidEmotion,
+        physics: candidate.physics,
+        adversarial: candidate.adversarial,
+        hardNegative: candidate.hardNegative,
+        anchor: candidate.anchor,
+      },
+      execute: (params) => evaluatePromptCriticSkill(params),
+      fallback: () => DEFAULT_CRITIC,
     });
 
-    const isQualified = critic.pass && critic.score >= passScoreFloor && similarity <= similarityCap;
+    const isQualified =
+      critic.pass &&
+      critic.score >= passScoreFloor &&
+      similarity <= similarityCap &&
+      Number(candidate?.feasibility?.feasibilityScore || 0) >= 74 &&
+      Number(candidate?.physics?.score || 0) >= 78 &&
+      Number(candidate?.adversarial?.score || 0) >= 82;
     if (isQualified) {
       winner = candidate;
       winnerSimilarity = similarity;
@@ -444,7 +878,13 @@ export const generateRandomPromptSkill = ({ mode = "pro", targetLength = DEFAULT
       break;
     }
 
-    const rank = critic.score - similarity * 18;
+    const rank =
+      critic.score * 0.56 +
+      Number(candidate?.adversarial?.score || 0) * 0.18 +
+      Number(candidate?.physics?.score || 0) * 0.1 +
+      Number(candidate?.feasibility?.feasibilityScore || 0) * 0.1 -
+      Number(candidate?.hardNegative?.penalty || 0) * 0.12 -
+      similarity * 18;
     if (!winner || rank > winnerRank) {
       winner = candidate;
       winnerSimilarity = similarity;
@@ -452,15 +892,30 @@ export const generateRandomPromptSkill = ({ mode = "pro", targetLength = DEFAULT
       winnerRank = rank;
     }
 
-    const retryPlan = planPromptRetrySkill({
-      attempt,
-      maxAttempts: routingContext.maxAttempts,
-      route: routingContext,
-      critic,
-      candidate,
-      similarity,
-      currentTargetLength: targetLengthCursor,
-      currentMaxSimilarityAllowed: similarityCap,
+    const retryPlan = runSkill({
+      ledger: skillLedger,
+      name: "retry.plan",
+      input: {
+        attempt,
+        maxAttempts: routingContext.maxAttempts,
+        route: routingContext,
+        critic,
+        adversarial: candidate.adversarial,
+        feasibility: candidate.feasibility,
+        physics: candidate.physics,
+        hardNegative: candidate.hardNegative,
+        candidate,
+        similarity,
+        currentTargetLength: targetLengthCursor,
+        currentMaxSimilarityAllowed: similarityCap,
+      },
+      execute: (params) => planPromptRetrySkill(params),
+      fallback: ({ input }) => ({
+        ...DEFAULT_RETRY_PLAN,
+        nextTargetLength: toPositiveInt(input.currentTargetLength, DEFAULT_TARGET_LENGTH),
+        nextMaxSimilarityAllowed: Number(input.currentMaxSimilarityAllowed || 0.45),
+        nextPassScore: passScoreFloor,
+      }),
     });
 
     targetLengthCursor = retryPlan.nextTargetLength;
@@ -476,29 +931,119 @@ export const generateRandomPromptSkill = ({ mode = "pro", targetLength = DEFAULT
   }
 
   if (!winnerCritic) {
-    winnerCritic = evaluatePromptCriticSkill({
-      candidate: winner,
-      similarity: winnerSimilarity,
-      maxSimilarityAllowed: similarityCap,
-      forceAvoidEmotion,
+    winnerCritic = runSkill({
+      ledger: skillLedger,
+      name: "critic.evaluate.winner",
+      input: {
+        candidate: winner,
+        similarity: winnerSimilarity,
+        maxSimilarityAllowed: similarityCap,
+        forceAvoidEmotion,
+        physics: winner?.physics,
+        adversarial: winner?.adversarial,
+        hardNegative: winner?.hardNegative,
+        anchor: winner?.anchor,
+      },
+      execute: (params) => evaluatePromptCriticSkill(params),
+      fallback: () => DEFAULT_CRITIC,
     });
   }
 
-  const acceptedOutcome = winnerCritic.pass && winnerCritic.score >= passScoreFloor && winnerSimilarity <= similarityCap;
-  rememberPromptOutcomeSkill({
-    themeKey: winner.payload.themeKey,
-    emotion: winner.payload.emotion,
-    accepted: acceptedOutcome,
-    score: winnerCritic.score,
-    issues: winnerCritic.issues,
+  const acceptedOutcome =
+    winnerCritic.pass &&
+    winnerCritic.score >= passScoreFloor &&
+    winnerSimilarity <= similarityCap &&
+    Number(winner?.feasibility?.feasibilityScore || 0) >= 74 &&
+    Number(winner?.physics?.score || 0) >= 78 &&
+    Number(winner?.adversarial?.score || 0) >= 82;
+  runSkill({
+    ledger: skillLedger,
+    name: "memory.remember_outcome",
+    input: {
+      themeKey: winner.payload.themeKey,
+      emotion: winner.payload.emotion,
+      accepted: acceptedOutcome,
+      score: winnerCritic.score,
+      issues: winnerCritic.issues,
+    },
+    execute: (params) => {
+      rememberPromptOutcomeSkill(params);
+      return { stored: true };
+    },
+    fallback: () => ({ stored: false }),
   });
 
   pushHistory(winner);
-  const memoryAfter = snapshotPromptMemorySkill();
+  const memoryAfter = runSkill({
+    ledger: skillLedger,
+    name: "memory.snapshot.after",
+    input: {},
+    execute: () => snapshotPromptMemorySkill(),
+    fallback: () => DEFAULT_MEMORY_SNAPSHOT,
+  });
+  const failureForecast = runSkill({
+    ledger: skillLedger,
+    name: "forecast.build_failure",
+    input: {
+      critic: winnerCritic,
+      adversarial: winner.adversarial,
+      feasibility: winner.feasibility,
+      physics: winner.physics,
+    },
+    execute: (params) => buildFailureForecastSkill(params),
+    fallback: () => DEFAULT_FAILURE_FORECAST,
+  });
+  const masterMetrics = runSkill({
+    ledger: skillLedger,
+    name: "metrics.compute_master_style",
+    input: {
+      prompt: winner.prompt,
+      payload: winner.payload,
+      critic: winnerCritic,
+      adversarial: winner.adversarial,
+      feasibility: winner.feasibility,
+      physics: winner.physics,
+    },
+    execute: (params) => computeMasterStyleMetricsSkill(params),
+    fallback: () => ({}),
+  });
+
+  const contactSheet =
+    resolvedSheetCount > 0
+      ? runSkill({
+          ledger: skillLedger,
+          name: "contact_sheet.rank",
+          input: {
+            candidates: buildContactSheetCandidates({
+              winner,
+              count: resolvedSheetCount,
+              routingContext,
+              forceAvoidEmotion,
+              sequenceStages,
+              castPreference: normalizedCastPreference,
+              tensionLevel: normalizedTensionLevel,
+              skillLedger,
+            }),
+            memory: memoryAfter,
+            maxItems: resolvedSheetCount,
+          },
+          execute: (params) => rankContactSheetSkill(params),
+          fallback: () => ({ cover: null, items: [] }),
+          validate: (result) => result && typeof result === "object" && Array.isArray(result.items),
+        })
+      : { cover: null, items: [] };
+
+  const shotInstruction = winner.prompt;
+  const failureNotes = failureForecast.risks;
   return {
-    prompt: winner.prompt,
+    prompt: shotInstruction,
+    shotInstruction,
+    failureForecast: failureNotes,
     metadata: {
       mode: normalizedMode,
+      tensionLevel: normalizedTensionLevel,
+      castPreference: normalizedCastPreference,
+      cast: winner.payload.cast,
       theme: winner.payload.themeLabel,
       targetLength: winner.target,
       actualLength: winner.length,
@@ -516,6 +1061,7 @@ export const generateRandomPromptSkill = ({ mode = "pro", targetLength = DEFAULT
         maxAttempts: routingContext.maxAttempts,
         maxSimilarityAllowed: routingContext.maxSimilarityAllowed,
         diversity: routingContext.diversity,
+        tensionLevel: routingContext.tensionLevel,
         preferredThemes: routingContext.preferredThemes,
       },
       retry: {
@@ -524,11 +1070,92 @@ export const generateRandomPromptSkill = ({ mode = "pro", targetLength = DEFAULT
         similarityCap,
         reasons: [...new Set(retryReasons)].slice(0, 5),
       },
+      skillContract: {
+        totalCalls: skillLedger.total,
+        fallbackCalls: skillLedger.fallbacks,
+        fallbackRate: skillLedger.total > 0 ? Number((skillLedger.fallbacks / skillLedger.total).toFixed(4)) : 0,
+        errors: skillLedger.errors.slice(-5),
+      },
       memory: {
         observedBefore: memoryBefore?.totals?.observed || 0,
         observedAfter: memoryAfter?.totals?.observed || 0,
         preferredThemes: memoryAfter.preferredThemes.slice(0, 3),
+        pairwiseThemeBiasByKey: memoryAfter.pairwiseThemeBiasByKey || {},
       },
+      sequence: {
+        length: seqLength,
+        index: seqIndex,
+        stage: selectedStage?.stageKey || "",
+        mood: selectedStage?.mood || "",
+      },
+      realism: {
+        feasibilityScore: winner.feasibility?.feasibilityScore || 0,
+        physicsScore: winner.physics?.score || 0,
+        anchor: winner.anchor?.report || {},
+        hardNegativeHits: (winner.hardNegative?.hits || []).map((item) => item.id),
+        adversarialScore: winner.adversarial?.score || 0,
+      },
+      unshootableChecklist: winner.feasibility?.unshootableChecklist || [],
+      failureForecast: failureNotes,
+      metrics: masterMetrics,
+      contactSheet: {
+        cover: contactSheet.cover
+          ? {
+              prompt: contactSheet.cover.prompt,
+              rankScore: contactSheet.cover.rankScore,
+              metrics: contactSheet.cover.metrics,
+              critic: {
+                score: contactSheet.cover.critic?.score || 0,
+                pass: Boolean(contactSheet.cover.critic?.pass),
+              },
+            }
+          : null,
+        items: (contactSheet.items || []).map((item, index) => ({
+          id: `sheet_${index + 1}`,
+          prompt: item.prompt,
+          rankScore: item.rankScore,
+          pairwiseBoost: item.pairwiseBoost,
+          theme: item.payload?.themeLabel || item.payload?.themeKey || "",
+          emotion: item.payload?.emotion || "",
+          stage: item.payload?.arcStage || "",
+          metrics: item.metrics,
+          critic: {
+            score: item.critic?.score || 0,
+            pass: Boolean(item.critic?.pass),
+            issues: (item.critic?.issues || []).slice(0, 2),
+          },
+        })),
+      },
+    },
+  };
+};
+
+export const recordPromptPairwiseFeedbackSkill = ({ better = {}, worse = {} } = {}) => {
+  const skillLedger = createSkillLedger();
+  runSkill({
+    ledger: skillLedger,
+    name: "memory.remember_pairwise_preference",
+    input: { better, worse },
+    execute: (params) => {
+      rememberPairwisePreferenceSkill(params);
+      return { stored: true };
+    },
+    fallback: () => ({ stored: false }),
+  });
+  const memory = runSkill({
+    ledger: skillLedger,
+    name: "memory.snapshot.pairwise",
+    input: {},
+    execute: () => snapshotPromptMemorySkill(),
+    fallback: () => DEFAULT_MEMORY_SNAPSHOT,
+  });
+  return {
+    ...memory,
+    skillContract: {
+      totalCalls: skillLedger.total,
+      fallbackCalls: skillLedger.fallbacks,
+      fallbackRate: skillLedger.total > 0 ? Number((skillLedger.fallbacks / skillLedger.total).toFixed(4)) : 0,
+      errors: skillLedger.errors.slice(-5),
     },
   };
 };

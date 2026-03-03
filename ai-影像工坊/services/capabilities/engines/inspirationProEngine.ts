@@ -95,7 +95,7 @@ const buildPrompt = () => {
 真实亚洲成年人（23岁以上），东亚骨相，真实皮肤纹理与人体比例；严禁未成年语义与幼态化。
 
 【分镜参数（可变）】
-场景：${location}。服装：${wardrobe}。镜头：${camera}。
+人物：${subject}。场景：${location}。服装：${wardrobe}。镜头：${camera}。
 动作：${action}。道具：${prop}。情绪：${mood}。
 
 【真实细节】
@@ -112,4 +112,3 @@ export const InspirationProEngine = {
     return SafetySentinel.sanitize(prompt) || prompt;
   },
 };
-

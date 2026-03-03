@@ -212,7 +212,13 @@ test('POST random_prompt returns 200 with bounded length and metadata', async ()
   const handler = await loadHandler({ AI_GATEWAY_TOKEN: undefined });
   const res = await invoke(handler, {
     method: 'POST',
-    body: { action: 'random_prompt', mode: 'pro', targetLength: 200 },
+    body: {
+      action: 'random_prompt',
+      mode: 'pro',
+      tensionLevel: 'high',
+      castPreference: 'asian_girl_23_plus',
+      targetLength: 200,
+    },
   });
   assert.equal(res.status, 200);
   assert.equal(res.body?.ok, true);
@@ -226,6 +232,46 @@ test('POST random_prompt returns 200 with bounded length and metadata', async ()
   assert.equal(typeof res.body?.metadata?.router?.exploration, 'number');
   assert.equal(typeof res.body?.metadata?.retry?.attemptsUsed, 'number');
   assert.equal(typeof res.body?.metadata?.memory?.observedAfter, 'number');
+  assert.equal(res.body?.metadata?.tensionLevel, 'high');
+  assert.equal(res.body?.metadata?.castPreference, 'asian_girl_23_plus');
+  assert.match(String(res.body?.prompt || ''), /亚洲女孩23\+/);
+  assert.equal(typeof res.body?.shotInstruction, 'string');
+  assert.ok(Array.isArray(res.body?.failureForecast));
+});
+
+test('POST random_prompt_feedback stores pairwise preference', async () => {
+  const handler = await loadHandler({ AI_GATEWAY_TOKEN: undefined });
+  const res = await invoke(handler, {
+    method: 'POST',
+    body: {
+      action: 'random_prompt_feedback',
+      better: { theme: '躁动夜街', emotion: '挑衅', camera: '35mm近距离抓拍' },
+      worse: { theme: '冷感通勤', emotion: '麻木', camera: '50mm中景' },
+    },
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body?.ok, true);
+  expectTrace(res);
+  assert.equal(typeof res.body?.memory?.pairwise?.totals, 'number');
+  assert.equal(typeof res.body?.memory?.pairwiseThemeBiasByKey, 'object');
+  assert.equal(typeof res.body?.memory?.skillContract?.totalCalls, 'number');
+  assert.equal(typeof res.body?.memory?.skillContract?.fallbackCalls, 'number');
+});
+
+test('GET northstar returns composable product metrics', async () => {
+  const handler = await loadHandler({ AI_GATEWAY_TOKEN: undefined });
+  const res = await invoke(handler, {
+    method: 'GET',
+    query: { action: 'northstar', period: 'day' },
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body?.ok, true);
+  expectRateHeaders(res.headers);
+  expectTrace(res);
+  assert.equal(typeof res.body?.northstar?.northstar?.index, 'number');
+  assert.equal(typeof res.body?.northstar?.components?.e2eSuccessRate, 'number');
+  assert.equal(typeof res.body?.northstar?.diagnostics?.totalRequests, 'number');
+  assert.equal(typeof res.body?.health?.ok, 'boolean');
 });
 
 test('POST unsupported action returns 400', async () => {
@@ -280,10 +326,11 @@ test('gateway token auth blocks unauthenticated requests and allows authenticate
   expectTrace(byBearer);
 });
 
-test('production requires gateway token even when AI_GATEWAY_TOKEN is missing', async () => {
+test('production defaults to anonymous access when AI_GATEWAY_TOKEN is missing', async () => {
   const handler = await loadHandler({
     NODE_ENV: 'production',
     AI_GATEWAY_TOKEN: undefined,
+    AI_ALLOW_ANON_IN_PROD: '0',
   });
 
   const res = await invoke(handler, {
@@ -292,9 +339,9 @@ test('production requires gateway token even when AI_GATEWAY_TOKEN is missing', 
     headers: {},
   });
 
-  assert.equal(res.status, 401);
+  assert.equal(res.status, 200);
   expectTrace(res);
-  assert.match(String(res.body?.error || ''), /AI_GATEWAY_TOKEN/i);
+  assert.equal(res.body?.ok, true);
 });
 
 test('GET metrics returns telemetry snapshot', async () => {

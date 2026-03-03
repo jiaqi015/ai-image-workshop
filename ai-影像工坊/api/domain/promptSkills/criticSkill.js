@@ -129,6 +129,10 @@ export const evaluatePromptCriticSkill = ({
   similarity = 0,
   maxSimilarityAllowed = 0.45,
   forceAvoidEmotion = "",
+  physics = {},
+  adversarial = {},
+  hardNegative = {},
+  anchor = {},
 } = {}) => {
   const payload = candidate?.payload || {};
   const prompt = candidate?.prompt || "";
@@ -146,14 +150,22 @@ export const evaluatePromptCriticSkill = ({
     forceAvoidEmotion,
     emotion: payload.emotion,
   });
+  const physicsScore = clamp(Number(physics?.score || 100), 0, 100);
+  const adversarialScore = clamp(Number(adversarial?.score || 100), 0, 100);
+  const hardNegativePenalty = clamp(Number(hardNegative?.penalty || 0), 0, 60);
+  const anchorMissing = Number(anchor?.missingCount || 0);
+  const anchorScore = clamp(100 - anchorMissing * 18, 0, 100);
 
   const weightedScore = Math.round(
-    lengthScore * 0.18 +
-      completeness.score * 0.2 +
-      consistency.score * 0.22 +
-      realism.score * 0.22 +
-      diversity.score * 0.18
+    lengthScore * 0.14 +
+      completeness.score * 0.16 +
+      consistency.score * 0.18 +
+      realism.score * 0.18 +
+      diversity.score * 0.14 +
+      physicsScore * 0.1 +
+      adversarialScore * 0.1
   );
+  const finalScore = clamp(Math.round(weightedScore - hardNegativePenalty * 0.35), 0, 100);
 
   const issues = [
     ...completeness.missing.map((key) => `缺少字段:${key}`),
@@ -161,11 +173,20 @@ export const evaluatePromptCriticSkill = ({
     ...realism.issues,
     ...diversity.issues,
   ];
+  if (physicsScore < 80) issues.push("动作物理可拍性不足");
+  if (adversarialScore < 84) issues.push("对抗评审风险偏高");
+  if (hardNegativePenalty > 0) issues.push("命中负例词库");
+  if (anchorMissing > 1) issues.push("多模态锚点不足");
 
-  const pass = weightedScore >= 78 && issues.length === 0 && realism.score >= 84;
+  const pass =
+    finalScore >= 78 &&
+    issues.length === 0 &&
+    realism.score >= 84 &&
+    physicsScore >= 80 &&
+    adversarialScore >= 84;
   return {
     pass,
-    score: weightedScore,
+    score: finalScore,
     issues,
     breakdown: {
       length: lengthScore,
@@ -173,6 +194,10 @@ export const evaluatePromptCriticSkill = ({
       consistency: consistency.score,
       realism: realism.score,
       diversity: diversity.score,
+      physics: physicsScore,
+      adversarial: adversarialScore,
+      anchor: anchorScore,
+      hardNegativePenalty,
     },
   };
 };

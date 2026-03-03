@@ -1,6 +1,6 @@
 
 import { ShootPlan, DirectorModel, TensionLevel, RuntimeBlueprint, OptionBlueprint, HardLock } from "../../types";
-import { Infrastructure } from "../api/client";
+import { GatewayClient } from "../api/client";
 import { ScriptAnalyzer, ScriptAnalysis } from "../capabilities/engines/scriptAnalyzer";
 import { AssetRecaller } from "../capabilities/engines/assetRecaller"; 
 import { LocalizationService } from "../capabilities/infra/localizationService";
@@ -241,7 +241,7 @@ ${styleDirective}
         const userPrompt = `PROJECT: ${analysis.coreSubject}${genderInstruction}\n[Instruction]: Interpret this with ORGANIC, HUMAN, FILM texture. No digital art feel. Subject must be a REAL ASIAN ADULT HUMAN (23+). Emphasize documentary details: feet sole texture, heavy shadow contrast, skin pores, fabric pressure marks. Micro-casting Inspiration: "${creativeBrief.microCasting}"`;
 
         const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }];
-        const targetModel = model || Infrastructure.getModelPreferences().textModel;
+        const targetModel = model || GatewayClient.getModelPreferences().textModel;
         const postProcessPlan = async (rawPlan: any): Promise<ShootPlan> => {
             const rawData = rawPlan && typeof rawPlan === "object" ? rawPlan : { ...FALLBACK_PLAN };
 
@@ -268,10 +268,10 @@ ${styleDirective}
             return rawData as ShootPlan;
         };
 
-        if (Infrastructure.isBackendEnabled()) {
+        if (GatewayClient.isBackendEnabled()) {
             try {
                 if (onChunk) onChunk(`正在接入导演域服务: ${targetModel}\n`);
-                const backendResult = await Infrastructure.generateDirectorPlan({
+                const backendResult = await GatewayClient.generateDirectorPlan({
                     userIdea,
                     analysis,
                     creativeBrief,
@@ -291,7 +291,7 @@ ${styleDirective}
 
         try {
             if (onChunk) onChunk(`正在接入文本模型: ${targetModel}\n`);
-            const fullText = await Infrastructure.routeRequest(targetModel, messages, onChunk, signal);
+            const fullText = await GatewayClient.routeRequest(targetModel, messages, onChunk, signal);
             const rawData = JSONHealer.heal(fullText, FALLBACK_PLAN);
             return await postProcessPlan(rawData);
 
@@ -314,8 +314,8 @@ ${styleDirective}
         `;
 
         try {
-            const targetModel = model || Infrastructure.getModelPreferences().textModel;
-            const res = await Infrastructure.routeRequest(targetModel, [{role:'user', content: prompt}]);
+            const targetModel = model || GatewayClient.getModelPreferences().textModel;
+            const res = await GatewayClient.routeRequest(targetModel, [{role:'user', content: prompt}]);
             const json = JSONHealer.heal(res, { variants: [] });
             return await LocalizationService.processPlanFrames(json.variants || [], "Visual Style", targetModel);
         } catch (e) {
@@ -335,7 +335,7 @@ ${styleDirective}
         onLog?: (msg: string) => void,
         onChunkReady?: (scripts: string[], chunkIndex: number) => void
     ): Promise<string[]> => {
-        const targetModelId = model || Infrastructure.getModelPreferences().textModel;
+        const targetModelId = model || GatewayClient.getModelPreferences().textModel;
 
         // 2. Parallel Chunking
         const CHUNK_SIZE = 5;
@@ -406,7 +406,7 @@ ${styleDirective}
         `;
 
         try {
-            const res = await Infrastructure.routeRequest(policyModelId, [{ role: 'user', content: prompt }]);
+            const res = await GatewayClient.routeRequest(policyModelId, [{ role: 'user', content: prompt }]);
             const json = JSONHealer.heal(res, { frames: [] as string[] });
             return Array.isArray(json?.frames) ? json.frames : [];
         } catch (e) {

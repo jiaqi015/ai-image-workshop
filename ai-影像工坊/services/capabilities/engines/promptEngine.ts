@@ -114,6 +114,6 @@ export const PromptEngine = {
         // 新增：Body Type 随机召回
         const body = weightedPick(CASTING.TRAITS.BODY_TYPES, bias.body);
         
-        return `Archetype: ${selectedKey}. Body: ${body}. Structure: ${face}. Detail: ${eyes}, ${skin}.`;
+        return `Archetype: ${selectedKey}. Body: ${body}. Structure: ${face}. Detail: ${eyes}, ${skin}, ${nose}, ${lips}.`;
     }
 };

@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1160" viewBox="0 0 1800 1160">
+  <defs>
+    <style>
+      .title { font: 700 36px 'Arial'; fill: #f5f5f5; }
+      .subtitle { font: 500 16px 'Arial'; fill: #a1a1aa; }
+      .layer { fill: #111827; stroke: #374151; stroke-width: 2; rx: 16; }
+      .box { fill: #0f172a; stroke: #64748b; stroke-width: 2; rx: 12; }
+      .box2 { fill: #1e1b4b; stroke: #818cf8; stroke-width: 2; rx: 12; }
+      .box3 { fill: #052e16; stroke: #34d399; stroke-width: 2; rx: 12; }
+      .box4 { fill: #3f1d2e; stroke: #f472b6; stroke-width: 2; rx: 12; }
+      .box5 { fill: #3f3f46; stroke: #a1a1aa; stroke-width: 2; rx: 12; }
+      .label { font: 700 20px 'Arial'; fill: #f8fafc; }
+      .text { font: 500 15px 'Arial'; fill: #cbd5e1; }
+      .small { font: 500 13px 'Arial'; fill: #94a3b8; }
+      .arrow { stroke: #94a3b8; stroke-width: 2.5; fill: none; marker-end: url(#arrowhead); }
+      .arrow2 { stroke: #34d399; stroke-width: 2.5; fill: none; marker-end: url(#arrowhead2); }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8" />
+    </marker>
+    <marker id="arrowhead2" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#34d399" />
+    </marker>
+  </defs>
+
+  <rect width="1800" height="1160" fill="#09090b"/>
+  <text x="60" y="68" class="title">AI Studio Architecture (Refactored)</text>
+  <text x="60" y="98" class="subtitle">Single-pass structure: facade + orchestration + policies + infra</text>
+
+  <rect x="40" y="130" width="1720" height="150" class="layer"/>
+  <text x="60" y="160" class="label">Presentation Layer</text>
+
+  <rect x="40" y="300" width="1720" height="270" class="layer"/>
+  <text x="60" y="330" class="label">Orchestration Layer</text>
+
+  <rect x="40" y="590" width="1720" height="280" class="layer"/>
+  <text x="60" y="620" class="label">Workflow + Domain Services</text>
+
+  <rect x="40" y="890" width="1720" height="230" class="layer"/>
+  <text x="60" y="920" class="label">Engine + Policy + Infra</text>
+
+  <rect x="80" y="180" width="300" height="70" class="box"/>
+  <text x="100" y="222" class="label">App.tsx + UI Modules</text>
+
+  <rect x="420" y="180" width="380" height="70" class="box"/>
+  <text x="440" y="222" class="label">PlanningWorkspace / Gallery / Sidebar</text>
+
+  <rect x="840" y="180" width="360" height="70" class="box"/>
+  <text x="860" y="222" class="label">UI Events (start/select/retry/reset)</text>
+
+  <rect x="80" y="350" width="420" height="80" class="box2"/>
+  <text x="100" y="395" class="label">useStudioArchitect (thin facade)</text>
+
+  <rect x="520" y="350" width="250" height="80" class="box3"/>
+  <text x="540" y="395" class="label">useStudioInfra</text>
+
+  <rect x="790" y="350" width="230" height="80" class="box3"/>
+  <text x="810" y="395" class="label">useHistorySync</text>
+
+  <rect x="1040" y="350" width="230" height="80" class="box3"/>
+  <text x="1060" y="395" class="label">useAutoCuration</text>
+
+  <rect x="1290" y="350" width="230" height="80" class="box3"/>
+  <text x="1310" y="395" class="label">useConceptSelection</text>
+
+  <rect x="1540" y="350" width="190" height="80" class="box3"/>
+  <text x="1560" y="395" class="label">useUxMetrics</text>
+
+  <rect x="80" y="450" width="350" height="80" class="box4"/>
+  <text x="100" y="495" class="label">useWorkflowMachine</text>
+
+  <rect x="450" y="450" width="380" height="80" class="box4"/>
+  <text x="470" y="495" class="label">usePlanningWorkflow</text>
+
+  <rect x="850" y="450" width="380" height="80" class="box4"/>
+  <text x="870" y="495" class="label">useShootingWorkflow</text>
+
+  <rect x="80" y="650" width="420" height="90" class="box"/>
+  <text x="100" y="690" class="label">domain/workflow/sessionOrchestrator</text>
+  <text x="100" y="715" class="small">buildConceptProposalFrames / buildShootFrames / syncPlan</text>
+
+  <rect x="520" y="650" width="320" height="90" class="box"/>
+  <text x="540" y="700" class="label">services/public.ts</text>
+
+  <rect x="860" y="650" width="400" height="90" class="box"/>
+  <text x="880" y="700" class="label">useDarkroom + useHistory</text>
+
+  <rect x="1280" y="650" width="450" height="90" class="box"/>
+  <text x="1300" y="690" class="label">routing/policy + executionPolicy</text>
+  <text x="1300" y="715" class="small">resolveRuntimeStrategy / selectFrameModelType</text>
+
+  <rect x="80" y="760" width="400" height="90" class="box"/>
+  <text x="100" y="810" class="label">masterSessionPolicy</text>
+
+  <rect x="500" y="760" width="520" height="90" class="box"/>
+  <text x="520" y="810" class="label">DirectorEngine / CameraEngine</text>
+
+  <rect x="1040" y="760" width="690" height="90" class="box"/>
+  <text x="1060" y="810" class="label">Infrastructure API Client + Gateway</text>
+
+  <rect x="80" y="960" width="520" height="110" class="box5"/>
+  <text x="100" y="1005" class="label">Local persistence</text>
+  <text x="100" y="1030" class="text">dbService / History storage / blob hydration</text>
+
+  <rect x="620" y="960" width="520" height="110" class="box5"/>
+  <text x="640" y="1005" class="label">Provider runtime</text>
+  <text x="640" y="1030" class="text">model routing / retries / fallback / rate-limit handling</text>
+
+  <rect x="1160" y="960" width="560" height="110" class="box5"/>
+  <text x="1180" y="1005" class="label">Image/Text providers</text>
+  <text x="1180" y="1030" class="text">OpenAI / Google / Ali / Byte / MiniMax / Zhipu</text>
+
+  <path d="M 990 250 L 990 345" class="arrow"/>
+  <path d="M 290 250 L 290 345" class="arrow"/>
+  <path d="M 610 250 L 610 345" class="arrow"/>
+
+  <path d="M 250 430 L 250 448" class="arrow2"/>
+  <path d="M 650 430 L 650 448" class="arrow2"/>
+  <path d="M 930 430 L 930 448" class="arrow2"/>
+
+  <path d="M 620 530 L 300 650" class="arrow"/>
+  <path d="M 640 530 L 680 650" class="arrow"/>
+  <path d="M 1030 530 L 1060 650" class="arrow"/>
+  <path d="M 1120 530 L 1480 650" class="arrow"/>
+
+  <path d="M 300 740 L 280 760" class="arrow"/>
+  <path d="M 700 740 L 760 760" class="arrow"/>
+  <path d="M 1160 740 L 1380 760" class="arrow"/>
+
+  <path d="M 760 850 L 860 960" class="arrow"/>
+  <path d="M 1300 850 L 1420 960" class="arrow"/>
+  <path d="M 980 850 L 980 960" class="arrow"/>
+
+  <text x="80" y="1140" class="small">Generated: hooks split into infra/history/curation/concept/ux + workflow orchestrators.</text>
+</svg>

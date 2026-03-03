@@ -1,7 +1,7 @@
 
-import { SKIN_ASSETS, EYES_ASSETS, LIPS_ASSETS, HAIR_ASSETS, BODY_ASSETS, FACE_STRUCTURES, ARCHETYPES_DB } from "../../../assets/casting";
+import { SKIN_ASSETS, EYES_ASSETS, HAIR_ASSETS, BODY_ASSETS, FACE_STRUCTURES, ARCHETYPES_DB } from "../../../assets/casting";
 import { LOOK_ASSETS, MOOD_ASSETS, LIGHTING_ASSETS, COLOR_PALETTES, SUBCULTURES, TEXTURES } from "../../../assets/visuals";
-import { MICRO_PLOTS, ATMOSPHERES, PUNCTUMS, SENSORY_DETAILS, INTERACTIONS } from "../../../assets/narrative";
+import { MICRO_PLOTS, ATMOSPHERES, INTERACTIONS } from "../../../assets/narrative";
 import { ANALOG_STOCKS, OPTICS } from "../../../assets/cinematography"; 
 import { CreativeAsset, AssetAxis, RiskFlag, AssetSlot, OptionBlueprint } from "../../../types";
 import { ScriptAnalysis } from "./scriptAnalyzer";

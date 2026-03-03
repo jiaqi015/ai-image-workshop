@@ -1,6 +1,6 @@
-import type { useStudioArchitect } from '../../hooks/useStudioArchitect';
+import type { useStudioOrchestrator } from '../../hooks/useStudioOrchestrator';
 
-export type StudioViewModel = ReturnType<typeof useStudioArchitect>;
+export type StudioViewModel = ReturnType<typeof useStudioOrchestrator>;
 
 export interface StageMetaItem {
   id: number;

@@ -68,7 +68,6 @@ npm run dev
 
 必填（建议）：
 
-- `AI_GATEWAY_TOKEN`（生产默认要求；前端设置里填同一个令牌）
 - `OPENAI_KEY`
 - `GOOGLE_KEY`
 - `ALI_KEY`
@@ -79,12 +78,11 @@ npm run dev
 
 可选（高级）：
 
+- `AI_GATEWAY_TOKEN`（配置后开启网关鉴权）
 - `AI_UPSTREAM_TIMEOUT_MS=25000`
 - `AI_GOOGLE_TIMEOUT_MS=25000`
 - `AI_RATE_LIMIT_RPM=120`
-- `AI_ALLOW_ANON_IN_PROD=0`（默认 0；设成 1 才允许生产匿名访问，不推荐）
 - `HISTORY_GATEWAY_TOKEN=`（不填则复用 `AI_GATEWAY_TOKEN`）
-- `HISTORY_ALLOW_ANON_IN_PROD=0`
 - `HISTORY_DATABASE_MODE=hybrid`（`blob | hybrid | postgres`）
 - `HISTORY_MAX_BODY_BYTES=12582912`
 - `HISTORY_MAX_FRAMES_PER_RECORD=80`
@@ -138,6 +136,7 @@ npm run dev
 `GET /api/ai?action=metrics` 返回网关运行遥测（请求量、错误类型、fallback统计、厂商健康快照）。
 `GET /api/ai?action=dashboard&period=day|week` 返回日/周聚合看板指标。  
 `GET /api/ai?action=alerts&period=day|week` 返回阈值告警结果。
+`GET /api/ai?action=northstar&period=day|week` 返回北极星复合指标（成功率/可用性/fallback恢复/时延）。
 
 ## 6.1 全站历史回溯（Vercel Blob）
 
@@ -150,7 +149,7 @@ npm run dev
 
 安全与限额：
 
-- 生产环境默认要求历史接口鉴权（`HISTORY_GATEWAY_TOKEN` 或复用 `AI_GATEWAY_TOKEN`）
+- 默认匿名放行；仅在配置 `HISTORY_GATEWAY_TOKEN`/`AI_GATEWAY_TOKEN` 或显式策略要求时鉴权
 - 历史写入默认启用请求体/单图/总图大小限制，防止 Blob 成本攻击
 
 存储结构：

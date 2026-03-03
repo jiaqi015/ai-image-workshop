@@ -1,11 +1,10 @@
 
 import React from 'react';
-import { ShootContract, ShootGuide, Frame, ShootPlan, CharacterProfile, WardrobeProfile, SetProfile, ProductionNotes } from '../types';
+import { ShootGuide, Frame, ShootPlan, ProductionNotes } from '../types';
 import { SparklesIcon, ZoomInIcon, FilmIcon, TerminalIcon } from './Icons';
 
 // 组件属性定义
 interface ContractCardProps {
-  contract: ShootContract;       // 拍摄合约数据
   title: string;                 // 影片标题
   directorInsight?: string;      // 导演阐述
   productionNotes?: ProductionNotes; // 具体的执行笔记
@@ -93,7 +92,6 @@ const ContinuitySection = ({ title, items, origin }: { title: string, items: {la
 }
 
 export const ContractCard: React.FC<ContractCardProps> = ({ 
-  contract, 
   title, 
   directorInsight,
   productionNotes, 

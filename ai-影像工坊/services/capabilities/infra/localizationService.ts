@@ -1,5 +1,5 @@
 
-import { Infrastructure } from "../../api/client";
+import { GatewayClient } from "../../api/client";
 
 // ==========================================
 // 汉化与扩写保障服务 (Localization & Expansion Service)
@@ -67,8 +67,8 @@ export const LocalizationService = {
         `;
 
         try {
-            const targetModel = model || Infrastructure.getModelPreferences().textModel;
-            const result = await Infrastructure.routeRequest(targetModel, [{ role: "user", content: prompt }]);
+            const targetModel = model || GatewayClient.getModelPreferences().textModel;
+            const result = await GatewayClient.routeRequest(targetModel, [{ role: "user", content: prompt }]);
             return result ? result.trim() : text;
         } catch (e) {
             console.warn("Localization failed, returning original:", e);

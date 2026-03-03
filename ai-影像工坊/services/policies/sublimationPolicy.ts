@@ -40,13 +40,10 @@ export const SublimationPolicy = {
         }
 
         let sublimated = input.toLowerCase();
-        let changed = false;
-
         // 执行关键词替换
         Object.entries(SUBLIMATION_MAP).forEach(([bad, good]) => {
             if (sublimated.includes(bad)) {
                 sublimated = sublimated.replace(new RegExp(bad, 'gi'), good);
-                changed = true;
             }
         });
 

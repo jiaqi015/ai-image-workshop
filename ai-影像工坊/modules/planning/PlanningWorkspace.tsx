@@ -29,8 +29,8 @@ export const PlanningWorkspace: React.FC<PlanningWorkspaceProps> = ({
   const currentStage = stageMeta.find((stage) => stage.id === stageIndex) || stageMeta[0];
 
   return (
-    <div className="h-full min-h-0 p-4 md:p-6">
-      <div className="h-full min-h-0 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-4">
+    <div className="h-full min-h-0 ui-shell-pad">
+      <div className="h-full min-h-0 ui-planning-grid">
         <main ref={studio.mainContentRef} className="min-h-0 overflow-y-auto ui-surface p-4 md:p-5">
           <PlanningRightStage studio={studio} stream={stream} frameStats={frameStats} />
         </main>
@@ -49,7 +49,7 @@ export const PlanningWorkspace: React.FC<PlanningWorkspaceProps> = ({
         />
       </div>
 
-      <div className="xl:hidden mt-4 space-y-4">
+      <div className="xl:hidden mt-4">
         <PlanningLeftPanel
           studio={studio}
           stream={stream}
