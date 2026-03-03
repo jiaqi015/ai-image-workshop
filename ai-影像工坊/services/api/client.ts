@@ -375,8 +375,20 @@ const validateGatewayHealth = async () => {
     const response = await fetch(apiUrl("/api/ai?action=health"), {
         headers: withGatewayHeaders(),
     });
-    if (!response.ok) throw new Error(`后端健康检查错误: ${response.status}`);
-    const data = await response.json();
+    const text = await response.text();
+    let data: any = {};
+    try {
+        data = text ? JSON.parse(text) : {};
+    } catch {
+        data = {};
+    }
+    if (!response.ok) {
+        if (response.status === 401) {
+            throw new Error("后端健康检查鉴权失败（401）：如不需要鉴权，请将 AI_GATEWAY_REQUIRE_TOKEN 设为 0（或删除）；如已开启鉴权，请填写网关令牌。");
+        }
+        const backendError = String(data?.error || "").trim();
+        throw new Error(`后端健康检查错误: ${response.status}${backendError ? ` (${backendError})` : ""}`);
+    }
     if (data?.ok === false) throw new Error(data?.error || "后端健康检查失败");
 
     const providers = Object.values(data?.providers || {});

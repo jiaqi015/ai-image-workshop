@@ -178,6 +178,10 @@ const readBlobTokenConfigured = () => Boolean(String(process.env.BLOB_READ_WRITE
 
 const buildEnvPolicy = () => {
   const historyGatewayToken = String(process.env.HISTORY_GATEWAY_TOKEN || process.env.AI_GATEWAY_TOKEN || "").trim();
+  const requireHistoryToken = toBoolean(
+    process.env.HISTORY_GATEWAY_REQUIRE_TOKEN,
+    toBoolean(process.env.AI_GATEWAY_REQUIRE_TOKEN, false)
+  );
   const allowAnonInProd = toBoolean(process.env.HISTORY_ALLOW_ANON_IN_PROD, true);
   const postgresConfigured = isPostgresConfigured();
   const databaseMode = normalizeDatabaseMode(process.env.HISTORY_DATABASE_MODE, postgresConfigured ? "hybrid" : "blob");
@@ -201,7 +205,7 @@ const buildEnvPolicy = () => {
     databaseMode,
     historyGatewayToken,
     allowAnonInProd,
-    requireHistoryToken: Boolean(historyGatewayToken),
+    requireHistoryToken,
     postgres: {
       configured: postgresConfigured,
       connected: false,

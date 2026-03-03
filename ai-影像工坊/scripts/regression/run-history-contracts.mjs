@@ -150,7 +150,12 @@ const createMemoryPgAdapter = () => {
 };
 
 const loadHandler = async ({ envOverrides = {}, blobAdapter = null, fetchAdapter = null, edgeConfigAdapter = null, pgAdapter = null } = {}) => {
-  for (const [key, value] of Object.entries(envOverrides)) {
+  const normalizedEnv = {
+    AI_GATEWAY_REQUIRE_TOKEN: undefined,
+    HISTORY_GATEWAY_REQUIRE_TOKEN: undefined,
+    ...envOverrides,
+  };
+  for (const [key, value] of Object.entries(normalizedEnv)) {
     if (value === undefined || value === null) delete process.env[key];
     else process.env[key] = String(value);
   }
@@ -426,7 +431,9 @@ test('production defaults to anonymous history access, but enforces token when c
       NODE_ENV: 'production',
       BLOB_READ_WRITE_TOKEN: 'blob-test-token',
       HISTORY_GATEWAY_TOKEN: undefined,
+      HISTORY_GATEWAY_REQUIRE_TOKEN: '0',
       AI_GATEWAY_TOKEN: undefined,
+      AI_GATEWAY_REQUIRE_TOKEN: '0',
       HISTORY_ALLOW_ANON_IN_PROD: '0',
     },
     blobAdapter: memory,
@@ -441,7 +448,9 @@ test('production defaults to anonymous history access, but enforces token when c
       NODE_ENV: 'production',
       BLOB_READ_WRITE_TOKEN: 'blob-test-token',
       HISTORY_GATEWAY_TOKEN: 'history-secret',
+      HISTORY_GATEWAY_REQUIRE_TOKEN: '1',
       AI_GATEWAY_TOKEN: undefined,
+      AI_GATEWAY_REQUIRE_TOKEN: '0',
       HISTORY_ALLOW_ANON_IN_PROD: undefined,
     },
     blobAdapter: memory,
@@ -478,7 +487,9 @@ test('edge config policy can enforce read-only and override auth requirement', a
       EDGE_CONFIG: 'https://edge-config.example/mock',
       BLOB_READ_WRITE_TOKEN: 'blob-test-token',
       HISTORY_GATEWAY_TOKEN: undefined,
+      HISTORY_GATEWAY_REQUIRE_TOKEN: undefined,
       AI_GATEWAY_TOKEN: undefined,
+      AI_GATEWAY_REQUIRE_TOKEN: '0',
       HISTORY_ALLOW_ANON_IN_PROD: undefined,
     },
     blobAdapter: memory,

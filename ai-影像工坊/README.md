@@ -78,11 +78,13 @@ npm run dev
 
 可选（高级）：
 
-- `AI_GATEWAY_TOKEN`（配置后开启网关鉴权）
+- `AI_GATEWAY_TOKEN`（网关令牌，需配合 `AI_GATEWAY_REQUIRE_TOKEN=1` 才会强制鉴权）
+- `AI_GATEWAY_REQUIRE_TOKEN=0`（`1`=开启网关鉴权，默认 `0`）
 - `AI_UPSTREAM_TIMEOUT_MS=25000`
 - `AI_GOOGLE_TIMEOUT_MS=25000`
 - `AI_RATE_LIMIT_RPM=120`
 - `HISTORY_GATEWAY_TOKEN=`（不填则复用 `AI_GATEWAY_TOKEN`）
+- `HISTORY_GATEWAY_REQUIRE_TOKEN=0`（`1`=开启历史接口鉴权，默认跟随 `AI_GATEWAY_REQUIRE_TOKEN`）
 - `HISTORY_DATABASE_MODE=hybrid`（`blob | hybrid | postgres`）
 - `HISTORY_MAX_BODY_BYTES=12582912`
 - `HISTORY_MAX_FRAMES_PER_RECORD=80`
@@ -149,7 +151,7 @@ npm run dev
 
 安全与限额：
 
-- 默认匿名放行；仅在配置 `HISTORY_GATEWAY_TOKEN`/`AI_GATEWAY_TOKEN` 或显式策略要求时鉴权
+- 默认匿名放行；仅在 `HISTORY_GATEWAY_REQUIRE_TOKEN=1` / `AI_GATEWAY_REQUIRE_TOKEN=1` 或显式策略要求时鉴权
 - 历史写入默认启用请求体/单图/总图大小限制，防止 Blob 成本攻击
 
 存储结构：

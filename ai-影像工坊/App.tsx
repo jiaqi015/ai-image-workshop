@@ -255,7 +255,7 @@ export default function App() {
             <input
               type="text"
               className="ui-input px-3 font-mono"
-              placeholder="仅在后端启用 AI_GATEWAY_TOKEN 时填写"
+              placeholder="仅在后端启用 AI_GATEWAY_REQUIRE_TOKEN=1 时填写"
               value={studio.manualKeyInput}
               onChange={(e) => studio.setManualKeyInput(e.target.value)}
             />

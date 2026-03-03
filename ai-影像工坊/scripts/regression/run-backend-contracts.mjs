@@ -6,8 +6,12 @@ const PROVIDERS = ['openai', 'google', 'ali', 'byte', 'minimax', 'zhipu'];
 const handlerModuleUrl = pathToFileURL(path.join(process.cwd(), 'api', 'ai.js')).href;
 
 const loadHandler = async (envOverrides = {}) => {
+  const normalizedEnv = {
+    AI_GATEWAY_REQUIRE_TOKEN: undefined,
+    ...envOverrides,
+  };
   const touched = [];
-  for (const [key, value] of Object.entries(envOverrides)) {
+  for (const [key, value] of Object.entries(normalizedEnv)) {
     touched.push([key, process.env[key]]);
     if (value === undefined || value === null) {
       delete process.env[key];
@@ -299,7 +303,10 @@ test('POST invalid JSON body returns 400', async () => {
 });
 
 test('gateway token auth blocks unauthenticated requests and allows authenticated ones', async () => {
-  const handler = await loadHandler({ AI_GATEWAY_TOKEN: 'token-abc' });
+  const handler = await loadHandler({
+    AI_GATEWAY_TOKEN: 'token-abc',
+    AI_GATEWAY_REQUIRE_TOKEN: '1',
+  });
 
   const unauthorized = await invoke(handler, {
     method: 'GET',
@@ -324,6 +331,23 @@ test('gateway token auth blocks unauthenticated requests and allows authenticate
   });
   assert.equal(byBearer.status, 200);
   expectTrace(byBearer);
+});
+
+test('AI_GATEWAY_TOKEN alone does not force auth when require flag is off', async () => {
+  const handler = await loadHandler({
+    AI_GATEWAY_TOKEN: 'token-abc',
+    AI_GATEWAY_REQUIRE_TOKEN: undefined,
+  });
+
+  const res = await invoke(handler, {
+    method: 'GET',
+    query: { action: 'health' },
+    headers: {},
+  });
+  assert.equal(res.status, 200);
+  expectTrace(res);
+  assert.equal(res.body?.auth?.required, false);
+  assert.equal(res.body?.auth?.configured, true);
 });
 
 test('production defaults to anonymous access when AI_GATEWAY_TOKEN is missing', async () => {

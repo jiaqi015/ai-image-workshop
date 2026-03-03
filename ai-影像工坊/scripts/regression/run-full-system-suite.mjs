@@ -618,6 +618,7 @@ const main = async () => {
       env: {
         LOCAL_API_PORT: String(apiPortA),
         AI_GATEWAY_TOKEN: "",
+        AI_GATEWAY_REQUIRE_TOKEN: "0",
         AI_RATE_LIMIT_RPM: "120",
         ...clearProviderEnv,
       },
@@ -636,6 +637,7 @@ const main = async () => {
       env: {
         LOCAL_API_PORT: String(apiPortB),
         AI_GATEWAY_TOKEN: "token-abc",
+        AI_GATEWAY_REQUIRE_TOKEN: "1",
         AI_RATE_LIMIT_RPM: "2",
         ...clearProviderEnv,
       },
@@ -656,6 +658,7 @@ const main = async () => {
       env: {
         LOCAL_API_PORT: String(apiPortC),
         AI_GATEWAY_TOKEN: "",
+        AI_GATEWAY_REQUIRE_TOKEN: "0",
         AI_RATE_LIMIT_RPM: "120",
         ...clearProviderEnv,
       },

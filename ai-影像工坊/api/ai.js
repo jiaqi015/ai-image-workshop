@@ -43,8 +43,18 @@ const UPSTREAM_TIMEOUT_MS = toPositiveInt(process.env.AI_UPSTREAM_TIMEOUT_MS, 45
 const GOOGLE_UPSTREAM_TIMEOUT_MS = toPositiveInt(process.env.AI_GOOGLE_TIMEOUT_MS, UPSTREAM_TIMEOUT_MS);
 const RATE_LIMIT_RPM = toPositiveInt(process.env.AI_RATE_LIMIT_RPM, 120);
 const RATE_LIMIT_WINDOW_MS = 60_000;
+const toBoolean = (value, fallback = false) => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const lowered = value.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(lowered)) return true;
+    if (["0", "false", "no", "off"].includes(lowered)) return false;
+  }
+  return fallback;
+};
 const GATEWAY_TOKEN = String(process.env.AI_GATEWAY_TOKEN || "").trim();
-const REQUIRE_GATEWAY_TOKEN = Boolean(GATEWAY_TOKEN);
+const REQUIRE_GATEWAY_TOKEN = toBoolean(process.env.AI_GATEWAY_REQUIRE_TOKEN, false);
 
 const resolveRuntimeModel = (provider, model) => {
   const normalizedProvider = String(provider || "").trim();
@@ -100,6 +110,9 @@ const isAuthorized = (req) => {
 };
 
 const getAuthErrorMessage = () => {
+  if (REQUIRE_GATEWAY_TOKEN && !GATEWAY_TOKEN) {
+    return "后端已开启网关鉴权，但未配置 AI_GATEWAY_TOKEN。";
+  }
   return "Unauthorized";
 };
 
