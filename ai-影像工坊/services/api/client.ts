@@ -20,7 +20,13 @@ const DEFAULT_TEXT_MODELS_BY_PROVIDER: Record<string, string[]> = {
     openai: ["gpt-5.1", "gpt-5", "gpt-5-mini"],
     google: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-pro-preview"],
     ali: ["qwen-max", "qwen-plus", "qwen-turbo"],
-    byte: ["doubao-seed-2-0-pro", "doubao-seed-2-0-lite", "doubao-seed-1-8"],
+    byte: [
+        "doubao-1-5-pro-32k-250115",
+        "doubao-1-5-lite-32k-250115",
+        "doubao-seed-2-0-pro",
+        "doubao-seed-2-0-lite",
+        "doubao-seed-1-8",
+    ],
     minimax: ["MiniMax-M2.5", "MiniMax-M2.5-highspeed", "MiniMax-M2.1"],
     zhipu: ["glm-4.7", "glm-4.6", "glm-4.5-flash"],
 };
@@ -28,7 +34,7 @@ const DEFAULT_TEXT_MODELS_BY_PROVIDER: Record<string, string[]> = {
 const DEFAULT_IMAGE_MODELS_BY_PROVIDER: Record<string, string[]> = {
     openai: ["gpt-image-1", "dall-e-3", "dall-e-2"],
     google: ["gemini-3-pro-image-preview", "gemini-2.5-flash-image"],
-    byte: ["doubao-seedream-5-0-lite", "doubao-seedream-4-5", "doubao-seedream-4-0-250828"],
+    byte: ["doubao-seedream-4-0-250828", "doubao-seedream-3-0-t2i-250415", "doubao-seedream-5-0-lite", "doubao-seedream-4-5"],
     ali: ["wan2.2-t2i-plus", "wan2.2-t2i-flash", "wanx2.1-t2i-plus"],
     minimax: ["image-01"],
     zhipu: ["glm-image", "cogview-4", "cogview-3-flash"],

@@ -99,7 +99,7 @@ npm run dev
 - OpenAI: `gpt-5.1` / `gpt-5` / `gpt-5-mini`
 - Google: `gemini-2.5-pro` / `gemini-2.5-flash` / `gemini-3-pro-preview`
 - 阿里: `qwen-max` / `qwen-plus` / `qwen-turbo`
-- 字节: `doubao-seed-2-0-pro` / `doubao-seed-2-0-lite` / `doubao-seed-1-8`
+- 字节: `doubao-1-5-pro-32k-250115` / `doubao-1-5-lite-32k-250115` / `doubao-seed-2-0-pro`
 - MiniMax: `MiniMax-M2.5` / `MiniMax-M2.5-highspeed` / `MiniMax-M2.1`
 - 智谱: `glm-4.7` / `glm-4.6` / `glm-4.5-flash`
 
@@ -108,7 +108,7 @@ npm run dev
 - OpenAI: `gpt-image-1` / `dall-e-3` / `dall-e-2`
 - Google: `gemini-3-pro-image-preview` / `gemini-2.5-flash-image`
 - 阿里: `wan2.2-t2i-plus` / `wan2.2-t2i-flash` / `wanx2.1-t2i-plus`
-- 字节: `doubao-seedream-5-0-lite` / `doubao-seedream-4-5` / `doubao-seedream-4-0-250828`
+- 字节: `doubao-seedream-4-0-250828` / `doubao-seedream-3-0-t2i-250415` / `doubao-seedream-5-0-lite`
 - MiniMax: `image-01`
 - 智谱: `glm-image` / `cogview-4` / `cogview-3-flash`
 

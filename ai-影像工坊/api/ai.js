@@ -49,7 +49,13 @@ const DEFAULT_ROUTING = {
       openai: ["gpt-5.1", "gpt-5", "gpt-5-mini"],
       google: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-pro-preview"],
       ali: ["qwen-max", "qwen-plus", "qwen-turbo"],
-      byte: ["doubao-seed-2-0-pro", "doubao-seed-2-0-lite", "doubao-seed-1-8"],
+      byte: [
+        "doubao-1-5-pro-32k-250115",
+        "doubao-1-5-lite-32k-250115",
+        "doubao-seed-2-0-pro",
+        "doubao-seed-2-0-lite",
+        "doubao-seed-1-8",
+      ],
       minimax: ["MiniMax-M2.5", "MiniMax-M2.5-highspeed", "MiniMax-M2.1"],
       zhipu: ["glm-4.7", "glm-4.6", "glm-4.5-flash"],
     },
@@ -61,7 +67,12 @@ const DEFAULT_ROUTING = {
       openai: ["gpt-image-1", "dall-e-3", "dall-e-2"],
       google: ["gemini-3-pro-image-preview", "gemini-2.5-flash-image"],
       ali: ["wan2.2-t2i-plus", "wan2.2-t2i-flash", "wanx2.1-t2i-plus"],
-      byte: ["doubao-seedream-5-0-lite", "doubao-seedream-4-5", "doubao-seedream-4-0-250828"],
+      byte: [
+        "doubao-seedream-4-0-250828",
+        "doubao-seedream-3-0-t2i-250415",
+        "doubao-seedream-5-0-lite",
+        "doubao-seedream-4-5",
+      ],
       minimax: ["image-01"],
       zhipu: ["glm-image", "cogview-4", "cogview-3-flash"],
     },
@@ -110,7 +121,7 @@ const toPositiveInt = (value, fallback) => {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 };
 
-const UPSTREAM_TIMEOUT_MS = toPositiveInt(process.env.AI_UPSTREAM_TIMEOUT_MS, 25000);
+const UPSTREAM_TIMEOUT_MS = toPositiveInt(process.env.AI_UPSTREAM_TIMEOUT_MS, 45000);
 const GOOGLE_UPSTREAM_TIMEOUT_MS = toPositiveInt(process.env.AI_GOOGLE_TIMEOUT_MS, UPSTREAM_TIMEOUT_MS);
 const RATE_LIMIT_RPM = toPositiveInt(process.env.AI_RATE_LIMIT_RPM, 120);
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -545,6 +556,7 @@ const isModelNotOpenError = (raw) => {
   return (
     text.includes("modelnotopen") ||
     text.includes("invalidendpointormodel") ||
+    text.includes("does not exist or you do not have access") ||
     text.includes("model not found") ||
     text.includes("model_not_found") ||
     text.includes("no such model") ||
