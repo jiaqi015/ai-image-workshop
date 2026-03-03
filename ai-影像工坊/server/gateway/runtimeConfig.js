@@ -6,7 +6,7 @@ export const DEFAULT_ROUTING = {
     keyStrategy: "round_robin",
     cooldownMs: 60000,
     maxRetries: 2,
-    pinnedModelFallback: "same_provider",
+    pinnedModelFallback: "cross_provider",
   },
   providers: {
     openai: { enabled: true },
@@ -32,7 +32,7 @@ export const DEFAULT_ROUTING = {
       minimax: ["MiniMax-M2.5", "MiniMax-M2.5-highspeed", "MiniMax-M2.1"],
       zhipu: ["glm-4.7", "glm-4.6", "glm-4.5-flash"],
     },
-    defaultModel: "gpt-5.1",
+    defaultModel: "qwen-max",
   },
   image: {
     providerOrder: ["openai", "google", "byte", "ali", "minimax", "zhipu"],
@@ -49,7 +49,7 @@ export const DEFAULT_ROUTING = {
       minimax: ["image-01"],
       zhipu: ["glm-image", "cogview-4", "cogview-3-flash"],
     },
-    defaultModel: "gpt-image-1",
+    defaultModel: "doubao-seedream-5-0-lite",
   },
 };
 
