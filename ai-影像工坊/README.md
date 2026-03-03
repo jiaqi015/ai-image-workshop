@@ -130,3 +130,25 @@ npm run dev
 - `config/ai-runtime-aliases.json`：运行时模型别名（展示模型名 -> 厂商真实调用 ID）
 - `services/api/client.ts`：前端基础设施层（后端优先、可选前端兜底）
 - `vercel.json`：Function Runtime + SPA 路由重写
+- `docs/ITERATION_TEST_REGRESSION_PLAN.md`：迭代、测试、回归总计划
+
+## 8. 测试与回归（已落地）
+
+本仓库已内置质量门禁脚本与 CI：
+
+- `npm run typecheck`
+- `npm run build`
+- `npm run test:contracts`（后端接口契约回归）
+- `npm run test:golden`（金标回归集校验）
+- `npm run quality:gate`（发布门禁总入口）
+
+默认 `test:golden` 只跑离线结构回归。  
+若要开启真实厂商在线烟测：
+
+```bash
+RUN_LIVE_PROVIDER_SMOKE=1 npm run test:golden
+```
+
+CI 文件：
+
+- `.github/workflows/quality-gate.yml`

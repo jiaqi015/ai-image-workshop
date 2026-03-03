@@ -8,8 +8,13 @@
   },
   "scripts": {
     "dev": "vite",
+    "typecheck": "tsc --noEmit",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:contracts": "node scripts/regression/run-backend-contracts.mjs",
+    "test:golden": "node scripts/regression/run-golden-suite.mjs",
+    "test:regression": "npm run test:contracts && npm run test:golden",
+    "quality:gate": "npm run typecheck && npm run build && npm run test:regression"
   },
   "dependencies": {
     "react": "^19.2.3",

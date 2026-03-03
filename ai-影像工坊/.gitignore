@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Regression artifacts
+quality/reports/latest-regression-summary.json
