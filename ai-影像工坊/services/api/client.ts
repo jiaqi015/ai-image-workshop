@@ -89,7 +89,7 @@ type ModelPreferences = {
     imageModel: string;
 };
 
-type ProviderRuntimeStatus = {
+export type ProviderRuntimeStatus = {
     enabled?: boolean;
     configured?: boolean;
     validated?: boolean;
@@ -101,7 +101,20 @@ type ProviderRuntimeStatus = {
     lastValidationStatus?: number;
 };
 
-type DirectorPlanRequest = {
+export type AvailableModelsCatalog = {
+    textModels: string[];
+    imageModels: string[];
+    textModelsByProvider: Record<string, string[]>;
+    imageModelsByProvider: Record<string, string[]>;
+    providerByModel: Record<string, string>;
+    providerOrder: {
+        text: string[];
+        image: string[];
+    };
+    providers: Record<string, ProviderRuntimeStatus>;
+};
+
+export type DirectorPlanRequest = {
     userIdea: string;
     analysis?: any;
     creativeBrief?: any;
@@ -109,7 +122,7 @@ type DirectorPlanRequest = {
     model?: string;
 };
 
-type DirectorPlanResponse = {
+export type DirectorPlanResponse = {
     plan: any;
     directorPacket?: any;
     provider?: string;
@@ -512,7 +525,7 @@ export const Infrastructure = {
         imageModel: selectedImageModel,
     }),
 
-    getAvailableModels: () => ({
+    getAvailableModels: (): AvailableModelsCatalog => ({
         textModels: [...availableTextModels],
         imageModels: [...availableImageModels],
         textModelsByProvider: cloneModelsByProvider(textModelsByProvider),

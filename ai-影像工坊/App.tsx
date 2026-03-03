@@ -20,7 +20,7 @@ import { useStudioArchitect } from './hooks/useStudioArchitect';
 export default function App() {
   // 核心架构师 Hook：接管所有状态、副作用和业务流程
   const studio = useStudioArchitect();
-  const catalog = studio.availableModels as any;
+  const catalog = studio.availableModels;
 
   const providerLabel = (provider: string) => {
       switch (provider) {
@@ -94,7 +94,7 @@ export default function App() {
       if (!models.length) return;
       const currentIndex = Math.max(0, models.indexOf(studio.textModel));
       const nextIndex = (currentIndex + 1) % models.length;
-      studio.setTextModel(models[nextIndex] as any);
+      studio.setTextModel(models[nextIndex]);
   };
 
   return (
@@ -147,7 +147,7 @@ export default function App() {
                               onChange={(e) => {
                                 const provider = e.target.value;
                                 const list = textModelsByProvider[provider] || [];
-                                if (list.length > 0) studio.setTextModel(list[0] as any);
+                                if (list.length > 0) studio.setTextModel(list[0]);
                               }}
                             >
                               {textProviderList.map((provider: string) => (
@@ -160,7 +160,7 @@ export default function App() {
                             <select
                               className="w-full bg-black/20 border border-white/10 p-3 rounded text-sm text-white focus:outline-none focus:border-amber-500/50 font-mono"
                               value={studio.textModel}
-                              onChange={(e) => studio.setTextModel(e.target.value as any)}
+                              onChange={(e) => studio.setTextModel(e.target.value)}
                             >
                               {textModelOptions.map((model: string) => (
                                 <option key={model} value={model}>{model}</option>
@@ -175,7 +175,7 @@ export default function App() {
                               onChange={(e) => {
                                 const provider = e.target.value;
                                 const list = imageModelsByProvider[provider] || [];
-                                if (list.length > 0) studio.setImageModel(list[0] as any);
+                                if (list.length > 0) studio.setImageModel(list[0]);
                               }}
                             >
                               {imageProviderList.map((provider: string) => (
@@ -188,7 +188,7 @@ export default function App() {
                             <select
                               className="w-full bg-black/20 border border-white/10 p-3 rounded text-sm text-white focus:outline-none focus:border-amber-500/50 font-mono"
                               value={studio.imageModel}
-                              onChange={(e) => studio.setImageModel(e.target.value as any)}
+                              onChange={(e) => studio.setImageModel(e.target.value)}
                             >
                               {imageModelOptions.map((model: string) => (
                                 <option key={model} value={model}>{model}</option>
@@ -237,7 +237,7 @@ export default function App() {
                     onChange={(e) => {
                       const provider = e.target.value;
                       const list = textModelsByProvider[provider] || [];
-                      if (list.length > 0) studio.setTextModel(list[0] as any);
+                      if (list.length > 0) studio.setTextModel(list[0]);
                     }}
                   >
                     {textProviderList.map((provider: string) => (
@@ -250,7 +250,7 @@ export default function App() {
                   <select
                     className="min-w-[210px] h-8 bg-black/30 border border-white/10 rounded px-2 text-[12px] text-zinc-200 focus:outline-none focus:border-amber-500/50 font-mono"
                     value={studio.textModel}
-                    onChange={(e) => studio.setTextModel(e.target.value as any)}
+                    onChange={(e) => studio.setTextModel(e.target.value)}
                   >
                     {textModelOptions.map((model: string) => (
                       <option key={model} value={model}>{model}</option>
@@ -265,7 +265,7 @@ export default function App() {
                     onChange={(e) => {
                       const provider = e.target.value;
                       const list = imageModelsByProvider[provider] || [];
-                      if (list.length > 0) studio.setImageModel(list[0] as any);
+                      if (list.length > 0) studio.setImageModel(list[0]);
                     }}
                   >
                     {imageProviderList.map((provider: string) => (
@@ -278,7 +278,7 @@ export default function App() {
                   <select
                     className="min-w-[210px] h-8 bg-black/30 border border-white/10 rounded px-2 text-[12px] text-zinc-200 focus:outline-none focus:border-amber-500/50 font-mono"
                     value={studio.imageModel}
-                    onChange={(e) => studio.setImageModel(e.target.value as any)}
+                    onChange={(e) => studio.setImageModel(e.target.value)}
                   >
                     {imageModelOptions.map((model: string) => (
                       <option key={model} value={model}>{model}</option>

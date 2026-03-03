@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { AppState, ShootPlan, Frame, ShootStrategy, DirectorModel, LogEntry, FrameMetadata, TextModel, ImageModel } from '../types';
+import { AppState, ShootPlan, Frame, ShootStrategy, DirectorModel, LogEntry, FrameMetadata, TextModel, ImageModel, DirectorPacket, DirectorShotPacket } from '../types';
+import type { AvailableModelsCatalog } from '../services/api/client';
 import { 
     generateShootPlan, 
     generateMicroCasting, 
@@ -42,7 +43,7 @@ export const useStudioArchitect = () => {
     const [imageModel, setImageModel] = useState<ImageModel>(() => getModelPreferences().imageModel as ImageModel);
     const directorModel = textModel as DirectorModel;
     const setDirectorModel = (model: DirectorModel) => setTextModel(model as TextModel);
-    const [availableModels, setAvailableModels] = useState(() => getAvailableModels());
+    const [availableModels, setAvailableModels] = useState<AvailableModelsCatalog>(() => getAvailableModels());
     const [streamingPlanText, setStreamingPlanText] = useState(''); 
     const [logs, setLogs] = useState<LogEntry[]>([]); 
     const [elapsedTime, setElapsedTime] = useState(0); 
@@ -239,6 +240,49 @@ export const useStudioArchitect = () => {
         } catch (e: any) { addLog(`时空探测失败: ${e.message}`, 'error'); } finally { setIsExpandingUniverse(false); }
     };
 
+    const buildDirectorShotPacket = (
+        packet: DirectorPacket | undefined,
+        description: string,
+        index: number,
+        seed?: Partial<DirectorShotPacket>
+    ): DirectorShotPacket => ({
+        shotId: `S${String(index + 1).padStart(2, '0')}`,
+        beatIndex: index + 1,
+        description,
+        camera: seed?.camera || 'medium',
+        mood: seed?.mood || 'neutral',
+        promptPack: {
+            base: description,
+            style: seed?.promptPack?.style || packet?.styleProfile?.visualSignature || 'Cinematic',
+            variantHint: seed?.promptPack?.variantHint || packet?.styleProfile?.visualSignature || 'Cinematic',
+        },
+        negativePack: Array.isArray(seed?.negativePack) ? [...seed.negativePack] : [],
+    });
+
+    const syncPlanWithDirectorPacket = (basePlan: ShootPlan, descriptions: string[]): ShootPlan => {
+        const normalized = descriptions.map((item) => String(item || '').trim()).filter(Boolean);
+        if (!normalized.length) return basePlan;
+
+        if (!basePlan.directorPacket) {
+            return { ...basePlan, frames: normalized };
+        }
+
+        const existingShots = Array.isArray(basePlan.directorPacket.shots) ? basePlan.directorPacket.shots : [];
+        const nextShots = normalized.map((desc, idx) => {
+            const previous = existingShots[idx];
+            return buildDirectorShotPacket(basePlan.directorPacket, desc, idx, previous);
+        });
+
+        return {
+            ...basePlan,
+            frames: normalized,
+            directorPacket: {
+                ...basePlan.directorPacket,
+                shots: nextShots,
+            },
+        };
+    };
+
     const handleConfirmShoot = async () => {
         if (!plan || selectedProposalId === null) return;
         const selectedFrame = frames.find(f => f.id === selectedProposalId);
@@ -252,7 +296,8 @@ export const useStudioArchitect = () => {
         const lockedCasting = selectedFrame.metadata?.castingTraits;
         addLog(`视觉基调已锁定: [${lockedVariant?.substring(0, 15)}...]。全流水线启动...`, 'info');
         const TARGET_COUNT = 20;
-        const existingDescriptions = plan.frames || [];
+        const packetDescriptions = (plan.directorPacket?.shots || []).map((shot) => shot.description).filter(Boolean);
+        const existingDescriptions = packetDescriptions.length > 0 ? packetDescriptions : (plan.frames || []);
         const framesToShoot: Frame[] = [];
         existingDescriptions.forEach((desc, i) => {
              framesToShoot.push({
@@ -311,13 +356,15 @@ export const useStudioArchitect = () => {
                     onChunkReady 
                 );
                 const fullList = [...existingDescriptions, ...allDescriptions];
-                setPlan({ ...plan, conceptFrames: frames, selectedConceptId: selectedFrame.id, frames: fullList });
+                const syncedPlan = syncPlanWithDirectorPacket(plan, fullList);
+                setPlan({ ...syncedPlan, conceptFrames: frames, selectedConceptId: selectedFrame.id });
                 addLog(`[流水线] 所有剧本分发完毕。`, 'success');
              } catch (e) {
                 addLog(`剧本扩充遇到阻碍。`, 'error');
              }
         } else {
-             setPlan({ ...plan, conceptFrames: frames, selectedConceptId: selectedFrame.id });
+             const syncedPlan = syncPlanWithDirectorPacket(plan, existingDescriptions);
+             setPlan({ ...syncedPlan, conceptFrames: frames, selectedConceptId: selectedFrame.id });
         }
     };
 
@@ -340,7 +387,7 @@ export const useStudioArchitect = () => {
             await shootStreamBatch(chunkFrames, plan, strategy, connectionMode.mode === 'proxy', setFrames, setPlan);
         };
         try {
-          await generateMoreFrames(
+          const generatedDescriptions = await generateMoreFrames(
               plan, 
               count, 
               textModel, 
@@ -348,6 +395,11 @@ export const useStudioArchitect = () => {
               activeStyle,
               onChunkReady
           );
+          const existingDescriptions = (plan.directorPacket?.shots || []).map((shot) => shot.description).filter(Boolean);
+          const baseDescriptions = existingDescriptions.length ? existingDescriptions : (plan.frames || []);
+          const fullList = [...baseDescriptions, ...generatedDescriptions];
+          const syncedPlan = syncPlanWithDirectorPacket(plan, fullList);
+          setPlan(syncedPlan);
           addLog(`[编剧部] 续拍任务分发完毕。`, 'success');
         } catch(e) { console.error(e); } finally { setIsExtending(false); }
     };
