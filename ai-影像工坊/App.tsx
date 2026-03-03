@@ -1,508 +1,616 @@
 import React from 'react';
-import { CameraIcon, SparklesIcon, FilmIcon, RefreshIcon, ClockIcon, ActivityIcon, XIcon, MicIcon, DiceIcon, ZoomInIcon } from './components/Icons';
-import { ContractCard } from './components/ContractCard';
-import { Gallery } from './components/Gallery';
+import {
+  SparklesIcon,
+  RefreshIcon,
+  XIcon,
+  MicIcon,
+  DiceIcon,
+  SettingsIcon,
+} from './components/Icons';
 import { HistorySidebar } from './components/HistorySidebar';
-import { ConsoleLog } from './components/ConsoleLog';
-import { DirectorThinking } from './components/DirectorThinking'; 
 import { BrandLogo } from './components/BrandLogo';
 import { ShootStrategy, AppState } from './types';
 import { useStudioArchitect } from './hooks/useStudioArchitect';
+import { PlanningWorkspace } from './modules/planning/PlanningWorkspace';
 
-/**
- * ============================================================================
- * 组件: App (Root View)
- * 职责: 
- * 1. 纯视图层 (Pure View) - 不包含业务逻辑，逻辑全权委托给 useStudioArchitect。
- * 2. 布局管理 - 负责 Header, Sidebar, Main Content 的网格布局。
- * 3. 模态框渲染 - 负责全局弹窗 (Settings, Preview) 的挂载。
- * ============================================================================
- */
+const STRATEGY_OPTIONS: Array<{ id: ShootStrategy; label: string; sub: string }> = [
+  { id: 'hybrid', label: '自动模式', sub: '智能平衡（推荐）' },
+  { id: 'pro', label: '电影级', sub: '画质优先' },
+];
+
+const QUICK_PROMPTS: Array<{ label: string; prompt: string }> = [
+  {
+    label: '霓虹夜街',
+    prompt: '雨夜的香港旧街道，主角站在霓虹灯牌下，50mm，胶片颗粒，冷暖反差强烈，电影感特写。',
+  },
+  {
+    label: '纪录片访谈',
+    prompt: '纪录片访谈场景，靠窗自然光，浅景深，人物三分构图，色彩克制，细节真实。',
+  },
+  {
+    label: '品牌大片',
+    prompt: '高端运动品牌主视觉，广角低机位，动态追焦，强对比光影，海报级商业质感。',
+  },
+  {
+    label: '赛博城市',
+    prompt: '赛博朋克高架桥夜景，潮湿路面反光，远景车流光轨，空气雾化，沉浸式未来感。',
+  },
+];
+
 export default function App() {
-  // 核心架构师 Hook：接管所有状态、副作用和业务流程
   const studio = useStudioArchitect();
   const catalog = studio.availableModels;
 
   const providerLabel = (provider: string) => {
-      switch (provider) {
-          case 'openai': return '开放智能';
-          case 'google': return '谷歌';
-          case 'ali': return '阿里';
-          case 'byte': return '字节';
-          case 'minimax': return '海螺';
-          case 'zhipu': return '智谱';
-          default: return provider || '未知厂商';
-      }
+    switch (provider) {
+      case 'openai':
+        return 'OpenAI';
+      case 'google':
+        return 'Google';
+      case 'ali':
+        return '阿里';
+      case 'byte':
+        return '字节';
+      case 'minimax':
+        return 'MiniMax';
+      case 'zhipu':
+        return '智谱';
+      default:
+        return provider || '未知厂商';
+    }
   };
 
   const textModelsByProvider: Record<string, string[]> = catalog?.textModelsByProvider || {};
   const imageModelsByProvider: Record<string, string[]> = catalog?.imageModelsByProvider || {};
   const providerByModel: Record<string, string> = catalog?.providerByModel || {};
   const providerStatus: Record<string, { enabled?: boolean; configured?: boolean; validated?: boolean; ready?: boolean }> =
-      catalog?.providers || {};
+    catalog?.providers || {};
 
   const resolveProviderFromGroups = (model: string, groups: Record<string, string[]>) => {
-      for (const [provider, models] of Object.entries(groups)) {
-          if (Array.isArray(models) && models.includes(model)) return provider;
-      }
-      return '';
+    for (const [provider, models] of Object.entries(groups)) {
+      if (Array.isArray(models) && models.includes(model)) return provider;
+    }
+    return '';
   };
 
   const textProviderList = React.useMemo(() => {
-      const ordered = Array.isArray(catalog?.providerOrder?.text) ? catalog.providerOrder.text : [];
-      const keys = Object.keys(textModelsByProvider);
-      const merged = [...ordered, ...keys.filter((p) => !ordered.includes(p))];
-      return merged.filter((provider) => (textModelsByProvider[provider] || []).length > 0);
+    const ordered = Array.isArray(catalog?.providerOrder?.text) ? catalog.providerOrder.text : [];
+    const keys = Object.keys(textModelsByProvider);
+    const merged = [...ordered, ...keys.filter((p) => !ordered.includes(p))];
+    return merged.filter((provider) => (textModelsByProvider[provider] || []).length > 0);
   }, [catalog, textModelsByProvider]);
 
   const imageProviderList = React.useMemo(() => {
-      const ordered = Array.isArray(catalog?.providerOrder?.image) ? catalog.providerOrder.image : [];
-      const keys = Object.keys(imageModelsByProvider);
-      const merged = [...ordered, ...keys.filter((p) => !ordered.includes(p))];
-      return merged.filter((provider) => (imageModelsByProvider[provider] || []).length > 0);
+    const ordered = Array.isArray(catalog?.providerOrder?.image) ? catalog.providerOrder.image : [];
+    const keys = Object.keys(imageModelsByProvider);
+    const merged = [...ordered, ...keys.filter((p) => !ordered.includes(p))];
+    return merged.filter((provider) => (imageModelsByProvider[provider] || []).length > 0);
   }, [catalog, imageModelsByProvider]);
 
   const selectedTextProvider =
-      providerByModel[studio.textModel] ||
-      resolveProviderFromGroups(studio.textModel, textModelsByProvider) ||
-      textProviderList[0] ||
-      '';
+    providerByModel[studio.textModel] ||
+    resolveProviderFromGroups(studio.textModel, textModelsByProvider) ||
+    textProviderList[0] ||
+    '';
   const selectedImageProvider =
-      providerByModel[studio.imageModel] ||
-      resolveProviderFromGroups(studio.imageModel, imageModelsByProvider) ||
-      imageProviderList[0] ||
-      '';
+    providerByModel[studio.imageModel] ||
+    resolveProviderFromGroups(studio.imageModel, imageModelsByProvider) ||
+    imageProviderList[0] ||
+    '';
 
   const textModelOptions = selectedTextProvider
-      ? (textModelsByProvider[selectedTextProvider] || [])
-      : (studio.availableModels.textModels || []);
+    ? textModelsByProvider[selectedTextProvider] || []
+    : studio.availableModels.textModels || [];
   const imageModelOptions = selectedImageProvider
-      ? (imageModelsByProvider[selectedImageProvider] || [])
-      : (studio.availableModels.imageModels || []);
+    ? imageModelsByProvider[selectedImageProvider] || []
+    : studio.availableModels.imageModels || [];
 
   const providerOptionLabel = (provider: string) => {
-      const label = providerLabel(provider);
-      const status = providerStatus[provider];
-      if (!status) return label;
-      if (status.enabled === false) return `${label} (已禁用)`;
-      if (!status.configured) return `${label} (未配置)`;
-      if (status.validated) return label;
-      return `${label} (待验证)`;
+    const label = providerLabel(provider);
+    const status = providerStatus[provider];
+    if (!status) return label;
+    if (status.enabled === false) return `${label} (已禁用)`;
+    if (status.validated || status.ready) return label;
+    if (status.configured === false) return `${label} (未配置)`;
+    return `${label} (待验证)`;
   };
 
-  const cycleTextModel = () => {
-      const models = studio.availableModels.textModels || [];
-      if (!models.length) return;
-      const currentIndex = Math.max(0, models.indexOf(studio.textModel));
-      const nextIndex = (currentIndex + 1) % models.length;
-      studio.setTextModel(models[nextIndex]);
-  };
+  const frameStats = React.useMemo(
+    () =>
+      studio.frames.reduce(
+        (acc, frame) => {
+          acc[frame.status] += 1;
+          return acc;
+        },
+        { scripting: 0, pending: 0, generating: 0, completed: 0, failed: 0 }
+      ),
+    [studio.frames]
+  );
+
+  const frameStatusSignature = `${frameStats.scripting}-${frameStats.pending}-${frameStats.generating}-${frameStats.completed}-${frameStats.failed}`;
+  const isTaskBusy =
+    studio.appState === AppState.PLANNING ||
+    studio.appState === AppState.SHOOTING ||
+    studio.activeRequests > 0 ||
+    studio.isExtending ||
+    studio.isExpandingUniverse ||
+    studio.isGeneratingRandom;
+
+  const activitySignalKey = [
+    studio.appState,
+    studio.logs.length,
+    studio.activeRequests,
+    studio.streamingPlanText.length,
+    frameStatusSignature,
+    studio.isExtending ? 1 : 0,
+    studio.isExpandingUniverse ? 1 : 0,
+    studio.isGeneratingRandom ? 1 : 0,
+  ].join('|');
+
+  const stageIndex =
+    studio.appState === AppState.PLANNING ? 1 : studio.appState === AppState.CONCEPT ? 2 : studio.appState === AppState.SHOOTING ? 3 : 0;
+  const stageMeta = [
+    { id: 0, name: '需求输入', desc: '写下你要的画面' },
+    { id: 1, name: '方案生成', desc: 'AI 解析并构思' },
+    { id: 2, name: '视觉定调', desc: '选择一条风格线' },
+    { id: 3, name: '正片拍摄', desc: '批量生成可交付图' },
+  ];
+  const isIdleLanding = studio.appState === AppState.IDLE && !studio.plan;
+
+  const renderStrategySelector = (compact = false) => (
+    <div className={`grid ${compact ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
+        {STRATEGY_OPTIONS.map((mode) => {
+          const active = studio.strategy === mode.id;
+          return (
+          <button
+            key={mode.id}
+            type="button"
+            onClick={() => studio.setStrategy(mode.id)}
+            className={`rounded-lg border ${compact ? 'px-2.5 py-1.5' : 'px-3 py-2'} text-left transition-colors ${
+              active
+                ? 'border-amber-500/60 bg-amber-500/10 text-amber-300'
+                : 'border-white/10 bg-black/20 text-zinc-400 hover:border-white/25 hover:text-zinc-200'
+            }`}
+          >
+            <div className={`${compact ? 'text-[11px]' : 'text-xs'} font-semibold tracking-wide`}>{mode.label}</div>
+            {!compact && <div className="mt-1 text-[11px] text-zinc-500">{mode.sub}</div>}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const renderModelSelectors = () => (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 gap-2">
+        <label className="text-[11px] text-zinc-500 tracking-wide">文本厂商</label>
+        <select
+          className="h-9 rounded-md border border-white/10 bg-black/30 px-2 text-sm text-zinc-200 focus:outline-none focus:border-amber-500/50"
+          value={selectedTextProvider}
+          onChange={(e) => {
+            const provider = e.target.value;
+            const list = textModelsByProvider[provider] || [];
+            if (list.length > 0) studio.setTextModel(list[0]);
+          }}
+        >
+          {textProviderList.map((provider) => (
+            <option key={provider} value={provider}>
+              {providerOptionLabel(provider)}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2">
+        <label className="text-[11px] text-zinc-500 tracking-wide">文本模型</label>
+        <select
+          className="h-9 rounded-md border border-white/10 bg-black/30 px-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-amber-500/50"
+          value={studio.textModel}
+          onChange={(e) => studio.setTextModel(e.target.value)}
+        >
+          {textModelOptions.map((model) => (
+            <option key={model} value={model}>
+              {model}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2">
+        <label className="text-[11px] text-zinc-500 tracking-wide">生图厂商</label>
+        <select
+          className="h-9 rounded-md border border-white/10 bg-black/30 px-2 text-sm text-zinc-200 focus:outline-none focus:border-amber-500/50"
+          value={selectedImageProvider}
+          onChange={(e) => {
+            const provider = e.target.value;
+            const list = imageModelsByProvider[provider] || [];
+            if (list.length > 0) studio.setImageModel(list[0]);
+          }}
+        >
+          {imageProviderList.map((provider) => (
+            <option key={provider} value={provider}>
+              {providerOptionLabel(provider)}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2">
+        <label className="text-[11px] text-zinc-500 tracking-wide">生图模型</label>
+        <select
+          className="h-9 rounded-md border border-white/10 bg-black/30 px-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-amber-500/50"
+          value={studio.imageModel}
+          onChange={(e) => studio.setImageModel(e.target.value)}
+        >
+          {imageModelOptions.map((model) => (
+            <option key={model} value={model}>
+              {model}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+
+  const renderSettingsModal = () => (
+    <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-[#0f0f12] border border-white/10 p-6 rounded-lg w-full max-w-lg shadow-2xl">
+        <div className="flex justify-between items-center mb-5">
+          <h3 className="text-sm font-bold tracking-widest text-zinc-300">连接设置</h3>
+          <button onClick={() => studio.setShowSettingsModal(false)} className="text-zinc-500 hover:text-white">
+            <XIcon className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={studio.handleManualKeySubmit} className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-[11px] text-zinc-500 tracking-wide">网关访问令牌（可选）</label>
+            <div className="relative">
+              <input
+                type="text"
+                className="w-full bg-black/20 border border-white/10 p-3 rounded text-sm text-white focus:outline-none focus:border-amber-500/50 font-mono"
+                placeholder="仅当后端启用 AI_GATEWAY_TOKEN 时需要填写"
+                value={studio.manualKeyInput}
+                onChange={(e) => studio.setManualKeyInput(e.target.value)}
+              />
+            </div>
+            <div className="text-[10px] text-zinc-500">前端直连/代理模式已移除，所有请求统一走后端网关。</div>
+          </div>
+
+          {renderModelSelectors()}
+
+          <div className="rounded-lg border border-white/10 bg-black/20 p-3 space-y-2">
+            <div className="text-[11px] text-zinc-500 tracking-wide">高级设置</div>
+            <button
+              type="button"
+              onClick={() => studio.setMasterMode(!studio.masterMode)}
+              className={`w-full rounded-md border px-3 py-2 text-left transition-colors ${
+                studio.masterMode
+                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
+                  : 'border-white/10 bg-black/20 text-zinc-400 hover:border-white/20 hover:text-zinc-200'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-semibold tracking-wide">母版锁定</span>
+                <span className="text-[10px] font-mono uppercase">{studio.masterMode ? 'ON' : 'OFF'}</span>
+              </div>
+              <div className="mt-1 text-[10px] text-zinc-500">固定身份/风格/姿态，拍摄结束后自动筛片</div>
+            </button>
+          </div>
+
+          <div className="flex gap-2 justify-end pt-2">
+            <button
+              type="button"
+              onClick={studio.handleClearKey}
+              className="px-4 py-2 text-xs text-zinc-500 hover:text-red-400 tracking-wide"
+            >
+              清除配置
+            </button>
+            <button
+              type="submit"
+              className="px-6 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold tracking-wide rounded"
+            >
+              {studio.isValidating ? '验证中...' : '刷新并连接'}
+            </button>
+          </div>
+        </form>
+
+        {studio.validationLogs.length > 0 && (
+          <div className="w-full text-left font-mono mt-4 p-3 bg-black/40 rounded space-y-1">
+            {studio.validationLogs.map((log, i) => (
+              <div key={i} className="text-[10px] text-zinc-400">
+                {log}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-[#0f0f12] text-zinc-100 flex overflow-hidden font-sans selection:bg-amber-500/30">
-      
-      {/* --- 侧边栏: 历史记录 (History Archive) --- */}
-      <HistorySidebar 
-        isOpen={studio.isHistoryOpen} 
-        history={studio.history} 
-        onClose={() => studio.setIsHistoryOpen(false)} 
-        onSelect={studio.restoreSession} 
-        onDelete={studio.deleteHistoryItem} 
+    <div className="min-h-screen text-zinc-100 overflow-hidden selection:bg-amber-500/30">
+      <HistorySidebar
+        isOpen={studio.isHistoryOpen}
+        history={studio.history}
+        onClose={() => studio.setIsHistoryOpen(false)}
+        onSelect={studio.restoreSession}
+        onDelete={studio.deleteHistoryItem}
       />
-      
-      {/* --- 模态框: 图片大图预览 (Image Lightbox) --- */}
+
       {studio.conceptPreviewUrl && (
-        <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-200" onClick={() => studio.setConceptPreviewUrl(null)}>
-            <button className="absolute top-4 right-4 p-2 text-white/50 hover:text-white transition-colors">
-                <XIcon className="w-8 h-8" />
-            </button>
-            <img src={studio.conceptPreviewUrl} className="max-h-full max-w-full object-contain shadow-2xl rounded" onClick={(e) => e.stopPropagation()} />
-        </div>
-      )}
-      
-      {/* --- 模态框: API 设置与连接 (Settings Modal) --- */}
-      {studio.showSettingsModal && (
-         <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-             <div className="bg-[#0f0f12] border border-white/10 p-8 rounded-lg w-full max-w-md shadow-2xl animate-in fade-in zoom-in-95">
-                 <div className="flex justify-between items-center mb-6">
-                     <h3 className="text-sm font-bold tracking-widest text-zinc-300">网关配置</h3>
-                     <button onClick={() => studio.setShowSettingsModal(false)} className="text-zinc-500 hover:text-white"><XIcon className="w-5 h-5"/></button>
-                 </div>
-                 <form onSubmit={studio.handleManualKeySubmit} className="flex flex-col gap-4">
-                     <div className="flex flex-col gap-2">
-                         <label className="text-[10px] text-zinc-500 tracking-wide font-mono">前端密钥覆盖（可选）</label>
-                         <div className="relative">
-                            <input type="text" className="w-full bg-black/20 border border-white/10 p-3 rounded text-sm text-white focus:outline-none focus:border-amber-500/50 font-mono" placeholder="通常留空，生产环境推荐后端托管" value={studio.manualKeyInput} onChange={(e) => studio.setManualKeyInput(e.target.value)} />
-                            {studio.hasDemoKey && (
-                                <button type="button" onClick={studio.handleAutoFillKey} className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-amber-500 hover:text-amber-400 px-2 py-1 bg-amber-500/10 rounded">填入测试卡</button>
-                            )}
-                         </div>
-                         <p className="text-[10px] text-zinc-500">推荐在部署平台环境变量中配置模型密钥，前端无需暴露敏感信息。</p>
-                     </div>
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                         <div className="flex flex-col gap-2">
-                            <label className="text-[10px] text-zinc-500 uppercase font-mono">文本厂商</label>
-                            <select
-                              className="w-full bg-black/20 border border-white/10 p-3 rounded text-sm text-white focus:outline-none focus:border-amber-500/50"
-                              value={selectedTextProvider}
-                              onChange={(e) => {
-                                const provider = e.target.value;
-                                const list = textModelsByProvider[provider] || [];
-                                if (list.length > 0) studio.setTextModel(list[0]);
-                              }}
-                            >
-                              {textProviderList.map((provider: string) => (
-                                <option key={provider} value={provider}>{providerOptionLabel(provider)}</option>
-                              ))}
-                            </select>
-                         </div>
-                         <div className="flex flex-col gap-2">
-                            <label className="text-[10px] text-zinc-500 uppercase font-mono">文本模型</label>
-                            <select
-                              className="w-full bg-black/20 border border-white/10 p-3 rounded text-sm text-white focus:outline-none focus:border-amber-500/50 font-mono"
-                              value={studio.textModel}
-                              onChange={(e) => studio.setTextModel(e.target.value)}
-                            >
-                              {textModelOptions.map((model: string) => (
-                                <option key={model} value={model}>{model}</option>
-                              ))}
-                            </select>
-                         </div>
-                         <div className="flex flex-col gap-2">
-                            <label className="text-[10px] text-zinc-500 uppercase font-mono">生图厂商</label>
-                            <select
-                              className="w-full bg-black/20 border border-white/10 p-3 rounded text-sm text-white focus:outline-none focus:border-amber-500/50"
-                              value={selectedImageProvider}
-                              onChange={(e) => {
-                                const provider = e.target.value;
-                                const list = imageModelsByProvider[provider] || [];
-                                if (list.length > 0) studio.setImageModel(list[0]);
-                              }}
-                            >
-                              {imageProviderList.map((provider: string) => (
-                                <option key={provider} value={provider}>{providerOptionLabel(provider)}</option>
-                              ))}
-                            </select>
-                         </div>
-                         <div className="flex flex-col gap-2">
-                            <label className="text-[10px] text-zinc-500 uppercase font-mono">生图模型</label>
-                            <select
-                              className="w-full bg-black/20 border border-white/10 p-3 rounded text-sm text-white focus:outline-none focus:border-amber-500/50 font-mono"
-                              value={studio.imageModel}
-                              onChange={(e) => studio.setImageModel(e.target.value)}
-                            >
-                              {imageModelOptions.map((model: string) => (
-                                <option key={model} value={model}>{model}</option>
-                              ))}
-                            </select>
-                         </div>
-                     </div>
-                     <div className="flex gap-2 justify-end mt-4 pt-4 border-t border-white/5">
-                         <button type="button" onClick={studio.handleClearKey} className="px-4 py-2 text-xs text-zinc-500 hover:text-red-400 tracking-wide">清除配置</button>
-                         <button type="submit" className="px-6 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold tracking-wide rounded">{studio.isValidating ? '验证中...' : '保存并连接'}</button>
-                     </div>
-                 </form>
-                 {studio.validationLogs.length > 0 && (<div className="w-full text-left font-mono mt-4 p-3 bg-black/40 rounded">{studio.validationLogs.map((log, i) => (<div key={i} className="text-[10px] text-zinc-400 mb-1">{log}</div>))}</div>)}
-             </div>
+        <div
+          className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4"
+          onClick={() => studio.setConceptPreviewUrl(null)}
+        >
+          <button className="absolute top-4 right-4 p-2 text-white/60 hover:text-white">
+            <XIcon className="w-8 h-8" />
+          </button>
+          <img
+            src={studio.conceptPreviewUrl}
+            className="max-h-full max-w-full object-contain shadow-2xl rounded"
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       )}
 
-      {/* --- 主布局容器 (Main Layout) --- */}
-      <div className="flex-1 flex flex-col h-screen">
-        
-        {/* === Header === */}
-        <header className="h-20 border-b border-white/5 bg-[#0f0f12]/95 backdrop-blur-sm flex items-center justify-between px-8 z-30 flex-shrink-0 transition-all">
-           {/* Left: Logo & Status */}
-           <div className="flex items-center gap-12">
-             <button
-               type="button"
-               className="group flex items-center text-zinc-100 opacity-90 hover:opacity-100 transition-opacity cursor-pointer"
-               onClick={() => studio.setIsHistoryOpen(true)}
-               title="打开历史档案"
-             >
-               <div className="rounded-xl border border-white/5 bg-black/20 px-2 py-1.5 transition-colors group-hover:bg-zinc-900/70 group-hover:border-white/15">
-                 <BrandLogo />
-               </div>
-             </button>
-             
-             {/* Workflow Progress Indicator */}
-             <div className="hidden xl:flex items-center gap-8 text-xs tracking-[0.2em] text-zinc-500 font-medium">
-                <div className={`transition-all duration-500 ${studio.appState === AppState.PLANNING ? 'text-amber-500 scale-105' : 'opacity-50'}`}><span>前期筹备</span></div>
-                <div className="w-8 h-px bg-zinc-800"></div>
-                <div className={`transition-all duration-500 ${studio.appState === AppState.CONCEPT ? 'text-amber-500 scale-105' : 'opacity-50'}`}><span>视觉定调</span></div>
-                <div className="w-8 h-px bg-zinc-800"></div>
-                <div className={`transition-all duration-500 ${studio.appState === AppState.SHOOTING ? 'text-white scale-105' : 'opacity-50'}`}><span>正片拍摄</span></div>
-             </div>
+      {studio.showSettingsModal && renderSettingsModal()}
 
-             {/* Model Selector: Provider -> Model */}
-             <div className="hidden lg:flex items-end gap-2 ml-8 pl-8 border-l border-zinc-800/50">
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10px] uppercase text-zinc-500 tracking-widest">文本厂商</span>
-                  <select
-                    className="min-w-[128px] h-8 bg-black/30 border border-white/10 rounded px-2 text-[12px] text-zinc-200 focus:outline-none focus:border-amber-500/50"
-                    value={selectedTextProvider}
-                    onChange={(e) => {
-                      const provider = e.target.value;
-                      const list = textModelsByProvider[provider] || [];
-                      if (list.length > 0) studio.setTextModel(list[0]);
-                    }}
-                  >
-                    {textProviderList.map((provider: string) => (
-                      <option key={provider} value={provider}>{providerOptionLabel(provider)}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10px] uppercase text-zinc-500 tracking-widest">文本模型</span>
-                  <select
-                    className="min-w-[210px] h-8 bg-black/30 border border-white/10 rounded px-2 text-[12px] text-zinc-200 focus:outline-none focus:border-amber-500/50 font-mono"
-                    value={studio.textModel}
-                    onChange={(e) => studio.setTextModel(e.target.value)}
-                  >
-                    {textModelOptions.map((model: string) => (
-                      <option key={model} value={model}>{model}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10px] uppercase text-zinc-500 tracking-widest">生图厂商</span>
-                  <select
-                    className="min-w-[128px] h-8 bg-black/30 border border-white/10 rounded px-2 text-[12px] text-zinc-200 focus:outline-none focus:border-amber-500/50"
-                    value={selectedImageProvider}
-                    onChange={(e) => {
-                      const provider = e.target.value;
-                      const list = imageModelsByProvider[provider] || [];
-                      if (list.length > 0) studio.setImageModel(list[0]);
-                    }}
-                  >
-                    {imageProviderList.map((provider: string) => (
-                      <option key={provider} value={provider}>{providerOptionLabel(provider)}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10px] uppercase text-zinc-500 tracking-widest">生图模型</span>
-                  <select
-                    className="min-w-[210px] h-8 bg-black/30 border border-white/10 rounded px-2 text-[12px] text-zinc-200 focus:outline-none focus:border-amber-500/50 font-mono"
-                    value={studio.imageModel}
-                    onChange={(e) => studio.setImageModel(e.target.value)}
-                  >
-                    {imageModelOptions.map((model: string) => (
-                      <option key={model} value={model}>{model}</option>
-                    ))}
-                  </select>
-                </div>
-             </div>
+      <div className="h-screen flex flex-col">
+        <header className="h-16 border-b border-white/10 bg-[#0f0f12]/95 backdrop-blur-sm px-4 md:px-6 flex items-center justify-between gap-4">
+          <button
+            type="button"
+            className="flex items-center gap-3 text-left"
+            onClick={() => studio.setIsHistoryOpen(true)}
+            title="打开历史项目"
+          >
+            <BrandLogo compact />
+            <div className="hidden md:block">
+              <div className="text-xs tracking-widest text-zinc-300">AI 影像工坊</div>
+              <div className="text-[10px] text-zinc-500 mt-0.5">稳定流程 · 可恢复生成</div>
+            </div>
+          </button>
 
-             {/* Stats (Render Time / Active Requests) */}
-             {studio.appState === AppState.SHOOTING && (
-                <div className="hidden md:flex items-center gap-6 ml-8 animate-in fade-in slide-in-from-left-4 text-zinc-400">
-                    <div className="flex items-center gap-2 bg-zinc-900/50 px-3 py-1.5 rounded-full border border-white/5"><ClockIcon className="w-3.5 h-3.5" /><span className="text-xs font-mono">{(studio.elapsedTime / 1000).toFixed(1)}秒</span></div>
-                    <div className="flex items-center gap-2 bg-zinc-900/50 px-3 py-1.5 rounded-full border border-white/5"><ActivityIcon className="w-3.5 h-3.5" /><span className="text-xs font-mono">{studio.activeRequests} 渲染中</span></div>
-                </div>
-             )}
-          </div>
-
-          {/* Right: Actions */}
-          <div className="flex items-center gap-4">
-             {studio.appState !== AppState.IDLE && (
-                 <button onClick={studio.handleReset} className="group flex items-center gap-2 px-4 py-2 rounded-full hover:bg-zinc-800/80 transition-all text-zinc-400 hover:text-white border border-transparent hover:border-white/5">
-                    <RefreshIcon className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" /><span className="text-xs tracking-wide font-medium hidden sm:inline">重置</span>
-                 </button>
-             )}
-          </div>
-        </header>
-        
-        {/* === Viewport === */}
-        <div className="flex-1 overflow-hidden relative">
-          
-          {/* --- Scene 1: Landing Page (Input) --- */}
-          {studio.appState === AppState.IDLE && !studio.plan && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center p-6 animate-in fade-in duration-700">
-               <div className="w-full max-w-3xl flex flex-col items-center">
-                 <h1 className="text-4xl md:text-5xl font-light text-center mb-10 tracking-[0.1em] text-white font-serif leading-tight">让大师摄影<span className="text-amber-500/90 italic ml-3 font-serif">变得简单</span></h1>
-                 
-                 {/* Input Box */}
-                 <div className="w-full relative group mb-12">
-                   <div className="absolute -inset-1 bg-gradient-to-b from-zinc-800 to-transparent opacity-0 group-hover:opacity-20 transition duration-1000 rounded-xl blur-3xl"></div>
-                   <div className="relative bg-[#0c0c0e] rounded-xl border border-white/10 shadow-2xl overflow-hidden flex flex-col transition-all group-hover:border-zinc-700/50">
-                      {/* Clear Button (New) */}
-                      {studio.userInput && (
-                          <button onClick={studio.handleClearInput} className="absolute top-4 right-4 p-2 text-zinc-600 hover:text-zinc-300 transition-colors z-30" title="清空输入">
-                              <XIcon className="w-4 h-4" />
-                          </button>
-                      )}
-                      
-                      <textarea className="w-full bg-transparent p-8 text-lg text-zinc-200 placeholder-zinc-600 focus:outline-none resize-none font-light custom-scrollbar leading-relaxed min-h-[180px]" rows={6} placeholder="描述您的镜头语言...&#10;&#10;例如：王家卫式美学，90年代香港电影质感。&#10;一名穿着墨绿色丝绒旗袍的女性，站在霓虹招牌下的阴影里。&#10;眼神疏离，黑发红唇，手中拿着一支未点燃的香烟。&#10;强烈的色彩张力，浅景深，胶片颗粒感，情绪暧昧..." value={studio.userInput} onChange={(e) => studio.setUserInput(e.target.value)} onKeyDown={(e) => {if (e.key === 'Enter' && !e.shiftKey) {e.preventDefault(); studio.handleStartPlanning();}}} />
-                      
-                      <button 
-                        onClick={studio.handleRandomPrompt} 
-                        disabled={studio.isGeneratingRandom}
-                        className={`absolute left-8 bottom-24 p-2 rounded-full transition-all duration-300 z-20 bg-black/20 hover:bg-black/40 ${studio.isGeneratingRandom ? 'text-amber-500 cursor-not-allowed' : 'text-zinc-500 hover:text-amber-500 hover:rotate-180'}`} 
-                        title="大师灵感"
-                      >
-                         {studio.isGeneratingRandom ? (
-                             <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-                         ) : (
-                             <DiceIcon className="w-5 h-5" />
-                         )}
-                      </button>
-                      <button onClick={studio.handleVoiceInput} className={`absolute right-8 bottom-24 p-2 rounded-full transition-all duration-300 z-20 ${studio.isListening ? 'bg-amber-600 text-white animate-pulse' : 'text-zinc-500 hover:text-amber-500 bg-black/20 hover:bg-black/40'}`} title="语音输入"><MicIcon className="w-5 h-5" /></button>
-                      
-                      {/* Control Bar */}
-                      <div className="px-8 py-5 border-t border-white/5 flex flex-col md:flex-row gap-6 justify-between items-center bg-black/20 backdrop-blur-sm">
-                         <div className="flex gap-4 w-full md:w-auto overflow-x-auto pb-2 md:pb-0 no-scrollbar">
-                              {[{ id: 'pro', label: '电影级', sub: '画质优先', active: studio.strategy === 'pro' }, { id: 'hybrid', label: '混合模式', sub: '智能分配', active: studio.strategy === 'hybrid' }, { id: 'flash', label: '极速模式', sub: '速度优先', active: studio.strategy === 'flash' }].map((mode) => (
-                                <button key={mode.id} onClick={() => studio.setStrategy(mode.id as ShootStrategy)} className={`flex-1 md:flex-none px-5 py-3 rounded-lg transition-all duration-300 flex flex-col items-start min-w-[130px] border relative overflow-hidden group/btn ${mode.active ? 'bg-zinc-800/80 border-zinc-600 text-zinc-100 shadow-lg' : 'bg-transparent border-transparent hover:bg-white/5 text-zinc-500 hover:text-zinc-300'}`}>
-                                    <span className="text-xs font-bold tracking-widest mb-1 z-10">{mode.label}</span>
-                                    <div className="flex items-center justify-between w-full z-10"><span className={`text-[10px] font-mono ${mode.active ? 'text-zinc-300' : 'text-zinc-600'}`}>{mode.sub}</span></div>
-                                    {mode.active && <div className="absolute bottom-0 left-0 h-0.5 bg-amber-500 w-full animate-in slide-in-from-left duration-500"></div>}
-                                </button>
-                              ))}
-                         </div>
-                         <div className="hidden md:flex flex-col items-end gap-1.5 text-[10px] text-zinc-500 font-mono tracking-wider">
-                             <div className="flex items-center gap-2"><div className={`w-1.5 h-1.5 rounded-full ${studio.keyConfigured ? 'bg-green-500 shadow-[0_0_5px_rgba(34,197,94,0.5)]' : 'bg-red-500'}`}></div><span>影棚已就绪</span></div>
-                             <button 
-                                onClick={cycleTextModel} 
-                                className="flex items-center gap-1 opacity-70 hover:opacity-100 transition-opacity cursor-pointer group"
-                                title="点击切换文本模型"
-                             >
-                                <span className="text-[9px] group-hover:text-zinc-300">文本模型：</span>
-                                <span className={`text-[9px] font-bold ${studio.connectionMode.mode === 'proxy' ? 'text-amber-500' : 'text-blue-400'}`}>
-                                    {studio.textModel}
-                                </span>
-                             </button>
-                         </div>
-                      </div>
-                   </div>
-                 </div>
-                 <button onClick={studio.handleStartPlanning} disabled={studio.appState !== AppState.IDLE || !studio.userInput.trim()} className="group relative px-32 py-5 bg-zinc-100 text-black hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-[0_0_20px_rgba(255,255,255,0.05)] hover:shadow-[0_0_50px_rgba(255,255,255,0.2)] rounded-full overflow-hidden">
-                    <div className="flex items-center gap-3 relative z-10"><span className="text-sm font-bold tracking-[0.25em] uppercase">生成拍摄计划</span></div>
-                 </button>
-               </div>
+          {!isIdleLanding && (
+            <div className="hidden md:flex items-center gap-2">
+              {stageMeta.map((stage) => {
+                const active = stage.id === stageIndex;
+                const done = stage.id < stageIndex;
+                return (
+                  <div
+                    key={stage.id}
+                    className={`px-2.5 py-1.5 rounded-md border text-[10px] tracking-wide ${
+                      active
+                        ? 'border-amber-500/60 bg-amber-500/10 text-amber-300'
+                        : done
+                        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                        : 'border-white/10 text-zinc-500'
+                    }`}
+                  >
+                    {stage.name}
+                  </div>
+                );
+              })}
             </div>
           )}
-          
-          {/* --- Scene 2 & 3: Workspace (Planning / Concept / Shooting) --- */}
-          {(studio.appState !== AppState.IDLE || studio.plan) && (
-             <div className="flex h-full">
-                {/* Left Panel: Contract & Logs */}
-                <div className="w-96 2xl:w-[28rem] border-r border-white/5 bg-[#0c0c0e] hidden md:flex flex-col flex-shrink-0 z-20 transition-all duration-300 shadow-2xl">
-                   <div className="flex-1 p-8 overflow-hidden">
-                      {studio.appState === AppState.PLANNING && !studio.plan ? (
-                        <DirectorThinking text={studio.streamingPlanText} />
-                      ) : (
-                        studio.plan && (
-                          <ContractCard
-                            contract={studio.plan.contract}
-                            title={studio.plan.title}
-                            directorInsight={studio.plan.directorInsight}
-                            productionNotes={studio.plan.productionNotes}
-                            shootGuide={studio.plan.shootGuide}
-                            shootScope={studio.plan.shootScope}
-                            directorPacket={studio.plan.directorPacket}
-                            continuity={studio.plan.continuity}
-                            conceptFrames={studio.plan.conceptFrames}
-                            selectedConceptId={studio.plan.selectedConceptId}
-                            visualReferenceImageUrl={studio.selectedConceptUrl}
-                            onSelectConcept={studio.handleSelectSidebarConcept}
-                            onGenerateMore={() => studio.handleGenerateMore(20)}
-                            isExtending={studio.isExtending}
-                            onPreviewConcept={(url) => studio.setConceptPreviewUrl(url)}
-                          />
-                        )
+
+          {isIdleLanding && <div className="hidden md:block flex-1" />}
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={studio.handleOpenSettings}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-white/10 text-zinc-300 hover:text-white hover:border-white/25"
+            >
+              <SettingsIcon className="w-4 h-4" />
+              <span className="hidden sm:inline text-xs">设置</span>
+            </button>
+            <button
+              onClick={() => studio.setIsHistoryOpen(true)}
+              className="px-3 py-1.5 rounded-md border border-white/10 text-xs text-zinc-300 hover:text-white hover:border-white/25"
+            >
+              档案
+            </button>
+            {!isIdleLanding && (
+              <button
+                onClick={studio.handleReset}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-white/10 text-zinc-300 hover:text-white hover:border-white/25"
+              >
+                <RefreshIcon className="w-4 h-4" />
+                <span className="hidden sm:inline text-xs">重置</span>
+              </button>
+            )}
+          </div>
+        </header>
+
+        <div className="flex-1 min-h-0">
+          {isIdleLanding ? (
+            <div className="h-full relative overflow-hidden">
+              <div className="absolute inset-0 pointer-events-none">
+                <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-amber-500/10 to-transparent" />
+                <div className="absolute -top-16 left-1/3 w-[360px] h-[180px] bg-cyan-500/10 blur-[100px]" />
+                <div className="absolute top-0 right-12 w-[320px] h-[180px] bg-indigo-500/10 blur-[100px]" />
+              </div>
+
+              <div className="relative h-full min-h-0 px-4 md:px-6 py-4 md:py-6 overflow-y-auto">
+                <section className="mx-auto w-full max-w-6xl">
+                  <div className="grid grid-cols-1 xl:grid-cols-[1.45fr_0.9fr] gap-4">
+                    <div className="rounded-xl border border-white/10 bg-[#0f1118]/95 shadow-[0_10px_40px_rgba(0,0,0,0.45)] p-4 md:p-5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/25 bg-amber-500/10 px-2.5 py-1 text-[10px] tracking-[0.14em] text-amber-300 uppercase">
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-300 animate-pulse" />
+                            AI Input
+                          </div>
+                          <h1 className="mt-2 text-lg md:text-xl text-zinc-100 tracking-tight">先输入，再进入 Agent 流程</h1>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={studio.handleOpenSettings}
+                          className="shrink-0 px-2.5 py-1 rounded-md border border-white/15 text-[11px] text-zinc-300 hover:text-white hover:border-white/30"
+                        >
+                          连接设置
+                        </button>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {QUICK_PROMPTS.map((item) => (
+                          <button
+                            key={item.label}
+                            type="button"
+                            onClick={() => studio.setUserInput(item.prompt)}
+                            className="px-2.5 py-1 rounded-full border border-white/10 bg-black/20 text-[11px] text-zinc-300 hover:text-white hover:border-white/25 transition-colors"
+                          >
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="mt-3 relative rounded-lg border border-white/12 bg-black/35 overflow-hidden">
+                        <div className="px-3 py-1.5 border-b border-white/10 bg-black/30 flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2 text-[10px] tracking-[0.14em] uppercase text-zinc-400">
+                            <SparklesIcon className="w-3 h-3 text-amber-300" />
+                            Composer
+                          </div>
+                          <div className="text-[10px] text-zinc-500">Enter 快速执行 / Ctrl+Enter 深度执行</div>
+                        </div>
+                        {studio.userInput && (
+                          <button
+                            type="button"
+                            onClick={studio.handleClearInput}
+                            className="absolute top-9 right-2.5 p-1 text-zinc-500 hover:text-zinc-200 z-20"
+                            title="清空输入"
+                          >
+                            <XIcon className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        <textarea
+                          autoFocus
+                          className="w-full min-h-[170px] md:min-h-[190px] bg-transparent px-4 pt-3 pb-11 text-zinc-100 placeholder-zinc-600 resize-none focus:outline-none leading-relaxed text-sm"
+                          placeholder="描述目标画面、情绪、镜头和风格。例如：冷雨夜的高架桥下，人物背光而立，35mm 手持，低饱和，胶片颗粒。"
+                          value={studio.userInput}
+                          onChange={(e) => studio.setUserInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              studio.handleStartPlanning({ conceptCount: e.ctrlKey || e.metaKey ? 12 : 4 });
+                            }
+                          }}
+                        />
+                        <div className="absolute left-3 bottom-2.5 flex items-center gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={studio.handleRandomPrompt}
+                            disabled={studio.isGeneratingRandom}
+                            className="p-1.5 rounded-md border border-white/10 text-zinc-400 hover:text-zinc-100 hover:border-white/25 disabled:opacity-40"
+                            title="随机灵感"
+                          >
+                            <DiceIcon className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={studio.handleVoiceInput}
+                            className={`p-1.5 rounded-md border border-white/10 ${
+                              studio.isListening ? 'text-amber-300 border-amber-500/40' : 'text-zinc-400 hover:text-zinc-100 hover:border-white/25'
+                            }`}
+                            title="语音输入"
+                          >
+                            <MicIcon className="w-3.5 h-3.5" />
+                          </button>
+                          <span className="text-[10px] text-zinc-500 ml-1.5">Shift+Enter 换行</span>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                        <button
+                          onClick={() => studio.handleStartPlanning({ conceptCount: 4 })}
+                          disabled={!studio.canStartPlanning}
+                          className="h-9 px-4 rounded-md bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold tracking-wide disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          开始 Agent（4 方案）
+                        </button>
+                        <button
+                          onClick={() => studio.handleStartPlanning({ conceptCount: 12 })}
+                          disabled={!studio.canStartPlanning}
+                          className="h-9 px-4 rounded-md border border-white/15 text-zinc-200 hover:text-white hover:border-white/30 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          深度 Agent（12 方案）
+                        </button>
+                      </div>
+
+                      {studio.readinessHint && <div className="mt-2 text-[11px] text-amber-300">{studio.readinessHint}</div>}
+                      {studio.startBlockedReason && (studio.userInput.trim().length > 0 || studio.appState !== AppState.IDLE) && (
+                        <div className="mt-1.5 text-[11px] text-zinc-500">{studio.startBlockedReason}</div>
                       )}
-                   </div>
-                   <div className="h-64 flex-shrink-0 border-t border-white/5"><ConsoleLog logs={studio.logs} /></div>
-                </div>
+                    </div>
 
-                {/* Right Panel: Main Stage */}
-                <div ref={studio.mainContentRef} className="flex-1 bg-[#09090b] overflow-y-auto custom-scrollbar relative p-8 md:p-12 flex flex-col">
-                   
-                   {/* Stage A: Visual Concept Selection */}
-                   {studio.appState === AppState.CONCEPT && (
-                      <>
-                          <div className="flex-1 flex flex-col items-center justify-center animate-in fade-in zoom-in-95 duration-700 py-10 pb-24">
-                              <div className="max-w-7xl w-full flex flex-col gap-12">
-                                  {/* Section Title */}
-                                  <div className="text-center mb-8 relative">
-                                      <div className="inline-block px-3 py-1 border border-white/10 rounded-full text-[10px] text-zinc-500 font-mono tracking-widest uppercase mb-4">第一阶段：视觉定调</div>
-                                      <div className="flex items-center justify-center gap-4">
-                                          <h2 className="text-3xl font-serif text-zinc-100 mb-4 tracking-widest">十二种可能的现实</h2>
-                                          <button onClick={studio.handleExpandUniverse} disabled={studio.isExpandingUniverse} className="mb-3 px-3 py-1.5 border border-dashed border-zinc-700 hover:border-amber-500 text-zinc-500 hover:text-amber-500 rounded text-[10px] uppercase tracking-widest flex items-center gap-2 transition-all disabled:opacity-50" title="扩展平行时空">
-                                              {studio.isExpandingUniverse ? <div className="w-3 h-3 border border-current border-t-transparent animate-spin rounded-full"></div> : <SparklesIcon className="w-3 h-3" />}
-                                              {studio.isExpandingUniverse ? '探测中...' : '探测更多时空 (+6)'}
-                                          </button>
-                                      </div>
-                                      <p className="text-zinc-400 font-light text-sm tracking-wide max-w-2xl mx-auto leading-relaxed">我们在平行时空中捕捉到了不同的光影切片。请凭借<span className="text-amber-500 font-bold mx-1">导演的直觉</span>，裁定本场戏的视觉基调。</p>
-                                  </div>
-
-                                  {/* Concept Grid */}
-                                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-6 px-4">
-                                    {studio.frames.map((proposalFrame, index) => {
-                                        const isSelected = studio.selectedProposalId === proposalFrame.id;
-                                        const variantType = proposalFrame.metadata?.variantType;
-                                        return (
-                                        <div key={proposalFrame.id} className={`flex flex-col gap-5 group relative transition-all duration-300 ${isSelected ? 'scale-[1.02]' : 'hover:scale-[1.01]'}`}>
-                                            <div className={`relative aspect-[3/4] bg-[#0c0c0e] rounded-lg overflow-hidden border shadow-2xl transition-all duration-500 cursor-pointer ${isSelected ? 'border-amber-500 ring-2 ring-amber-500/20 shadow-[0_0_50px_rgba(245,158,11,0.2)]' : proposalFrame.status === 'generating' ? 'border-amber-500/30 shadow-[0_0_30px_rgba(245,158,11,0.1)]' : 'border-white/5 hover:border-zinc-500/50 hover:shadow-zinc-900/50 opacity-80 hover:opacity-100'}`} onClick={() => studio.setSelectedProposalId(proposalFrame.id)}>
-                                                {/* Header Labels */}
-                                                <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-start z-10 pointer-events-none">
-                                                     <span className={`text-[10px] font-mono tracking-widest px-2 py-1 backdrop-blur-md rounded border transition-colors ${isSelected ? 'bg-amber-500 text-black border-amber-500 font-bold' : 'bg-black/60 text-white/90 border-white/10'}`}>方案 {String.fromCharCode(65 + (index % 26))} {isSelected && "✓"}</span>
-                                                     {variantType && (<span className={`text-[9px] tracking-widest px-2 py-1 backdrop-blur-md rounded border font-serif ${variantType === 'strict' ? 'bg-blue-900/40 text-blue-200 border-blue-500/30' : variantType === 'creative' ? 'bg-purple-900/40 text-purple-200 border-purple-500/30' : 'bg-zinc-800/40 text-zinc-300 border-zinc-500/30'}`}>{variantType === 'strict' ? '忠实复刻' : variantType === 'creative' ? '艺术变奏' : '风格渲染'}</span>)}
-                                                </div>
-                                                
-                                                {/* Zoom Button */}
-                                                {proposalFrame.status === 'completed' && proposalFrame.imageUrl && ( <button onClick={(e) => { e.stopPropagation(); studio.setConceptPreviewUrl(proposalFrame.imageUrl!); }} className="absolute top-14 right-4 p-2 bg-black/40 hover:bg-white/10 rounded-full text-white/50 hover:text-white border border-white/10 backdrop-blur-md transition-all z-20 opacity-0 group-hover:opacity-100" title="放大检视"><ZoomInIcon className="w-4 h-4" /></button> )}
-                                                
-                                                {/* Main Image State */}
-                                                {proposalFrame.status === 'completed' && proposalFrame.imageUrl ? ( 
-                                                    <>
-                                                        <img src={proposalFrame.imageUrl} className={`w-full h-full object-cover transition-all duration-700 ${isSelected ? 'grayscale-0' : 'grayscale-[20%] group-hover:grayscale-0'}`} alt={`方案预览图 ${index + 1}`} />
-                                                        <div className="absolute inset-0 bg-black/10 group-hover:bg-transparent transition-colors"></div>
-                                                    </> 
-                                                ) : ( 
-                                                    <div className="w-full h-full flex flex-col items-center justify-center bg-[#08080a] relative overflow-hidden bg-grain">
-                                                        {proposalFrame.status === 'generating' && (<div className="absolute inset-0 animate-film-develop"></div>)}
-                                                        {proposalFrame.status === 'failed' ? (
-                                                            <div className="text-zinc-500 flex flex-col items-center gap-3 relative z-10"><span className="text-2xl">✕</span><span className="text-xs uppercase tracking-widest">生成中断</span></div>
-                                                        ) : proposalFrame.status === 'generating' ? (
-                                                            <div className="flex flex-col items-center gap-6 relative z-10 w-full px-8">
-                                                                <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden"><div className="h-full bg-amber-500 animate-progress"></div></div>
-                                                                <span className="text-[10px] text-zinc-500 font-mono tracking-widest animate-pulse">正在渲染方案...</span>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="w-full h-full flex items-center justify-center"><div className="w-8 h-8 border-2 border-zinc-700 border-t-zinc-400 rounded-full animate-spin"></div></div>
-                                                        )}
-                                                    </div> 
-                                                )}
-                                                
-                                                {/* Footer Text */}
-                                                <div className="absolute bottom-0 left-0 right-0 p-4 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
-                                                    <p className="text-[10px] text-zinc-300 bg-black/60 backdrop-blur-md p-2 rounded border border-white/10 line-clamp-3">{proposalFrame.description}</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        );
-                                    })}
-                                  </div>
+                    <aside className="space-y-3">
+                      <section className="rounded-xl border border-white/10 bg-[#11131a]/90 p-3">
+                        <div className="text-[10px] tracking-widest text-zinc-500 mb-2">AGENT PIPELINE</div>
+                        <div className="space-y-2">
+                          {stageMeta.map((stage) => (
+                            <div key={stage.id} className="flex items-start gap-2">
+                              <div className="mt-0.5 w-4 h-4 rounded-full border border-amber-500/35 text-amber-300 text-[10px] flex items-center justify-center">
+                                {stage.id + 1}
                               </div>
+                              <div>
+                                <div className="text-xs text-zinc-200">{stage.name}</div>
+                                <div className="text-[10px] text-zinc-500">{stage.desc}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+
+                      <details className="rounded-xl border border-white/10 bg-[#11131a]/90 p-3">
+                        <summary className="cursor-pointer select-none text-[11px] text-zinc-300">高级设置（策略 / 模型）</summary>
+                        <div className="mt-3 space-y-3">
+                          <div>
+                            <div className="text-[10px] text-zinc-500 tracking-widest mb-1.5">策略</div>
+                            {renderStrategySelector(true)}
                           </div>
-                          {/* Floating Action Button */}
-                          <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 transition-all duration-500 ease-out transform translate-y-0">
-                               <button onClick={studio.handleConfirmShoot} disabled={studio.selectedProposalId === null} className={`group relative px-10 py-4 rounded-full font-bold tracking-[0.2em] uppercase text-xs shadow-2xl flex items-center gap-3 transition-all duration-300 ${studio.selectedProposalId !== null ? 'bg-amber-600 hover:bg-amber-500 text-white hover:scale-105 hover:shadow-[0_0_40px_rgba(245,158,11,0.4)]' : 'bg-zinc-800 text-zinc-600 cursor-not-allowed border border-white/5'}`}>
-                                 {studio.selectedProposalId !== null ? ( <><span className="relative z-10">锁定方案并开机</span><div className="relative z-10 bg-white/20 p-1 rounded-full"><CameraIcon className="w-4 h-4" /></div><div className="absolute inset-0 rounded-full border border-white/20 scale-110 opacity-0 group-hover:scale-100 group-hover:opacity-100 transition-all duration-500"></div></> ) : ( <span>请先选择一种视觉风格</span> )}
-                               </button>
+                          <div className="space-y-1.5 text-[11px] text-zinc-300">
+                            <div className="text-[10px] text-zinc-500 tracking-widest">模型</div>
+                            <div className="flex justify-between gap-3">
+                              <span className="text-zinc-500">文本</span>
+                              <span className="font-mono">{providerLabel(selectedTextProvider)} / {studio.textModel}</span>
+                            </div>
+                            <div className="flex justify-between gap-3">
+                              <span className="text-zinc-500">生图</span>
+                              <span className="font-mono">{providerLabel(selectedImageProvider)} / {studio.imageModel}</span>
+                            </div>
                           </div>
-                      </>
-                   )}
-                   
-                   {/* Stage B: Principal Photography (Gallery) */}
-                   {studio.appState === AppState.SHOOTING && ( <Gallery frames={studio.frames} plan={studio.plan} /> )}
-                </div>
-             </div>
+                        </div>
+                      </details>
+
+                      <section className="rounded-xl border border-white/10 bg-[#11131a]/90 p-3">
+                        <button
+                          type="button"
+                          onClick={() => studio.setIsHistoryOpen(true)}
+                          className="w-full h-8 px-3 rounded-md border border-white/15 text-zinc-300 hover:text-white hover:border-white/30 text-xs"
+                        >
+                          从历史档案恢复项目
+                        </button>
+                        <div className="mt-2 text-[10px] text-zinc-500">流程自动存档，可随时从任一阶段继续。</div>
+                      </section>
+                    </aside>
+                  </div>
+                </section>
+              </div>
+            </div>
+          ) : (
+            <PlanningWorkspace
+              studio={studio}
+              stageMeta={stageMeta}
+              stageIndex={stageIndex}
+              frameStats={frameStats}
+              isTaskBusy={isTaskBusy}
+              activitySignalKey={activitySignalKey}
+              renderStrategySelector={renderStrategySelector}
+              renderModelSelectors={renderModelSelectors}
+            />
           )}
         </div>
       </div>
     </div>
-    );
-  }
+  );
+}

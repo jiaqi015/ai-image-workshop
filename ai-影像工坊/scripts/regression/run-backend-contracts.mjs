@@ -208,6 +208,23 @@ test('POST director_plan returns clear error when no provider key is configured'
   assert.match(String(res.body?.error || ''), /没有可用的厂商或 Key/i);
 });
 
+test('POST random_prompt returns 200 with bounded length and metadata', async () => {
+  const handler = await loadHandler({ AI_GATEWAY_TOKEN: undefined });
+  const res = await invoke(handler, {
+    method: 'POST',
+    body: { action: 'random_prompt', mode: 'pro', targetLength: 200 },
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body?.ok, true);
+  expectTrace(res);
+  assert.equal(typeof res.body?.prompt, 'string');
+  assert.ok(res.body.prompt.length >= 180, `prompt too short: ${res.body.prompt.length}`);
+  assert.ok(res.body.prompt.length <= 220, `prompt too long: ${res.body.prompt.length}`);
+  assert.equal(typeof res.body?.metadata?.theme, 'string');
+  assert.equal(typeof res.body?.metadata?.similarityToRecent, 'number');
+  assert.equal(typeof res.body?.metadata?.critic?.score, 'number');
+});
+
 test('POST unsupported action returns 400', async () => {
   const handler = await loadHandler({ AI_GATEWAY_TOKEN: undefined });
   const res = await invoke(handler, {

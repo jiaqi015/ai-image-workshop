@@ -25,3 +25,5 @@ dist-ssr
 
 # Regression artifacts
 quality/reports/latest-regression-summary.json
+.vercel
+.env*.local

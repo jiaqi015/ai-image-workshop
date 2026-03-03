@@ -154,6 +154,9 @@ export interface FrameMetadata {
   variant?: string;
   variantType?: 'strict' | 'balanced' | 'creative';
   castingTraits?: string; // May contain BP:: token
+  curationScore?: number;
+  curationStatus?: 'pending' | 'keep' | 'drop';
+  curationReason?: string;
 }
 
 export interface ShootGuide {

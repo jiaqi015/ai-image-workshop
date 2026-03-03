@@ -3,7 +3,7 @@ import { ShootPlan, FrameMetadata, RuntimeBlueprint, OptionBlueprint } from "../
 import { Infrastructure } from "../api/client";
 
 const ASIAN_REALISM_SUBJECT_PREFIX =
-    "(Real Asian adult human age 23+:1.7), (East Asian facial structure:1.5), (natural human skin texture, pores, subtle imperfections:1.4), black or dark-brown hair, dark-brown eyes";
+    "(Ultra-photorealistic East Asian adult human age 23+:1.8), (East Asian facial structure:1.6), (natural human skin texture, pores, subtle imperfections:1.5), black or dark-brown hair, dark-brown eyes";
 
 const ASIAN_REALISM_NEGATIVE = [
     "western face",
@@ -132,10 +132,10 @@ export const CameraEngine = {
         if (isPerson) {
             charDesc = `${ASIAN_REALISM_SUBJECT_PREFIX}, ${charDesc}`;
             immuneSystem.push(...ASIAN_REALISM_NEGATIVE);
-            immuneSystem.push("monk", "priest", "clown", "joker", "alien", "robot", "cyborg", "zombie", "monster", "creature", "mask");
+            immuneSystem.push("child", "minor", "teen", "adolescent", "baby face", "doll face");
         }
-        
-        const negativePromptBlock = immuneSystem.join(", ");
+
+        const negativePromptBlock = [...new Set(immuneSystem)].slice(0, 40).join(", ");
 
         return `
 [PHOTOGRAPHY DIRECTIVE]

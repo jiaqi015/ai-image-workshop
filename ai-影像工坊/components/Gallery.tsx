@@ -7,9 +7,11 @@ import { constructFullPrompt } from '../services/public'; // Updated Import Sour
 interface GalleryProps {
   frames: Frame[];
   plan?: ShootPlan | null; // 传入 Plan 以便重建完整 Prompt
+  onRetryFrame?: (frameId: number) => void;
+  retryingFrameIds?: number[];
 }
 
-export const Gallery: React.FC<GalleryProps> = ({ frames, plan }) => {
+export const Gallery: React.FC<GalleryProps> = ({ frames, plan, onRetryFrame, retryingFrameIds = [] }) => {
   // --- 状态管理 ---
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null); // 灯箱中当前查看的图片索引
   const [isZoomed, setIsZoomed] = useState(false); // 是否处于放大查看模式
@@ -215,6 +217,16 @@ export const Gallery: React.FC<GalleryProps> = ({ frames, plan }) => {
                     <>
                       <span className="text-red-500 text-3xl mb-3 font-light">×</span>
                       <span className="text-[10px] text-red-400 font-mono uppercase tracking-widest">{frame.error || "失败"}</span>
+                      {onRetryFrame && (
+                        <button
+                          type="button"
+                          disabled={retryingFrameIds.includes(frame.id)}
+                          onClick={(e) => { e.stopPropagation(); onRetryFrame(frame.id); }}
+                          className="mt-3 text-[10px] px-3 py-1 rounded-full border border-red-400/30 text-red-300 hover:text-red-200 hover:border-red-300/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {retryingFrameIds.includes(frame.id) ? "重试中..." : "重试当前帧"}
+                        </button>
+                      )}
                     </>
                   )}
 
@@ -255,6 +267,19 @@ export const Gallery: React.FC<GalleryProps> = ({ frames, plan }) => {
                          {frame.metadata.variant && (
                              <span className="text-[10px] px-2 py-0.5 rounded border border-amber-500/10 bg-amber-500/5 text-amber-500 font-mono uppercase tracking-wide cursor-pointer hover:bg-amber-500/20" title="点击复制完整配方" onClick={(e) => handleCopyPrompt(e, frame)}>
                                 {copiedId === frame.id ? "完整配方已复制" : String(frame.metadata.variant).split('/')[0].substring(0, 10) + "..."}
+                             </span>
+                         )}
+                         {frame.metadata.curationStatus && frame.metadata.curationStatus !== 'pending' && (
+                             <span
+                               className={`text-[10px] px-2 py-0.5 rounded border font-mono uppercase tracking-wide ${
+                                 frame.metadata.curationStatus === 'keep'
+                                   ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                                   : 'bg-zinc-700/20 border-zinc-500/30 text-zinc-400'
+                               }`}
+                               title={frame.metadata.curationReason || '自动筛片结果'}
+                             >
+                               {frame.metadata.curationStatus === 'keep' ? '自动入选' : '自动淘汰'}
+                               {typeof frame.metadata.curationScore === 'number' ? ` ${frame.metadata.curationScore}` : ''}
                              </span>
                          )}
                        </>

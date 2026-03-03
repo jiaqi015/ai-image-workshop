@@ -27,6 +27,7 @@ import {
   buildDirectorPlanMessages,
   normalizeDirectorPlan,
 } from "./domain/directorPlan.js";
+import { generateRandomPromptSkill } from "./domain/randomPromptSkill.js";
 
 const DEFAULT_ROUTING = {
   policy: {
@@ -517,8 +518,60 @@ const messageText = (messages = []) =>
     .map((m) => `${m.role || "user"}: ${typeof m.content === "string" ? m.content : JSON.stringify(m.content || "")}`)
     .join("\n");
 
-const firstSystemMessage = (messages = []) => messages.find((m) => m?.role === "system")?.content || "";
-const firstUserMessage = (messages = []) => messages.find((m) => m?.role === "user")?.content || "";
+const normalizeMessageContent = (content) => {
+  if (typeof content === "string") return content.trim();
+  if (Array.isArray(content)) {
+    return content
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (typeof item?.text === "string") return item.text;
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+  if (content && typeof content === "object") {
+    if (typeof content.text === "string") return content.text.trim();
+    return JSON.stringify(content);
+  }
+  return "";
+};
+
+const buildGoogleChatInputs = (messages = []) => {
+  const systemChunks = [];
+  const contents = [];
+
+  for (const message of messages) {
+    const role = String(message?.role || "user").toLowerCase();
+    const text = normalizeMessageContent(message?.content);
+    if (!text) continue;
+
+    if (role === "system") {
+      systemChunks.push(text);
+      continue;
+    }
+
+    contents.push({
+      role: role === "assistant" ? "model" : "user",
+      parts: [{ text }],
+    });
+  }
+
+  if (!contents.length) {
+    const fallback = messageText(messages);
+    contents.push({
+      role: "user",
+      parts: [{ text: fallback || "continue" }],
+    });
+  }
+
+  const mergedSystem = systemChunks.join("\n\n").trim();
+  return {
+    systemInstruction: mergedSystem,
+    contents: contents.length === 1 ? contents[0] : contents,
+  };
+};
 
 const extractGeminiText = (resp) => {
   if (typeof resp?.text === "string" && resp.text.length > 0) return resp.text;
@@ -793,16 +846,14 @@ const callOpenAICompatibleImage = async ({ baseUrl, apiKey, model, prompt, provi
 
 const callGoogleChat = async ({ apiKey, model, messages }) => {
   const client = new GoogleGenAI({ apiKey });
-  const systemInstruction = firstSystemMessage(messages);
-  const userMessage = firstUserMessage(messages) || messageText(messages);
+  const { systemInstruction, contents } = buildGoogleChatInputs(messages);
 
   const resp = await withTimeout(
     client.models.generateContent({
       model,
-      contents: userMessage,
+      contents,
       config: {
         ...(systemInstruction ? { systemInstruction } : {}),
-        responseMimeType: "application/json",
       },
     }),
     GOOGLE_UPSTREAM_TIMEOUT_MS,
@@ -901,6 +952,14 @@ const getProviderAdapter = (provider) => {
 
 const isRetryableStatus = (status) => status === 429 || (status >= 500 && status < 600);
 
+const shouldCooldownForError = ({ provider, status, retryable }) => {
+  if (!retryable) return false;
+  if (status === 429) return true;
+  const keyCount = providerCredentials?.[provider]?.keys?.length || 0;
+  if (status >= 500 && status < 600 && keyCount > 1) return true;
+  return false;
+};
+
 const runWithProviderFallback = async ({ taskType, requestedModel, run }) => {
   const { candidates, fallbackModel } = resolveTaskConfig(taskType, requestedModel);
   const retryCount = Number(routingConfig?.policy?.maxRetries ?? 2);
@@ -962,7 +1021,9 @@ const runWithProviderFallback = async ({ taskType, requestedModel, run }) => {
           message,
         });
         if (retryable) {
-          cooldownKey(provider, key, cooldownMs);
+          if (shouldCooldownForError({ provider, status, retryable })) {
+            cooldownKey(provider, key, cooldownMs);
+          }
           continue;
         }
         break;
@@ -1278,6 +1339,26 @@ export default async function handler(req, res) {
         plan,
         directorPacket,
       }, requestMeta);
+      return;
+    }
+
+    if (action === "random_prompt") {
+      const generated = generateRandomPromptSkill({
+        mode: body.mode,
+        targetLength: body.targetLength,
+      });
+
+      sendJson(
+        res,
+        traceId,
+        200,
+        {
+          ok: true,
+          prompt: generated.prompt,
+          metadata: generated.metadata,
+        },
+        requestMeta
+      );
       return;
     }
 

@@ -1,14 +1,9 @@
-import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
-
 // ==========================================
 // 基础设施层 (Infrastructure Layer)
-// 职责: 统一路由到后端 API (Vercel Functions)
-//      并保留本地直连兜底模式（用于纯前端开发调试）
+// 职责: 统一通过后端 API 网关执行所有模型请求
 // ==========================================
 
 const API_BASE = ((import.meta as any).env?.VITE_API_BASE_URL || "").replace(/\/$/, "");
-const USE_BACKEND_BY_DEFAULT = (((import.meta as any).env?.VITE_USE_BACKEND ?? "1") as string) !== "0";
-const LEGACY_PROXY_BASE = ((import.meta as any).env?.VITE_PROXY_BASE_URL || "https://xh.v1api.cc/v1").replace(/\/$/, "");
 
 // --- Model Catalog ---
 const DEFAULT_PROVIDER_ORDER = {
@@ -135,6 +130,16 @@ export type DirectorPlanResponse = {
     model?: string;
 };
 
+export type RandomPromptRequest = {
+    mode?: "fast" | "pro";
+    targetLength?: number;
+};
+
+export type RandomPromptResponse = {
+    prompt: string;
+    metadata?: Record<string, any>;
+};
+
 const readLS = (key: string, fallback: string) => {
     if (typeof window === "undefined") return fallback;
     const value = localStorage.getItem(key);
@@ -146,7 +151,6 @@ const writeLS = (key: string, value: string) => {
     localStorage.setItem(key, value);
 };
 
-let backendEnabled = USE_BACKEND_BY_DEFAULT;
 let availableTextModels = [...DEFAULT_TEXT_MODELS];
 let availableImageModels = [...DEFAULT_IMAGE_MODELS];
 const DEFAULT_PROVIDER_BY_MODEL: Record<string, string> = makeProviderByModel(
@@ -165,8 +169,8 @@ let providerStatusByName: Record<string, ProviderRuntimeStatus> = {};
 let selectedTextModel = readLS("studio_text_model", DEFAULT_TEXT_MODEL);
 let selectedImageModel = readLS("studio_image_model", DEFAULT_IMAGE_MODEL);
 
-// 仅用于本地兜底模式（纯前端直连）
-let storedKey = "";
+// 可选: 网关鉴权令牌 (对应后端 AI_GATEWAY_TOKEN)
+let gatewayToken = "";
 
 const persistModelPrefs = () => {
     writeLS("studio_text_model", selectedTextModel);
@@ -232,26 +236,6 @@ const resolveProviderByModel = (model: string): string => {
     return inferProviderByModelName(model);
 };
 
-const getModeFromModels = (): "proxy" | "direct" => {
-    const textProvider = resolveProviderByModel(selectedTextModel);
-    const imageProvider = resolveProviderByModel(selectedImageModel);
-    const isGoogleOnly = textProvider === "google" && imageProvider === "google";
-    return isGoogleOnly ? "direct" : "proxy";
-};
-
-const firstModelByProvider = (models: string[], provider: string, fallback: string) => {
-    const hit = models.find((m) => resolveProviderByModel(m) === provider);
-    return hit || fallback;
-};
-
-const firstModelByFamily = (models: string[], family: "google" | "non_google", fallback: string) => {
-    const hit = models.find((m) => {
-        const provider = resolveProviderByModel(m);
-        return family === "google" ? provider === "google" : provider !== "google";
-    });
-    return hit || fallback;
-};
-
 const providerLabel = (provider: string) => {
     switch (provider) {
         case "openai":
@@ -288,12 +272,19 @@ async function withRetry<T>(
             if (signal?.aborted || e.name === "AbortError") throw new Error("Aborted");
             lastError = e;
             const errMsg = (e.message || "").toLowerCase();
+            const status = Number(e?.status || 0);
             const isRateLimit =
-                e.status === 429 ||
+                status === 429 ||
                 errMsg.includes("429") ||
                 errMsg.includes("quota") ||
                 errMsg.includes("resource_exhausted");
-            const isFatal = errMsg.includes("invalid argument") || errMsg.includes("authentication");
+            const isFatal =
+                status === 400 ||
+                status === 401 ||
+                status === 403 ||
+                errMsg.includes("invalid argument") ||
+                errMsg.includes("authentication") ||
+                errMsg.includes("unauthorized");
 
             if (isFatal) throw e;
 
@@ -335,9 +326,9 @@ const apiUrl = (path: string) => `${API_BASE}${path.startsWith("/") ? path : `/$
 
 const withGatewayHeaders = (headers: Record<string, string> = {}) => {
     const merged: Record<string, string> = { ...headers };
-    if (storedKey) {
-        merged["x-gateway-token"] = storedKey;
-        merged.Authorization = `Bearer ${storedKey}`;
+    if (gatewayToken) {
+        merged["x-gateway-token"] = gatewayToken;
+        merged.Authorization = `Bearer ${gatewayToken}`;
     }
     return merged;
 };
@@ -359,166 +350,40 @@ async function callBackend(payload: any, signal?: AbortSignal) {
     }
 
     if (!response.ok || data?.ok === false) {
-        throw new Error(data?.error || `后端错误 ${response.status}`);
+        throw Object.assign(new Error(data?.error || `后端错误 ${response.status}`), {
+            status: response.status,
+            traceId: data?.traceId || "",
+        });
     }
 
     return data;
 }
 
-interface IGenAIProvider {
-    generateText(model: string, messages: any[], onChunk?: (text: string) => void, signal?: AbortSignal): Promise<string>;
-    validateConnection(): Promise<boolean>;
-    label: string;
-}
+const validateGatewayHealth = async () => {
+    const response = await fetch(apiUrl("/api/ai?action=health"), {
+        headers: withGatewayHeaders(),
+    });
+    if (!response.ok) throw new Error(`后端健康检查错误: ${response.status}`);
+    const data = await response.json();
+    if (data?.ok === false) throw new Error(data?.error || "后端健康检查失败");
 
-class BackendStrategy implements IGenAIProvider {
-    public label = "后端网关";
-
-    async generateText(model: string, messages: any[], onChunk?: (text: string) => void, signal?: AbortSignal): Promise<string> {
-        const targetModel = model || selectedTextModel;
-        const data = await callBackend({ action: "chat", model: targetModel, messages }, signal);
-        const fullText = data?.text || "";
-
-        if (onChunk && fullText) {
-            // 模拟增量回调，避免 UI 只在末尾更新
-            let acc = "";
-            for (let i = 0; i < fullText.length; i += 80) {
-                acc = fullText.slice(0, i + 80);
-                onChunk(acc);
-            }
-        }
-
-        return fullText;
+    const providers = Object.values(data?.providers || {});
+    const hasConfiguredProvider = providers.some((item: any) => Boolean(item?.configured));
+    if (!hasConfiguredProvider) {
+        throw new Error("后端网关可达，但未配置任何可用模型 Key");
     }
 
-    async validateConnection(): Promise<boolean> {
-        const response = await fetch(apiUrl("/api/ai?action=health"), {
-            headers: withGatewayHeaders(),
-        });
-        if (!response.ok) throw new Error(`后端健康检查错误: ${response.status}`);
-        const data = await response.json();
-        if (data?.ok === false) throw new Error(data?.error || "后端健康检查失败");
-        return true;
-    }
-}
-
-class GoogleOfficialStrategy implements IGenAIProvider {
-    private client: GoogleGenAI;
-    public label = "谷歌云直连";
-    constructor(apiKey: string) {
-        this.client = new GoogleGenAI({ apiKey });
-    }
-
-    async generateText(model: string, messages: any[], onChunk?: (text: string) => void, signal?: AbortSignal): Promise<string> {
-        const systemMsg = messages.find((m) => m.role === "system")?.content || "";
-        const userMsg = messages.find((m) => m.role === "user")?.content || "";
-        const targetModel = model.startsWith("gemini") ? model : "gemini-2.5-flash";
-
-        const result = await this.client.models.generateContentStream({
-            model: targetModel,
-            contents: userMsg,
-            config: {
-                ...(systemMsg ? { systemInstruction: systemMsg } : {}),
-                responseMimeType: "application/json",
-            },
-        });
-
-        let fullText = "";
-        for await (const chunk of result) {
-            if (signal?.aborted) throw new Error("Aborted");
-            if (chunk.text) {
-                fullText += chunk.text;
-                if (onChunk) onChunk(fullText);
-            }
-        }
-        return fullText;
-    }
-
-    async validateConnection(): Promise<boolean> {
-        await this.client.models.generateContent({ model: "gemini-2.5-flash", contents: "ping" });
-        return true;
-    }
-
-    getClient() {
-        return this.client;
-    }
-}
-
-class ProxyServiceStrategy implements IGenAIProvider {
-    private apiKey: string;
-    public label = "前端代理";
-
-    constructor(apiKey: string) {
-        this.apiKey = apiKey;
-    }
-
-    async generateText(model: string, messages: any[], onChunk?: (text: string) => void, signal?: AbortSignal): Promise<string> {
-        const targetModel = model.startsWith("gpt") ? model : "gpt-5.1";
-        const response = await fetch(`${LEGACY_PROXY_BASE}/chat/completions`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${this.apiKey}`,
-            },
-            body: JSON.stringify({ model: targetModel, messages, stream: true }),
-            signal,
-        });
-        if (!response.ok) throw new Error(`前端代理错误: ${response.status}`);
-
-        const reader = response.body?.getReader();
-        const decoder = new TextDecoder();
-        let fullText = "";
-
-        if (reader) {
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                const chunk = decoder.decode(value);
-                const lines = chunk.split("\n");
-                for (const line of lines) {
-                    if (line.startsWith("data: ") && line !== "data: [DONE]") {
-                        try {
-                            const data = JSON.parse(line.slice(6));
-                            const content = data.choices?.[0]?.delta?.content || "";
-                            fullText += content;
-                            if (onChunk) onChunk(fullText);
-                        } catch {
-                            // ignore bad line chunk
-                        }
-                    }
-                }
-            }
-        }
-
-        return fullText;
-    }
-
-    async validateConnection(): Promise<boolean> {
-        const response = await fetch(`${LEGACY_PROXY_BASE}/chat/completions`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${this.apiKey}`,
-            },
-            body: JSON.stringify({ model: "gpt-5.1", messages: [{ role: "user", content: "ping" }], max_tokens: 1 }),
-        });
-        if (!response.ok) throw new Error(`前端代理错误: ${response.status}`);
-        return true;
-    }
-}
+    return data;
+};
 
 export const Infrastructure = {
     setApiKey: (key: string | null) => {
-        storedKey = (key || "").trim();
+        gatewayToken = (key || "").trim();
     },
 
-    getApiKey: () => storedKey,
+    getApiKey: () => gatewayToken,
 
-    setBackendEnabled: (enabled: boolean) => {
-        backendEnabled = enabled;
-    },
-
-    isBackendEnabled: () => backendEnabled,
+    isBackendEnabled: () => true,
 
     setModelPreferences: (prefs: Partial<ModelPreferences>) => {
         if (prefs.textModel) selectedTextModel = prefs.textModel;
@@ -545,7 +410,6 @@ export const Infrastructure = {
     }),
 
     refreshModels: async () => {
-        if (!backendEnabled) return Infrastructure.getAvailableModels();
         try {
             const response = await fetch(apiUrl("/api/ai?action=models"), {
                 headers: withGatewayHeaders(),
@@ -572,6 +436,7 @@ export const Infrastructure = {
                 });
                 providerByModel = { ...providerByModel, ...inferred };
             }
+
             const textByProviderFromApi = normalizeModelsByProvider(data?.textModelsByProvider);
             const imageByProviderFromApi = normalizeModelsByProvider(data?.imageModelsByProvider);
             textModelsByProvider =
@@ -582,6 +447,7 @@ export const Infrastructure = {
                 Object.keys(imageByProviderFromApi).length > 0
                     ? imageByProviderFromApi
                     : buildModelsByProvider(availableImageModels, providerByModel, modelProviderOrder.image);
+
             if (data?.providers && typeof data.providers === "object") {
                 providerStatusByName = {};
                 for (const [provider, status] of Object.entries(data.providers as Record<string, unknown>)) {
@@ -606,77 +472,41 @@ export const Infrastructure = {
         } catch {
             // 静默兜底，保留本地默认模型表
         }
+
         return Infrastructure.getAvailableModels();
     },
 
-    toggleProxy: (): boolean => {
-        const nextProxy = getModeFromModels() !== "proxy";
-        Infrastructure.setProxyMode(nextProxy);
-        return getModeFromModels() === "proxy";
-    },
-
-    setProxyMode: (enabled: boolean) => {
-        if (enabled) {
-            selectedTextModel = firstModelByFamily(availableTextModels, "non_google", selectedTextModel);
-            selectedImageModel = firstModelByFamily(availableImageModels, "non_google", selectedImageModel);
-        } else {
-            selectedTextModel = firstModelByProvider(availableTextModels, "google", selectedTextModel);
-            selectedImageModel = firstModelByProvider(availableImageModels, "google", selectedImageModel);
-        }
-        persistModelPrefs();
-    },
-
     getStatus: () => {
-        const mode = getModeFromModels();
         const textProvider = resolveProviderByModel(selectedTextModel);
         const imageProvider = resolveProviderByModel(selectedImageModel);
         return {
-            mode,
-            label: backendEnabled
-                ? `后端网关 · 文本:${providerLabel(textProvider)} · 生图:${providerLabel(imageProvider)}`
-                : mode === "proxy"
-                    ? "前端代理模式（开放接口兼容）"
-                    : "谷歌云直连",
-            provider: backendEnabled ? "后端网关" : mode === "proxy" ? "前端代理" : "谷歌",
+            mode: "gateway",
+            label: `后端网关 · 文本:${providerLabel(textProvider)} · 生图:${providerLabel(imageProvider)}`,
+            provider: "后端网关",
             textModel: selectedTextModel,
             imageModel: selectedImageModel,
         };
     },
 
-    isProxy: () => getModeFromModels() === "proxy",
+    routeRequest: async (model: string, messages: any[], onChunk?: (text: string) => void, signal?: AbortSignal): Promise<string> => {
+        const targetModel = model || selectedTextModel;
+        const data = await withRetry(
+            () => callBackend({ action: "chat", model: targetModel, messages }, signal),
+            3,
+            1000,
+            signal
+        );
 
-    getProvider: (): IGenAIProvider => {
-        if (backendEnabled) return new BackendStrategy();
-        if (!storedKey) throw new Error("接口密钥未配置");
-        if (getModeFromModels() === "proxy") return new ProxyServiceStrategy(storedKey);
-        return new GoogleOfficialStrategy(storedKey);
-    },
-
-    getGoogleClient: () => {
-        if (backendEnabled) {
-            // 兼容旧调用点：返回一个伪 client，内部改走后端 API
-            return {
-                models: {
-                    generateContent: async ({ model, contents, config }: { model: string; contents: any; config?: any }) => {
-                        return callBackend({
-                            action: "generate",
-                            model: model || selectedTextModel,
-                            contents,
-                            config,
-                        });
-                    },
-                },
-            } as any;
+        const fullText = String(data?.text || "");
+        if (onChunk && fullText) {
+            let acc = "";
+            for (let i = 0; i < fullText.length; i += 80) {
+                acc = fullText.slice(0, i + 80);
+                onChunk(acc);
+            }
         }
 
-        if (!storedKey) throw new Error("接口密钥未配置");
-        if (getModeFromModels() === "proxy") throw new Error("当前为前端代理模式");
-        return new GoogleOfficialStrategy(storedKey).getClient();
-    },
-
-    routeRequest: async (model: string, messages: any[], onChunk?: (text: string) => void, signal?: AbortSignal): Promise<string> => {
-        const provider = Infrastructure.getProvider();
-        return withRetry(() => provider.generateText(model || selectedTextModel, messages, onChunk, signal), 3, 1000, signal);
+        return fullText;
     },
 
     generateDirectorPlan: async (
@@ -687,45 +517,56 @@ export const Infrastructure = {
         const userIdea = String(payload?.userIdea || "").trim();
         if (!userIdea) throw new Error("缺少用户创意输入");
 
-        if (backendEnabled) {
-            const targetModel = payload?.model || selectedTextModel;
-            const data = await callBackend(
-                {
-                    action: "director_plan",
-                    model: targetModel,
-                    userIdea,
-                    tension: payload?.tension || "dramatic",
-                    analysis: payload?.analysis || {},
-                    creativeBrief: payload?.creativeBrief || {},
-                },
-                signal
-            );
+        const targetModel = payload?.model || selectedTextModel;
+        const data = await callBackend(
+            {
+                action: "director_plan",
+                model: targetModel,
+                userIdea,
+                tension: payload?.tension || "dramatic",
+                analysis: payload?.analysis || {},
+                creativeBrief: payload?.creativeBrief || {},
+            },
+            signal
+        );
 
-            if (!data?.plan) throw new Error("Backend 未返回导演计划");
+        if (!data?.plan) throw new Error("Backend 未返回导演计划");
 
-            if (onChunk) {
-                const progress = [
-                    `[导演域] 厂商: ${data.provider || "未知"}`,
-                    `[导演域] 模型: ${data.model || targetModel}`,
-                    `[导演域] 计划已就绪`,
-                ].join("\n");
-                onChunk(progress);
-            }
-
-            return {
-                plan: data.plan,
-                directorPacket: data.directorPacket,
-                provider: data.provider,
-                model: data.model,
-            };
+        if (onChunk) {
+            const progress = [
+                `[导演域] 厂商: ${data.provider || "未知"}`,
+                `[导演域] 模型: ${data.model || targetModel}`,
+                `[导演域] 计划已就绪`,
+            ].join("\n");
+            onChunk(progress);
         }
 
-        throw new Error("后端已关闭，无法执行导演计划");
+        return {
+            plan: data.plan,
+            directorPacket: data.directorPacket,
+            provider: data.provider,
+            model: data.model,
+        };
     },
 
-    callProxy: async (modelList: string[], messages: any[], stream: boolean = false, onChunk?: (text: string) => void, signal?: AbortSignal): Promise<string> => {
-        const model = modelList?.[0] || selectedTextModel;
-        return Infrastructure.routeRequest(model, messages, onChunk, signal);
+    generateRandomPrompt: async (payload: RandomPromptRequest = {}, signal?: AbortSignal): Promise<RandomPromptResponse> => {
+        const targetLength = Number(payload?.targetLength);
+        const data = await callBackend(
+            {
+                action: "random_prompt",
+                mode: payload?.mode || "pro",
+                targetLength: Number.isFinite(targetLength) ? Math.floor(targetLength) : 200,
+            },
+            signal
+        );
+
+        const prompt = String(data?.prompt || "").trim();
+        if (!prompt) throw new Error("Backend 未返回随机提示词");
+
+        return {
+            prompt,
+            metadata: data?.metadata && typeof data.metadata === "object" ? data.metadata : {},
+        };
     },
 
     withTimeout,
@@ -735,104 +576,28 @@ export const Infrastructure = {
     },
 
     validate: async (key: string, logger?: (msg: string) => void): Promise<"pro" | "flash"> => {
-        if (key?.trim()) storedKey = key.trim();
+        if (key?.trim()) gatewayToken = key.trim();
 
-        if (backendEnabled) {
-            try {
-                if (logger) logger("正在连接后端网关...");
-                await withTimeout(callBackend({ action: "health" }), 30000, "连接超时");
-                if (logger) logger("✅ 后端网关握手成功");
-                return "pro";
-            } catch (backendError: any) {
-                if (!storedKey) {
-                    throw backendError;
-                }
-                backendEnabled = false;
-                if (logger) logger("⚠️ 后端网关不可用，切换到前端直连模式...");
-            }
-        }
-
-        const provider = Infrastructure.getProvider();
-        if (logger) logger(`🚀 连接 ${provider.label}...`);
-        await withTimeout(provider.validateConnection(), 30000, "连接超时");
-        if (logger) logger("✅ 通道握手成功");
+        if (logger) logger("正在连接后端网关...");
+        await withTimeout(validateGatewayHealth(), 30000, "连接超时");
+        if (logger) logger("✅ 后端网关握手成功");
         return "pro";
     },
 
     generateImage: async (prompt: string, modelType: "pro" | "flash", signal?: AbortSignal): Promise<string> => {
         if (signal?.aborted) throw new Error("Aborted");
 
-        if (backendEnabled) {
-            const fallbackModel = modelType === "pro" ? "gemini-3-pro-image-preview" : "gemini-2.5-flash-image";
-            const data = await callBackend(
-                {
-                    action: "image",
-                    model: selectedImageModel || fallbackModel,
-                    modelType,
-                    prompt,
-                },
-                signal
-            );
-            if (!data?.imageUrl) throw new Error("Backend 未返回图片数据");
-            return data.imageUrl;
-        }
-
-        if (!storedKey) throw new Error("接口密钥未配置");
-
-        if (getModeFromModels() === "proxy") {
-            const openaiImageModel = firstModelByProvider(availableImageModels, "openai", "gpt-image-1");
-            const response = await fetch(`${LEGACY_PROXY_BASE}/images/generations`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${storedKey}`,
-                },
-                body: JSON.stringify({
-                    model: resolveProviderByModel(selectedImageModel) === "openai" ? selectedImageModel : openaiImageModel,
-                    prompt,
-                    n: 1,
-                    size: "1024x1024",
-                    response_format: "b64_json",
-                }),
-                signal,
-            });
-
-            if (!response.ok) {
-                const errText = await response.text();
-                if (response.status === 429) throw new Error("请求限流 (429)");
-                throw new Error(`前端代理错误 ${response.status}: ${errText.slice(0, 120)}`);
-            }
-
-            const data = await response.json();
-            return `data:image/png;base64,${data.data[0].b64_json}`;
-        }
-
-        const ai = new GoogleOfficialStrategy(storedKey).getClient();
-        const modelName = modelType === "pro" ? "gemini-3-pro-image-preview" : "gemini-2.5-flash-image";
-        const config: any = {
-            imageConfig: { aspectRatio: "3:4" },
-            safetySettings: [
-                { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-                { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-            ],
-        };
-
-        if (modelName.includes("pro")) config.imageConfig.imageSize = "1K";
-
-        const response = await ai.models.generateContent({
-            model: modelName,
-            contents: { parts: [{ text: prompt }] },
-            config,
-        });
-
-        const candidate = response.candidates?.[0];
-        const imagePart = candidate?.content?.parts?.find((p: any) => p.inlineData);
-        if (imagePart?.inlineData) {
-            return `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`;
-        }
-
-        throw new Error(response.text || `生成失败 (${candidate?.finishReason || "空响应"})`);
+        const fallbackModel = modelType === "pro" ? "gemini-3-pro-image-preview" : "gemini-2.5-flash-image";
+        const data = await callBackend(
+            {
+                action: "image",
+                model: selectedImageModel || fallbackModel,
+                modelType,
+                prompt,
+            },
+            signal
+        );
+        if (!data?.imageUrl) throw new Error("Backend 未返回图片数据");
+        return data.imageUrl;
     },
 };

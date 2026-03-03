@@ -23,57 +23,31 @@ export class ExecutionPolicy {
      * 核心调度算法：根据用户输入计算执行配置
      */
     static resolve(
-        strategy: ShootStrategy, 
-        isProxy: boolean
+        strategy: ShootStrategy
     ): ExecutionProfile {
-        
-        // 只负责调度，不负责模型选择
-        let concurrency = 3;
+        // 单通道后端网关调度
+        let concurrency = 2;
         let staggerDelay = 500;
         let timeout = 20000;
-        let label = '标准队列';
+        let label = '网关标准队列';
 
-        if (isProxy) {
-            // --- Proxy Mode Strategies ---
-            // 代理模式下通常并发限制较宽松，但模型调用贵
-            switch (strategy) {
-                case 'pro':
-                    concurrency = 2; // 稳健
-                    label = '代理-高画质队列';
-                    break;
-                case 'flash':
-                    concurrency = 4; // 激进
-                    label = '代理-极速队列';
-                    break;
-                case 'hybrid':
-                    concurrency = 3;
-                    label = '代理-混合队列';
-                    break;
-            }
-        } else {
-            // --- Direct Google Cloud Strategies ---
-            // [CRITICAL UPDATE]: Drastically reduced concurrency to fix 429 Limit: 0 errors
-            
-            switch (strategy) {
-                case 'pro':
-                    concurrency = 1; // Strict serial execution for Pro to avoid limits
-                    staggerDelay = 2000; // Increased delay
-                    timeout = 60000; 
-                    label = '电影级 (Pro) 队列';
-                    break;
-                    
-                case 'flash':
-                    concurrency = 2; // Reduced from 4 to 2
-                    staggerDelay = 1000; // Increased from 300 to 1000
-                    label = '极速 (Flash) 队列';
-                    break;
-                    
-                case 'hybrid':
-                    concurrency = 2;
-                    staggerDelay = 1200;
-                    label = '混合流智能路由';
-                    break;
-            }
+        switch (strategy) {
+            case 'pro':
+                concurrency = 1;
+                staggerDelay = 1800;
+                timeout = 60000;
+                label = '电影级 (Pro) 队列';
+                break;
+            case 'flash':
+                concurrency = 2;
+                staggerDelay = 900;
+                label = '极速 (Flash) 队列';
+                break;
+            case 'hybrid':
+                concurrency = 2;
+                staggerDelay = 1200;
+                label = '混合流智能路由';
+                break;
         }
 
         return {

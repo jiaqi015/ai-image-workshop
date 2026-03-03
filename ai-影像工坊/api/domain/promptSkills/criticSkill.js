@@ -1,0 +1,134 @@
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+const containsAny = (text, tokens = []) => {
+  const source = String(text || "");
+  return tokens.some((token) => source.includes(token));
+};
+
+const hasValue = (value) => String(value || "").trim().length > 0;
+
+const REQUIRED_PAYLOAD_KEYS = [
+  "emotion",
+  "cast",
+  "location",
+  "time",
+  "wardrobeA",
+  "wardrobeB",
+  "propA",
+  "propB",
+  "action",
+  "camera",
+  "texture",
+  "banA",
+  "banB",
+  "banC",
+];
+
+const STYLE_NOISE_TOKENS = ["唯美", "梦幻", "大片感", "仙气", "小清新"];
+
+const NIGHT_SCENE_PATTERN = /凌晨|深夜|夜里|夜班|夜|晚|雨后/;
+
+const scoreLength = ({ length, range, target }) => {
+  const [min, max] = range || [180, 220];
+  if (length >= min && length <= max) return 100;
+  const distance = Math.abs(length - target);
+  return clamp(100 - distance * 3, 0, 100);
+};
+
+const scoreCompleteness = (payload = {}) => {
+  const missing = REQUIRED_PAYLOAD_KEYS.filter((key) => !hasValue(payload?.[key]));
+  if (missing.length === 0) {
+    return { score: 100, missing };
+  }
+  const score = clamp(100 - missing.length * 15, 0, 100);
+  return { score, missing };
+};
+
+const scoreConsistency = ({ payload = {}, prompt = "" }) => {
+  let score = 100;
+  const issues = [];
+  const props = [payload.propA, payload.propB].map((item) => String(item || ""));
+  const isConvenienceStore = String(payload.location || "").includes("便利店");
+  const hasStoreProp = props.some((item) => item.includes("塑料袋") || item.includes("罐装饮料"));
+  if (isConvenienceStore && !hasStoreProp) {
+    score -= 30;
+    issues.push("便利店场景缺少塑料袋或罐装饮料道具");
+  }
+
+  const isNightScene = NIGHT_SCENE_PATTERN.test(`${payload.time || ""}${payload.location || ""}`);
+  if (isNightScene && !String(payload.camera || "").includes("直闪")) {
+    score -= 20;
+    issues.push("夜景镜头未包含直闪提示");
+  }
+
+  if (containsAny(prompt, STYLE_NOISE_TOKENS)) {
+    score -= 25;
+    issues.push("出现偏空泛风格词，降低纪实可信度");
+  }
+
+  return { score: clamp(score, 0, 100), issues };
+};
+
+const scoreDiversity = ({ similarity, maxSimilarityAllowed, forceAvoidEmotion, emotion }) => {
+  let score = 100;
+  const issues = [];
+  if (similarity > maxSimilarityAllowed) {
+    const overflow = similarity - maxSimilarityAllowed;
+    score -= Math.ceil(overflow * 160);
+    issues.push(`与近期提示词相似度过高(${similarity.toFixed(3)})`);
+  }
+  if (forceAvoidEmotion && emotion === forceAvoidEmotion) {
+    score -= 25;
+    issues.push(`连续情绪重复(${emotion})`);
+  }
+  return { score: clamp(score, 0, 100), issues };
+};
+
+export const evaluatePromptCriticSkill = ({
+  candidate,
+  similarity = 0,
+  maxSimilarityAllowed = 0.45,
+  forceAvoidEmotion = "",
+} = {}) => {
+  const payload = candidate?.payload || {};
+  const prompt = candidate?.prompt || "";
+  const length = Number(candidate?.length || String(prompt).length);
+  const target = Number(candidate?.target || 200);
+  const range = Array.isArray(candidate?.range) ? candidate.range : [180, 220];
+
+  const lengthScore = scoreLength({ length, range, target });
+  const completeness = scoreCompleteness(payload);
+  const consistency = scoreConsistency({ payload, prompt });
+  const diversity = scoreDiversity({
+    similarity,
+    maxSimilarityAllowed,
+    forceAvoidEmotion,
+    emotion: payload.emotion,
+  });
+
+  const weightedScore = Math.round(
+    lengthScore * 0.22 +
+      completeness.score * 0.26 +
+      consistency.score * 0.26 +
+      diversity.score * 0.26
+  );
+
+  const issues = [
+    ...completeness.missing.map((key) => `缺少字段:${key}`),
+    ...consistency.issues,
+    ...diversity.issues,
+  ];
+
+  const pass = weightedScore >= 78 && issues.length === 0;
+  return {
+    pass,
+    score: weightedScore,
+    issues,
+    breakdown: {
+      length: lengthScore,
+      completeness: completeness.score,
+      consistency: consistency.score,
+      diversity: diversity.score,
+    },
+  };
+};

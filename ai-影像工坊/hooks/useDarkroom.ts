@@ -2,6 +2,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Frame, ShootPlan, ShootStrategy, FrameMetadata } from '../types';
 import { generateFrameImage, MemoryManager, ExecutionPolicy, getModelPreferences } from '../services/public'; // Updated Import
+import { selectFrameModelType } from '../services/routing/policy';
 
 // ==========================================
 // Darkroom Hook (Core Execution Logic)
@@ -82,7 +83,6 @@ export const useDarkroom = (
         framesToProcess: Frame[], 
         currentPlan: ShootPlan, 
         currentStrategy: ShootStrategy,
-        isProxy: boolean,
         setFrames: React.Dispatch<React.SetStateAction<Frame[]>>,
         setPlan: React.Dispatch<React.SetStateAction<ShootPlan | null>>
     ) => {
@@ -91,7 +91,7 @@ export const useDarkroom = (
         }
         abortControllerRef.current = new AbortController();
         const signal = abortControllerRef.current.signal;
-        const policy = ExecutionPolicy.resolve(currentStrategy, isProxy);
+        const policy = ExecutionPolicy.resolve(currentStrategy);
 
         const queue = [...framesToProcess];
         const totalFrames = framesToProcess.length;
@@ -102,14 +102,16 @@ export const useDarkroom = (
             const frame = queue.shift();
             if (!frame) return;
 
-            let targetModel: 'pro' | 'flash' = 'pro';
-            if (currentStrategy === 'flash') targetModel = 'flash';
-            else if (currentStrategy === 'hybrid') targetModel = ExecutionPolicy.routeHybridFrame(frame.description, frame.id, totalFrames);
-            else targetModel = 'pro';
+            const targetModel: 'pro' | 'flash' = selectFrameModelType({
+                strategy: currentStrategy,
+                description: frame.description,
+                frameIndex: frame.id,
+                totalFrames
+            });
 
             const metadata: FrameMetadata = {
                 model: getModelPreferences().imageModel,
-                provider: isProxy ? 'Proxy' : 'Direct',
+                provider: 'Gateway',
                 strategy: targetModel === 'pro' ? 'Pro' : 'Flash',
                 resolution: targetModel === 'pro' ? '4K' : 'Std',
                 variant: frame.metadata?.variant,
@@ -147,14 +149,13 @@ export const useDarkroom = (
         frames: Frame[],
         plan: ShootPlan,
         strategy: ShootStrategy,
-        isProxy: boolean,
         setFrames: React.Dispatch<React.SetStateAction<Frame[]>>,
         setPlan: React.Dispatch<React.SetStateAction<ShootPlan | null>>
     ) => {
          // 确保有一个活跃的控制器，但不重置它（允许叠加）
          if (!abortControllerRef.current) abortControllerRef.current = new AbortController();
          const signal = abortControllerRef.current.signal;
-         const policy = ExecutionPolicy.resolve(strategy, isProxy);
+         const policy = ExecutionPolicy.resolve(strategy);
          
          addLog(`流式任务注入: ${frames.length} 帧进入队列 | 并发: ${policy.concurrency}`, 'network');
 
@@ -164,19 +165,21 @@ export const useDarkroom = (
             const task = (async () => {
                 if (signal.aborted || !isShootingRef.current) return;
 
-                let targetModel: 'pro' | 'flash' = strategy === 'pro' ? 'pro' : 'flash';
-                if (strategy === 'hybrid') {
-                    targetModel = ExecutionPolicy.routeHybridFrame(frame.description, index, frames.length);
-                }
+                const targetModel: 'pro' | 'flash' = selectFrameModelType({
+                    strategy,
+                    description: frame.description,
+                    frameIndex: index,
+                    totalFrames: frames.length
+                });
 
                 const metadata: FrameMetadata = {
                     model: getModelPreferences().imageModel,
-                    provider: isProxy ? 'Proxy' : 'Direct',
+                    provider: 'Gateway',
                     strategy: strategy,
                     resolution: targetModel === 'pro' ? '4K' : 'Std',
                     variant: frame.metadata?.variant,
                     variantType: frame.metadata?.variantType,
-                    type: 'shot',
+                    type: frame.metadata?.type || 'shot',
                     castingTraits: frame.metadata?.castingTraits
                 };
 
