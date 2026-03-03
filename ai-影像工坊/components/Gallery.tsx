@@ -136,7 +136,7 @@ export const Gallery: React.FC<GalleryProps> = ({ frames, plan, onRetryFrame, re
               className={`ui-card-lift relative aspect-[3/4] rounded-[14px] overflow-hidden border transition-all ${
                 frame.status === 'completed' ? 'cursor-pointer hover:shadow-lg' : ''
               }`}
-              style={{ borderColor: 'var(--ui-border)', background: '#f8fafc' }}
+              style={{ borderColor: 'var(--ui-border)', background: 'rgba(255, 255, 255, 0.03)' }}
               onClick={() => openLightbox(index)}
             >
               <div className="absolute top-3 left-3 z-20 pointer-events-none flex gap-2">
@@ -164,7 +164,7 @@ export const Gallery: React.FC<GalleryProps> = ({ frames, plan, onRetryFrame, re
                     <>
                       <div
                         className="w-10 h-10 rounded-full border-2 animate-spin mb-3"
-                        style={{ borderColor: '#dbe1e8', borderTopColor: 'var(--ui-accent)' }}
+                        style={{ borderColor: 'rgba(255, 255, 255, 0.16)', borderTopColor: 'var(--ui-accent)' }}
                       />
                       <span className="text-[11px]" style={{ color: 'var(--ui-text-muted)' }}>正在生成</span>
                     </>
@@ -326,7 +326,11 @@ export const Gallery: React.FC<GalleryProps> = ({ frames, plan, onRetryFrame, re
             )}
           </div>
 
-          <div className="flex-none p-4 border-t border-white/20 bg-white z-40" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="flex-none p-4 z-40"
+            style={{ borderTop: '1px solid var(--ui-border-strong)', background: 'var(--ui-surface)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="ui-lightbox-body mx-auto flex flex-col md:flex-row gap-4 justify-between items-end md:items-center">
               <div className="flex-1 w-full">
                 <p className="text-sm md:text-base leading-relaxed mb-2 select-text" style={{ color: 'var(--ui-text-primary)' }}>

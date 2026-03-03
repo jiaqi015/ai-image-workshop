@@ -66,7 +66,7 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
   return (
     <>
       <div
-        className={`fixed inset-0 bg-black/25 backdrop-blur-sm z-40 transition-opacity duration-200 ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        className={`fixed inset-0 bg-black/55 backdrop-blur-sm z-40 transition-opacity duration-200 ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         onClick={onClose}
       />
 

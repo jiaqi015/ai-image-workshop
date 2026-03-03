@@ -240,7 +240,7 @@ export default function App() {
   );
 
   const renderSettingsModal = () => (
-    <div className="fixed inset-0 z-[100] bg-black/20 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[100] bg-black/55 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="ui-modal ui-modal-shell p-6">
         <div className="flex justify-between items-center mb-5">
           <h3 className="text-sm font-semibold" style={{ color: 'var(--ui-text-primary)' }}>连接与模型设置</h3>
@@ -410,18 +410,9 @@ export default function App() {
         <div className="flex-1 min-h-0">
           {isIdleLanding ? (
             <div className="h-full ui-shell-pad flex items-center justify-center overflow-y-auto">
-              <section className="w-full ui-hero ui-surface ui-reveal p-5 md:p-6">
+              <section className="w-full ui-hero ui-surface ui-reveal p-4 md:p-5">
                 <div className="mx-auto max-w-none">
-                  <div className="inline-flex items-center gap-2 px-2.5 py-1 ui-tag ui-tag-info">
-                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--ui-accent)' }} />
-                    <span className="ui-kicker">AI INPUT</span>
-                  </div>
-                  <h1 className="mt-3 ui-title tracking-tight">先输入目标，再进入 Agent 流程</h1>
-                  <p className="mt-1 text-sm leading-6" style={{ color: 'var(--ui-text-muted)' }}>
-                    只需要描述你想要的画面，不需要模板。
-                  </p>
-
-                  <div className="mt-4 relative ui-surface-soft overflow-hidden">
+                  <div className="relative ui-surface-soft overflow-hidden">
                     {studio.userInput && (
                       <button
                         type="button"
@@ -474,70 +465,65 @@ export default function App() {
                     </div>
                   </div>
 
-                  <details className="mt-3 ui-surface-soft ui-fieldset p-3">
-                    <summary className="cursor-pointer select-none text-[12px] flex items-center" style={{ color: 'var(--ui-text-secondary)' }}>高级设置（可选）</summary>
-                    <div className="mt-3 space-y-3">
+                  <section className="mt-3 ui-surface-soft p-2.5 space-y-2.5">
+                    <div className="ui-field-label">高级设置</div>
+                    <div>
+                      <div className="ui-field-label mb-1">产出策略</div>
+                      {renderStrategySelector(true)}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
-                        <div className="ui-field-label mb-1.5">产出策略</div>
-                        {renderStrategySelector(true)}
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <div>
-                          <div className="ui-field-label mb-1.5">随机选角</div>
-                          <select
-                            className="ui-select ui-select-compact"
-                            value={studio.randomPromptCastPreference}
-                            onChange={(e) => studio.setRandomPromptCastPreference(e.target.value as 'asian_girl_23_plus' | 'asian_woman_23_plus')}
-                          >
-                            {RANDOM_CAST_OPTIONS.map((option) => (
-                              <option key={option.id} value={option.id}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <div className="ui-field-label mb-1.5">随机张力</div>
-                          <select
-                            className="ui-select ui-select-compact"
-                            value={studio.randomPromptTensionLevel}
-                            onChange={(e) => studio.setRandomPromptTensionLevel(e.target.value as 'low' | 'medium' | 'high')}
-                          >
-                            {RANDOM_TENSION_OPTIONS.map((option) => (
-                              <option key={option.id} value={option.id}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                      <div className="ui-surface p-2.5 rounded-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div>
-                          <div className="ui-field-label">随机灵感</div>
-                          <div className="ui-meta mt-0.5">一键填入随机输入，再按你的方向微调。</div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={studio.handleRandomPrompt}
-                          disabled={studio.isGeneratingRandom || studio.appState !== AppState.IDLE}
-                          className="ui-btn-secondary ui-btn-compact px-3 disabled:opacity-40 disabled:cursor-not-allowed"
+                        <div className="ui-field-label mb-1">随机选角</div>
+                        <select
+                          className="ui-select ui-select-compact"
+                          value={studio.randomPromptCastPreference}
+                          onChange={(e) => studio.setRandomPromptCastPreference(e.target.value as 'asian_girl_23_plus' | 'asian_woman_23_plus')}
                         >
-                          {studio.isGeneratingRandom ? '生成中...' : '生成随机输入'}
-                        </button>
+                          {RANDOM_CAST_OPTIONS.map((option) => (
+                            <option key={option.id} value={option.id}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
                       </div>
-                      <div className="space-y-1.5 text-[12px]" style={{ color: 'var(--ui-text-secondary)' }}>
-                        <div className="ui-field-label">当前引擎</div>
-                        <div className="flex justify-between gap-3">
-                          <span style={{ color: 'var(--ui-text-muted)' }}>文本模型</span>
-                          <span className="font-mono">{providerLabel(selectedTextProvider)} / {studio.textModel}</span>
-                        </div>
-                        <div className="flex justify-between gap-3">
-                          <span style={{ color: 'var(--ui-text-muted)' }}>图像模型</span>
-                          <span className="font-mono">{providerLabel(selectedImageProvider)} / {studio.imageModel}</span>
-                        </div>
+                      <div>
+                        <div className="ui-field-label mb-1">随机张力</div>
+                        <select
+                          className="ui-select ui-select-compact"
+                          value={studio.randomPromptTensionLevel}
+                          onChange={(e) => studio.setRandomPromptTensionLevel(e.target.value as 'low' | 'medium' | 'high')}
+                        >
+                          {RANDOM_TENSION_OPTIONS.map((option) => (
+                            <option key={option.id} value={option.id}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     </div>
-                  </details>
+                    <div className="ui-surface p-2 rounded-md flex items-center justify-between gap-2">
+                      <div className="ui-field-label">随机灵感</div>
+                      <button
+                        type="button"
+                        onClick={studio.handleRandomPrompt}
+                        disabled={studio.isGeneratingRandom || studio.appState !== AppState.IDLE}
+                        className="ui-btn-secondary ui-btn-compact px-2.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {studio.isGeneratingRandom ? '生成中...' : '生成'}
+                      </button>
+                    </div>
+                    <div className="space-y-1 text-[11px]" style={{ color: 'var(--ui-text-secondary)' }}>
+                      <div className="ui-field-label">当前引擎</div>
+                      <div className="flex justify-between gap-3">
+                        <span style={{ color: 'var(--ui-text-muted)' }}>文本模型</span>
+                        <span className="font-mono">{providerLabel(selectedTextProvider)} / {studio.textModel}</span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span style={{ color: 'var(--ui-text-muted)' }}>图像模型</span>
+                        <span className="font-mono">{providerLabel(selectedImageProvider)} / {studio.imageModel}</span>
+                      </div>
+                    </div>
+                  </section>
 
                   <div className="mt-2 flex items-center justify-between gap-3 ui-meta ui-numeric">
                     <span>Enter 立即开始，Shift + Enter 换行。</span>

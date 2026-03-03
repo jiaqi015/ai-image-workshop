@@ -23,14 +23,14 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
 
   if (studio.appState === AppState.CONCEPT) {
     return (
-      <div className="space-y-4 ui-reveal">
+      <div className="space-y-3 ui-reveal">
         <div
-          className="sticky top-0 z-20 ui-surface-soft backdrop-blur-sm px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
-          style={{ borderColor: 'var(--ui-border-strong)', background: 'rgba(250, 251, 252, 0.9)' }}
+          className="sticky top-0 z-20 ui-surface-soft backdrop-blur-sm px-3 py-2.5 flex flex-col gap-2.5 md:flex-row md:items-center md:justify-between"
+          style={{ borderColor: 'var(--ui-border-strong)', background: 'rgba(28, 29, 33, 0.9)' }}
         >
           <div>
             <div className="ui-meta">阶段 2 / 选择主方案</div>
-            <h2 className="text-lg md:text-xl mt-1 ui-numeric" style={{ color: 'var(--ui-text-primary)' }}>{conceptTitle}</h2>
+            <h2 className="text-base md:text-lg mt-1 ui-numeric" style={{ color: 'var(--ui-text-primary)' }}>{conceptTitle}</h2>
             <div className="mt-1 ui-meta">先锁定 1 个主方案，再进入批量出图。</div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -45,7 +45,7 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4 pb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3 pb-6">
           {studio.frames.map((proposalFrame, index) => {
             const isSelected = studio.selectedProposalId === proposalFrame.id;
             const isRetrying = studio.retryingFrameIds.includes(proposalFrame.id);
@@ -71,7 +71,7 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
                     }
                   }}
                 >
-                  <div className="relative aspect-[3/4]" style={{ background: '#f6f7f9' }}>
+                  <div className="relative aspect-[3/4]" style={{ background: 'rgba(255, 255, 255, 0.03)' }}>
                     <div className="absolute top-2 left-2 z-10 text-[10px] font-mono px-2 py-1 rounded border ui-surface">
                       候选 {index + 1}
                     </div>
@@ -133,12 +133,12 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
                   </div>
                 </div>
 
-                <div className="p-3 border-t" style={{ borderColor: 'var(--ui-border)' }}>
+                <div className="p-2.5 border-t" style={{ borderColor: 'var(--ui-border)' }}>
                   <p className="text-xs leading-relaxed min-h-[40px]" style={{ color: 'var(--ui-text-secondary)' }}>
                     {proposalFrame.description || '等待方案说明'}
                   </p>
                   <div className="mt-2 ui-meta font-mono ui-numeric">{proposalFrame.metadata?.variantType || 'balanced'}</div>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     <button
                       type="button"
                       onClick={() => studio.setSelectedProposalId(proposalFrame.id)}
@@ -174,8 +174,8 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
 
   if (studio.appState === AppState.SHOOTING) {
     return (
-      <div className="space-y-4 ui-reveal">
-        <div className="ui-surface-soft px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div className="space-y-3 ui-reveal">
+        <div className="ui-surface-soft px-3 py-2.5 flex flex-wrap items-center justify-between gap-2.5">
           <div>
             <div className="ui-meta">阶段 3 / 批量生成</div>
             <div className="text-sm mt-1 ui-numeric" style={{ color: 'var(--ui-text-primary)' }}>

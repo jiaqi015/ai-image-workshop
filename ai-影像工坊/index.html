@@ -5,26 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AI影像工坊 - 专业创作工作台</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
       :root {
-        --ui-bg: #f4f5f7;
-        --ui-app: #f7f8fa;
-        --ui-surface: #ffffff;
-        --ui-surface-soft: #fafbfc;
-        --ui-border: rgba(0, 0, 0, 0.08);
-        --ui-border-strong: rgba(0, 0, 0, 0.14);
-        --ui-accent: #07c160;
-        --ui-accent-soft: rgba(7, 193, 96, 0.12);
-        --ui-success: #07c160;
-        --ui-warning: #8e96a6;
-        --ui-text-primary: #111827;
-        --ui-text-secondary: #374151;
-        --ui-text-muted: #7b8597;
-        --ui-text-inverse: #ffffff;
-        --ui-radius-sm: 10px;
-        --ui-radius-md: 14px;
-        --ui-radius-lg: 18px;
+        --ui-bg: #0e0e10;
+        --ui-app: #111214;
+        --ui-surface: #17181b;
+        --ui-surface-soft: #1c1d21;
+        --ui-border: rgba(255, 255, 255, 0.12);
+        --ui-border-strong: rgba(255, 255, 255, 0.24);
+        --ui-accent: #d9cdb8;
+        --ui-accent-soft: rgba(217, 205, 184, 0.14);
+        --ui-success: #9eb38b;
+        --ui-warning: #a79b8b;
+        --ui-text-primary: #f1ece3;
+        --ui-text-secondary: #d4cdc1;
+        --ui-text-muted: #8b8579;
+        --ui-text-inverse: #141414;
+        --ui-radius-sm: 8px;
+        --ui-radius-md: 10px;
+        --ui-radius-lg: 12px;
         --ui-radius-pill: 999px;
         --ui-space-1: 4px;
         --ui-space-2: 8px;
@@ -32,24 +32,24 @@
         --ui-space-4: 16px;
         --ui-space-5: 24px;
         --ui-space-6: 32px;
-        --ui-font-title: 18px;
-        --ui-font-body: 14px;
-        --ui-font-meta: 12px;
-        --ui-btn-h: 38px;
-        --ui-btn-h-compact: 32px;
-        --ui-control-h: 38px;
-        --ui-control-h-compact: 34px;
-        --ui-textarea-min-h: 196px;
-        --ui-header-h: 56px;
-        --ui-hero-max: 700px;
-        --ui-layout-pad-x: 14px;
-        --ui-layout-pad-y: 16px;
-        --ui-side-panel-w: 288px;
-        --ui-history-w: 360px;
-        --ui-modal-max: 560px;
+        --ui-font-title: 16px;
+        --ui-font-body: 13px;
+        --ui-font-meta: 11px;
+        --ui-btn-h: 34px;
+        --ui-btn-h-compact: 29px;
+        --ui-control-h: 34px;
+        --ui-control-h-compact: 30px;
+        --ui-textarea-min-h: 160px;
+        --ui-header-h: 50px;
+        --ui-hero-max: 680px;
+        --ui-layout-pad-x: 12px;
+        --ui-layout-pad-y: 12px;
+        --ui-side-panel-w: 272px;
+        --ui-history-w: 320px;
+        --ui-modal-max: 520px;
         --ui-lightbox-max: 1120px;
-        --ui-shadow-sm: 0 2px 12px rgba(17, 24, 39, 0.04);
-        --ui-shadow-md: 0 8px 28px rgba(17, 24, 39, 0.08);
+        --ui-shadow-sm: 0 6px 18px rgba(0, 0, 0, 0.38);
+        --ui-shadow-md: 0 14px 34px rgba(0, 0, 0, 0.52);
         --ui-motion-fast: 160ms;
         --ui-motion-base: 240ms;
         --ui-motion-slow: 360ms;
@@ -57,50 +57,53 @@
       }
       @media (min-width: 768px) {
         :root {
-          --ui-font-title: 20px;
-          --ui-btn-h: 40px;
-          --ui-btn-h-compact: 34px;
-          --ui-control-h: 40px;
-          --ui-control-h-compact: 36px;
-          --ui-textarea-min-h: 220px;
-          --ui-header-h: 62px;
-          --ui-hero-max: 760px;
-          --ui-layout-pad-x: 18px;
-          --ui-layout-pad-y: 22px;
-          --ui-side-panel-w: 296px;
-          --ui-history-w: 400px;
-          --ui-modal-max: 600px;
+          --ui-font-title: 18px;
+          --ui-font-body: 14px;
+          --ui-btn-h: 36px;
+          --ui-btn-h-compact: 31px;
+          --ui-control-h: 36px;
+          --ui-control-h-compact: 32px;
+          --ui-textarea-min-h: 188px;
+          --ui-header-h: 54px;
+          --ui-hero-max: 720px;
+          --ui-layout-pad-x: 16px;
+          --ui-layout-pad-y: 16px;
+          --ui-side-panel-w: 280px;
+          --ui-history-w: 360px;
+          --ui-modal-max: 560px;
           --ui-lightbox-max: 1180px;
         }
       }
       @media (min-width: 1280px) {
         :root {
-          --ui-font-title: 22px;
-          --ui-font-body: 15px;
-          --ui-btn-h: 42px;
-          --ui-btn-h-compact: 35px;
-          --ui-control-h: 42px;
-          --ui-control-h-compact: 36px;
-          --ui-textarea-min-h: 244px;
-          --ui-header-h: 64px;
-          --ui-hero-max: 820px;
-          --ui-layout-pad-x: 24px;
-          --ui-layout-pad-y: 28px;
-          --ui-side-panel-w: 304px;
-          --ui-history-w: 420px;
-          --ui-modal-max: 640px;
+          --ui-font-title: 20px;
+          --ui-font-body: 14px;
+          --ui-btn-h: 38px;
+          --ui-btn-h-compact: 32px;
+          --ui-control-h: 38px;
+          --ui-control-h-compact: 33px;
+          --ui-textarea-min-h: 208px;
+          --ui-header-h: 58px;
+          --ui-hero-max: 760px;
+          --ui-layout-pad-x: 20px;
+          --ui-layout-pad-y: 20px;
+          --ui-side-panel-w: 288px;
+          --ui-history-w: 380px;
+          --ui-modal-max: 600px;
           --ui-lightbox-max: 1240px;
         }
       }
       body {
-        font-family: 'Manrope', 'PingFang SC', 'Noto Sans SC', sans-serif;
+        font-family: 'IBM Plex Sans', 'PingFang SC', 'Noto Sans SC', sans-serif;
         background: var(--ui-bg);
         color: var(--ui-text-primary);
         text-rendering: optimizeLegibility;
         -webkit-font-smoothing: antialiased;
       }
       .ui-app {
-        background: radial-gradient(1200px 380px at 50% -20%, rgba(7, 193, 96, 0.08), transparent 68%), var(--ui-app);
+        background:
+          radial-gradient(1200px 380px at 50% -20%, rgba(217, 205, 184, 0.08), transparent 70%),
+          linear-gradient(180deg, #121316 0%, #0f1012 48%, #0c0d0f 100%);
       }
       .ui-surface {
         background: var(--ui-surface);
@@ -116,14 +119,14 @@
         transition: background-color var(--ui-motion-base) var(--ui-ease-standard), border-color var(--ui-motion-base) var(--ui-ease-standard);
       }
       .ui-header {
-        background: rgba(255, 255, 255, 0.92);
+        background: rgba(17, 18, 20, 0.88);
         border-bottom: 1px solid var(--ui-border);
         backdrop-filter: blur(8px);
       }
       .ui-title {
         font-size: var(--ui-font-title);
         color: var(--ui-text-primary);
-        line-height: 1.35;
+        line-height: 1.3;
         letter-spacing: 0.01em;
       }
       .ui-meta {
@@ -134,21 +137,21 @@
         height: var(--ui-btn-h);
         padding: 0 16px;
         border-radius: var(--ui-radius-sm);
-        border: 1px solid #06ad57;
+        border: 1px solid #c5b8a1;
         background: var(--ui-accent);
         color: var(--ui-text-inverse);
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 600;
         transition: transform var(--ui-motion-fast) var(--ui-ease-standard), box-shadow var(--ui-motion-fast) var(--ui-ease-standard), background-color var(--ui-motion-fast) var(--ui-ease-standard), border-color var(--ui-motion-fast) var(--ui-ease-standard);
       }
       .ui-btn-primary:hover {
-        background: #06b05a;
-        border-color: #059f51;
-        box-shadow: 0 4px 14px rgba(7, 193, 96, 0.22);
+        background: #e3d8c7;
+        border-color: #d8cbb4;
+        box-shadow: 0 6px 16px rgba(217, 205, 184, 0.22);
       }
       .ui-btn-primary:active {
         transform: translateY(1px) scale(0.995);
-        box-shadow: 0 2px 8px rgba(7, 193, 96, 0.18);
+        box-shadow: 0 2px 8px rgba(217, 205, 184, 0.18);
       }
       .ui-btn-primary:disabled {
         opacity: 0.45;
@@ -160,15 +163,15 @@
         padding: 0 14px;
         border-radius: var(--ui-radius-sm);
         border: 1px solid var(--ui-border);
-        background: #fff;
+        background: rgba(255, 255, 255, 0.02);
         color: var(--ui-text-secondary);
-        font-size: 12px;
+        font-size: 11px;
         transition: transform var(--ui-motion-fast) var(--ui-ease-standard), border-color var(--ui-motion-fast) var(--ui-ease-standard), background-color var(--ui-motion-fast) var(--ui-ease-standard);
       }
       .ui-btn-secondary:hover {
         border-color: var(--ui-border-strong);
         color: var(--ui-text-primary);
-        background: #f7f8fa;
+        background: rgba(255, 255, 255, 0.05);
       }
       .ui-btn-secondary:active {
         transform: translateY(1px);
@@ -192,7 +195,7 @@
         width: 100%;
         border-radius: var(--ui-radius-sm);
         border: 1px solid var(--ui-border);
-        background: #fff;
+        background: rgba(255, 255, 255, 0.02);
         color: var(--ui-text-secondary);
         font-size: var(--ui-font-body);
         transition: border-color 0.2s ease, box-shadow 0.2s ease;
@@ -212,37 +215,37 @@
       .ui-select:focus,
       .ui-textarea:focus {
         outline: none;
-        border-color: rgba(7, 193, 96, 0.45);
-        box-shadow: 0 0 0 3px rgba(7, 193, 96, 0.12);
+        border-color: rgba(217, 205, 184, 0.46);
+        box-shadow: 0 0 0 3px rgba(217, 205, 184, 0.16);
       }
       .ui-chip {
         border: 1px solid var(--ui-border);
         border-radius: var(--ui-radius-sm);
-        background: #fff;
+        background: rgba(255, 255, 255, 0.02);
         color: var(--ui-text-muted);
-        font-size: 12px;
-        padding: 8px 10px;
+        font-size: 11px;
+        padding: 6px 8px;
         text-align: left;
         transition: transform var(--ui-motion-fast) var(--ui-ease-standard), border-color var(--ui-motion-fast) var(--ui-ease-standard), background-color var(--ui-motion-fast) var(--ui-ease-standard), color var(--ui-motion-fast) var(--ui-ease-standard);
       }
       .ui-chip:hover {
         border-color: var(--ui-border-strong);
         color: var(--ui-text-secondary);
-        background: #f8fafc;
+        background: rgba(255, 255, 255, 0.05);
       }
       .ui-chip:active {
         transform: translateY(1px);
       }
       .ui-chip-active {
-        border-color: rgba(7, 193, 96, 0.45);
-        color: #05964d;
+        border-color: rgba(217, 205, 184, 0.48);
+        color: var(--ui-text-primary);
         background: var(--ui-accent-soft);
       }
       .ui-modal {
-        background: #fff;
+        background: #17181b;
         border: 1px solid var(--ui-border);
         border-radius: var(--ui-radius-lg);
-        box-shadow: 0 18px 42px rgba(17, 24, 39, 0.16);
+        box-shadow: 0 18px 42px rgba(0, 0, 0, 0.48);
       }
       .ui-tag {
         display: inline-flex;
@@ -251,18 +254,18 @@
         padding: 2px 8px;
         border-radius: var(--ui-radius-pill);
         border: 1px solid var(--ui-border);
-        background: #fff;
+        background: rgba(255, 255, 255, 0.03);
         color: var(--ui-text-secondary);
-        font-size: 11px;
+        font-size: 10px;
       }
       .ui-tag-info {
-        border-color: rgba(7, 193, 96, 0.32);
+        border-color: rgba(217, 205, 184, 0.34);
         background: var(--ui-accent-soft);
-        color: #05964d;
+        color: var(--ui-accent);
       }
       .ui-tag-success {
-        border-color: rgba(7, 193, 96, 0.35);
-        background: rgba(7, 193, 96, 0.09);
+        border-color: rgba(158, 179, 139, 0.4);
+        background: rgba(158, 179, 139, 0.12);
         color: var(--ui-success);
       }
       .ui-tag-muted {
@@ -273,14 +276,14 @@
         height: 8px;
       }
       ::-webkit-scrollbar-track {
-        background: #eceff3;
+        background: #111214;
       }
       ::-webkit-scrollbar-thumb {
-        background: #c4cad4;
+        background: #4e4f53;
         border-radius: 4px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: #aeb6c2;
+        background: #65666b;
       }
 
       @keyframes progress {
@@ -311,11 +314,6 @@
       .ui-numeric {
         font-variant-numeric: tabular-nums;
       }
-      .ui-kicker {
-        font-size: 11px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
       .ui-shell-pad {
         padding-left: var(--ui-layout-pad-x);
         padding-right: var(--ui-layout-pad-x);
@@ -344,11 +342,11 @@
         max-width: var(--ui-lightbox-max);
       }
       .ui-preview-shadow {
-        box-shadow: 0 14px 38px rgba(17, 24, 39, 0.26);
+        box-shadow: 0 18px 44px rgba(0, 0, 0, 0.62);
       }
       .ui-btn-compact {
         height: var(--ui-btn-h-compact) !important;
-        font-size: 11px;
+        font-size: 10px;
       }
       .ui-select-compact {
         height: var(--ui-control-h-compact) !important;
@@ -366,23 +364,8 @@
           grid-template-columns: minmax(0, 1fr) var(--ui-side-panel-w);
         }
       }
-      .ui-fieldset summary {
-        list-style: none;
-      }
-      .ui-fieldset summary::-webkit-details-marker {
-        display: none;
-      }
-      .ui-fieldset summary::after {
-        content: '展开';
-        margin-left: auto;
-        font-size: 11px;
-        color: var(--ui-text-muted);
-      }
-      .ui-fieldset[open] summary::after {
-        content: '收起';
-      }
       :focus-visible {
-        outline: 2px solid rgba(7, 193, 96, 0.35);
+        outline: 2px solid rgba(217, 205, 184, 0.4);
         outline-offset: 2px;
       }
 
