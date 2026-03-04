@@ -44,8 +44,8 @@
         --ui-hero-max: 680px;
         --ui-layout-pad-x: 12px;
         --ui-layout-pad-y: 12px;
-        --ui-side-left-w: 208px;
-        --ui-side-right-w: 224px;
+        --ui-side-left-w: 206px;
+        --ui-side-right-w: 208px;
         --ui-history-w: 320px;
         --ui-modal-max: 520px;
         --ui-lightbox-max: 1120px;
@@ -69,8 +69,8 @@
           --ui-hero-max: 720px;
           --ui-layout-pad-x: 16px;
           --ui-layout-pad-y: 16px;
-          --ui-side-left-w: 216px;
-          --ui-side-right-w: 232px;
+          --ui-side-left-w: 214px;
+          --ui-side-right-w: 220px;
           --ui-history-w: 360px;
           --ui-modal-max: 560px;
           --ui-lightbox-max: 1180px;
@@ -89,8 +89,8 @@
           --ui-hero-max: 760px;
           --ui-layout-pad-x: 20px;
           --ui-layout-pad-y: 20px;
-          --ui-side-left-w: 224px;
-          --ui-side-right-w: 240px;
+          --ui-side-left-w: 222px;
+          --ui-side-right-w: 230px;
           --ui-history-w: 380px;
           --ui-modal-max: 600px;
           --ui-lightbox-max: 1240px;
@@ -395,9 +395,17 @@
         grid-template-columns: minmax(0, 1fr);
         gap: var(--ui-space-4);
       }
+      .ui-planning-grid-preload {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--ui-space-4);
+      }
       @media (min-width: 1280px) {
         .ui-planning-grid {
           grid-template-columns: var(--ui-side-left-w) minmax(0, 1fr) var(--ui-side-right-w);
+        }
+        .ui-planning-grid-preload {
+          grid-template-columns: var(--ui-side-left-w) minmax(0, 1fr);
         }
       }
       :focus-visible {

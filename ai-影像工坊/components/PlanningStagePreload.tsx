@@ -40,30 +40,29 @@ export const PlanningStagePreload: React.FC<PlanningStagePreloadProps> = ({
   const liveStateClass = isStalled ? 'ui-tag ui-tag-muted' : isWarning ? 'ui-tag ui-tag-info' : 'ui-tag ui-tag-success';
 
   return (
-    <div className="h-full w-full flex items-center justify-center p-2.5 md:p-4">
-      <div className="w-full ui-surface p-3 md:p-4">
+    <div className="h-full w-full flex items-start justify-center p-2.5 md:p-4">
+      <div className="w-full max-w-[1100px] ui-surface p-3 md:p-4">
         <div className="flex items-center justify-between gap-2">
-          <div className="text-[10px] tracking-[0.2em]" style={{ color: 'var(--ui-text-muted)' }}>
-            CONTACT SHEET PREVIEW
+          <div className="text-[10px] tracking-[0.16em]" style={{ color: 'var(--ui-text-muted)' }}>
+            联系表预览
           </div>
           <span className={liveStateClass}>{liveStateText}</span>
         </div>
 
-        <div className="mt-3 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_244px] gap-3">
+        <div className="mt-3 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_236px] gap-3">
           <div
             className="relative overflow-hidden rounded-[11px] border p-3 md:p-4"
             style={{
               borderColor: 'var(--ui-border)',
-              background:
-                'linear-gradient(180deg, rgba(26,27,30,0.96), rgba(15,16,18,0.98))',
+              background: 'linear-gradient(180deg, rgba(26,27,30,0.96), rgba(15,16,18,0.98))',
             }}
           >
             <div className="ui-cine-grain absolute inset-0 pointer-events-none" />
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {CONTACT_SHEET.map((id) => (
                 <div
                   key={id}
-                  className="relative aspect-[4/5] overflow-hidden rounded-[8px] border"
+                  className="relative h-24 sm:h-28 lg:h-32 overflow-hidden rounded-[8px] border"
                   style={{ borderColor: 'rgba(255, 255, 255, 0.16)', background: 'rgba(255, 255, 255, 0.03)' }}
                 >
                   <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(217,205,184,0.08), rgba(255,255,255,0.02))' }} />
@@ -75,8 +74,8 @@ export const PlanningStagePreload: React.FC<PlanningStagePreloadProps> = ({
               ))}
             </div>
 
-            <div className="mt-3 flex items-start justify-between gap-3">
-              <div className="min-w-0">
+            <div className="mt-2.5 flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
                 <div className="text-xs truncate" style={{ color: 'var(--ui-text-secondary)' }}>
                   {statusText}
                 </div>

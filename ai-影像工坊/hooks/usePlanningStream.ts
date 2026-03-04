@@ -57,15 +57,15 @@ export const usePlanningStream = (text: string): PlanningStreamSnapshot => {
       }
     }
 
-    const contentMatch = newChunk.match(/[\u4e00-\u9fa5A-Za-z0-9]{4,24}/);
-    if (contentMatch) {
-      setSubThought(`"${contentMatch[0]}..."`);
+    const chineseContentMatch = newChunk.match(/[\u4e00-\u9fa5]{2,24}/);
+    if (chineseContentMatch) {
+      setSubThought(`「${chineseContentMatch[0]}...」`);
     }
 
     const chunks = newChunk
       .split(/[\n,，。；;:：]/)
       .map((item) => item.trim())
-      .filter((item) => item.length >= 4)
+      .filter((item) => /[\u4e00-\u9fa5]/.test(item) && item.length >= 2)
       .slice(-2);
     if (chunks.length > 0) {
       setStreamEchoes((prev) => [...prev, ...chunks].slice(-8));

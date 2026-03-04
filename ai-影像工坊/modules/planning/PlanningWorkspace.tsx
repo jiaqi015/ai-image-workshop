@@ -3,6 +3,7 @@ import { usePlanningStream } from '../../hooks/usePlanningStream';
 import { PlanningLeftPanel } from './PlanningLeftPanel';
 import { PlanningRightStage } from './PlanningRightStage';
 import type { FrameStats, StageMetaItem, StudioViewModel } from './types';
+import { AppState } from '../../types';
 
 interface PlanningWorkspaceProps {
   studio: StudioViewModel;
@@ -27,10 +28,11 @@ export const PlanningWorkspace: React.FC<PlanningWorkspaceProps> = ({
 }) => {
   const stream = usePlanningStream(studio.streamingPlanText);
   const currentStage = stageMeta.find((stage) => stage.id === stageIndex) || stageMeta[0];
+  const isPlanningPreload = studio.appState === AppState.PLANNING && !studio.plan;
 
   return (
     <div className="h-full min-h-0 ui-shell-pad">
-      <div className="h-full min-h-0 ui-planning-grid">
+      <div className={`h-full min-h-0 ${isPlanningPreload ? 'ui-planning-grid-preload' : 'ui-planning-grid'}`}>
         <PlanningLeftPanel
           className="hidden xl:block"
           layout="left"
@@ -49,21 +51,23 @@ export const PlanningWorkspace: React.FC<PlanningWorkspaceProps> = ({
           <PlanningRightStage studio={studio} stream={stream} frameStats={frameStats} />
         </main>
 
-        <div className="hidden xl:block xl:-translate-x-3 min-h-0">
-          <PlanningLeftPanel
-            className="h-full"
-            layout="right"
-            studio={studio}
-            stream={stream}
-            stageName={currentStage?.name || '进行中'}
-            stageDesc={currentStage?.desc || ''}
-            frameStats={frameStats}
-            renderStrategySelector={renderStrategySelector}
-            renderModelSelectors={renderModelSelectors}
-            isTaskBusy={isTaskBusy}
-            activitySignalKey={activitySignalKey}
-          />
-        </div>
+        {!isPlanningPreload && (
+          <div className="hidden xl:block min-h-0">
+            <PlanningLeftPanel
+              className="h-full"
+              layout="right"
+              studio={studio}
+              stream={stream}
+              stageName={currentStage?.name || '进行中'}
+              stageDesc={currentStage?.desc || ''}
+              frameStats={frameStats}
+              renderStrategySelector={renderStrategySelector}
+              renderModelSelectors={renderModelSelectors}
+              isTaskBusy={isTaskBusy}
+              activitySignalKey={activitySignalKey}
+            />
+          </div>
+        )}
       </div>
 
       <div className="xl:hidden mt-4">
