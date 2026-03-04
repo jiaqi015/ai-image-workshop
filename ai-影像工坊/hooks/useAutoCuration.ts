@@ -52,7 +52,7 @@ export const useAutoCuration = ({
       .join('|');
 
     setFrames(curated);
-    addLog(`[自动筛选] 保留 ${summary.keep} 张，剔除 ${summary.drop} 张。`, 'success');
+    addLog(`自动筛片完成：保留 ${summary.keep} 张，移除 ${summary.drop} 张。`, 'success');
   }, [masterMode, appState, activeRequests, frames, setFrames, curationSignatureRef, addLog]);
 
   const curationSummary = useMemo(() => summarizeCuration(frames), [frames]);

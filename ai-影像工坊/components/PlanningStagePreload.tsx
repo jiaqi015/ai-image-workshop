@@ -16,7 +16,7 @@ export const PlanningStagePreload: React.FC<PlanningStagePreloadProps> = ({
 }) => {
   const CONTACT_SHEET = [0, 1, 2, 3];
   const progress = stream.stageProgress;
-  const statusText = stream.currentThought || stream.displaySubThought || '正在生成方案';
+  const statusText = stream.currentThought || stream.displaySubThought || '正在生成候选画面';
   const activeStep = stream.preheatSteps[stream.activeStepIndex];
   const pulseKey = `${stream.charCount}|${stream.activeStepIndex}|${stream.currentThought}|${stream.displaySubThought}`;
   const [lastPulseAt, setLastPulseAt] = React.useState(() => Date.now());
@@ -36,7 +36,7 @@ export const PlanningStagePreload: React.FC<PlanningStagePreloadProps> = ({
   const silentSeconds = Math.max(0, Math.floor((nowMs - lastPulseAt) / 1000));
   const isWarning = silentSeconds >= 18;
   const isStalled = silentSeconds >= 40;
-  const liveStateText = isStalled ? '可能卡住' : isWarning ? '处理中偏慢' : '实时处理中';
+  const liveStateText = isStalled ? '可能卡住' : isWarning ? '速度偏慢' : '持续生成中';
   const liveStateClass = isStalled ? 'ui-tag ui-tag-muted' : isWarning ? 'ui-tag ui-tag-info' : 'ui-tag ui-tag-success';
 
   return (
@@ -44,7 +44,7 @@ export const PlanningStagePreload: React.FC<PlanningStagePreloadProps> = ({
       <div className="w-full max-w-[1100px] ui-surface p-3 md:p-4">
         <div className="flex items-center justify-between gap-2">
           <div className="text-[10px] tracking-[0.16em]" style={{ color: 'var(--ui-text-muted)' }}>
-            联系表预览
+            预览画布
           </div>
           <span className={liveStateClass}>{liveStateText}</span>
         </div>
@@ -79,7 +79,7 @@ export const PlanningStagePreload: React.FC<PlanningStagePreloadProps> = ({
                 <div className="text-xs truncate" style={{ color: 'var(--ui-text-secondary)' }}>
                   {statusText}
                 </div>
-                <div className="mt-1 ui-meta">当前步骤：{activeStep}</div>
+                <div className="mt-1 ui-meta">正在处理：{activeStep}</div>
               </div>
               <div className="text-[11px] font-mono ui-numeric" style={{ color: 'var(--ui-text-muted)' }}>
                 {progress}%
@@ -122,11 +122,11 @@ export const PlanningStagePreload: React.FC<PlanningStagePreloadProps> = ({
             {isStalled && (
               <div className="pt-1.5 space-y-2">
                 <div className="text-[11px]" style={{ color: 'var(--ui-text-secondary)' }}>
-                  已超过 40 秒无新内容，建议重新发起。
+                  已超过 40 秒没有新进展，建议重新开始。
                 </div>
                 {onReset && (
                   <button type="button" onClick={onReset} className="w-full ui-btn-secondary ui-btn-compact">
-                    重新发起任务
+                    重新开始
                   </button>
                 )}
               </div>

@@ -13,7 +13,7 @@ interface PlanningRightStageProps {
 }
 
 export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, stream, frameStats }) => {
-  const conceptTitle = studio.frames.length > 0 ? `${studio.frames.length} 个候选方案` : '正在生成候选方案';
+  const conceptTitle = studio.frames.length > 0 ? `${studio.frames.length} 组候选画面` : '正在生成候选画面';
   const shootingPendingCount = frameStats.scripting + frameStats.pending + frameStats.generating + studio.activeRequests;
   const shootingBatchDone = studio.appState === AppState.SHOOTING && shootingPendingCount === 0;
   const variantLabel = (variant?: string) => {
@@ -43,9 +43,9 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
           style={{ borderColor: 'var(--ui-border-strong)', background: 'rgba(28, 29, 33, 0.9)' }}
         >
           <div>
-            <div className="ui-meta">阶段 2 / 选择主方案</div>
+            <div className="ui-meta">步骤 2 / 选定主方案</div>
             <h2 className="text-base md:text-lg mt-1 ui-numeric" style={{ color: 'var(--ui-text-primary)' }}>{conceptTitle}</h2>
-            <div className="mt-1 ui-meta">先锁定 1 个主方案，再进入批量出图。</div>
+            <div className="mt-1 ui-meta">先选 1 组主方案，再进入批量出图。</div>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -54,7 +54,7 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
               disabled={studio.selectedProposalId === null}
               className="ui-btn-primary px-4 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              确认方案并开始生成
+              选这组，开始出图
             </button>
           </div>
         </div>
@@ -106,9 +106,9 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
                       </>
                     ) : proposalFrame.status === 'failed' ? (
                       <div className="w-full h-full flex flex-col items-center justify-center gap-3 px-3 text-center">
-                        <span className="text-sm" style={{ color: 'var(--ui-text-secondary)' }}>生成未完成</span>
+                        <span className="text-sm" style={{ color: 'var(--ui-text-secondary)' }}>这张还没成功</span>
                         <div className="text-[11px] leading-relaxed" style={{ color: 'var(--ui-text-muted)' }}>
-                          {proposalFrame.error || '原因未记录'}
+                          {proposalFrame.error || '暂时没有错误详情'}
                         </div>
                         <div className="flex items-center gap-2">
                           <button
@@ -140,7 +140,7 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
                         {proposalFrame.status === 'generating'
                           ? '生成中...'
                           : proposalFrame.status === 'scripting'
-                          ? '准备提示词...'
+                          ? '整理画面描述...'
                           : '排队中...'}
                       </div>
                     )}
@@ -149,7 +149,7 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
 
                 <div className="p-2.5 border-t" style={{ borderColor: 'var(--ui-border)' }}>
                   <p className="text-xs leading-relaxed min-h-[40px]" style={{ color: 'var(--ui-text-secondary)' }}>
-                    {proposalFrame.description || '等待方案说明'}
+                    {proposalFrame.description || '方案说明生成中'}
                   </p>
                   <div className="mt-2 ui-meta font-mono">{variantLabel(proposalFrame.metadata?.variantType)}</div>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -158,7 +158,7 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
                       onClick={() => studio.setSelectedProposalId(proposalFrame.id)}
                       className={`ui-btn-secondary ui-btn-compact px-2.5 ${isSelected ? 'ui-chip-active' : ''}`}
                     >
-                      锁定方向
+                      选为主方案
                     </button>
                     <button
                       type="button"
@@ -166,7 +166,7 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
                       disabled={isRewriting || proposalFrame.status === 'generating' || proposalFrame.status === 'scripting'}
                       className="ui-btn-secondary ui-btn-compact px-2.5 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      {isRewriting ? '重写中...' : '重写提示词'}
+                      {isRewriting ? '改写中...' : '换一种表达'}
                     </button>
                     <button
                       type="button"
@@ -174,7 +174,7 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
                       disabled={isExpandingFromThis || studio.isExpandingUniverse}
                       className="ui-btn-secondary ui-btn-compact px-2.5 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      {isExpandingFromThis ? '生成中...' : '再生 4 张'}
+                      {isExpandingFromThis ? '生成中...' : '再出 4 张相近图'}
                     </button>
                   </div>
                 </div>
@@ -191,17 +191,17 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
       <div className="space-y-3 ui-reveal">
         <div className="ui-surface-soft px-3 py-2.5 flex flex-wrap items-center justify-between gap-2.5">
           <div>
-            <div className="ui-meta">阶段 3 / 批量生成</div>
+            <div className="ui-meta">步骤 3 / 批量出图</div>
             <div className="text-sm mt-1 ui-numeric" style={{ color: 'var(--ui-text-primary)' }}>
               已完成 {frameStats.completed} / {studio.frames.length} 帧
             </div>
             {studio.masterMode && (
               <div className="ui-meta mt-1">
-                自动筛选：保留 {studio.curationSummary.keep} 张，剔除 {studio.curationSummary.drop} 张
+                自动筛片：保留 {studio.curationSummary.keep} 张，移除 {studio.curationSummary.drop} 张
               </div>
             )}
             <div className="mt-1 ui-meta">
-              下一步：{shootingBatchDone ? '导出成片或继续扩展镜头。' : '等待当前批次完成，系统会持续出图。'}
+              下一步：{shootingBatchDone ? '下载成片，或继续扩展镜头。' : '当前批次还在生成，会持续更新。'}
             </div>
           </div>
           <div className="flex items-center gap-3 text-xs font-mono ui-numeric" style={{ color: 'var(--ui-text-muted)' }}>
@@ -211,7 +211,7 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
             </div>
             <div className="flex items-center gap-1.5">
               <ActivityIcon className="w-3.5 h-3.5" />
-              {studio.activeRequests} 进行中
+              {studio.activeRequests} 张在生成
             </div>
             {shootingBatchDone && (
               <button
@@ -219,7 +219,7 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
                 onClick={() => studio.handleGenerateMore(4)}
                 className="ui-btn-secondary ui-btn-compact px-3"
               >
-                再扩展 4 帧
+                再扩展 4 张
               </button>
             )}
           </div>
@@ -236,7 +236,7 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
 
   return (
     <div className="h-full flex items-center justify-center text-sm" style={{ color: 'var(--ui-text-muted)' }}>
-      等待进入下一阶段
+      还没开始，先输入你的画面目标
     </div>
   );
 };

@@ -68,7 +68,7 @@ export const useHistory = (addLog: (msg: string, type?: any) => void) => {
         setHistory(sortByTimeDesc(items));
       } catch (e) {
         console.error('Failed to load history', e);
-        addLog('历史项目读取失败', 'error');
+        addLog('创作历史读取失败', 'error');
       } finally {
         setIsLoading(false);
       }
@@ -100,7 +100,7 @@ export const useHistory = (addLog: (msg: string, type?: any) => void) => {
         await dbService.saveItem(newItem);
       } catch (e) {
         console.error('Save failed', e);
-        addLog('历史项目保存失败（可能存储空间不足）', 'error');
+        addLog('创作历史保存失败（可能存储空间不足）', 'error');
       }
 
       return newItem.id;
@@ -169,7 +169,7 @@ export const useHistory = (addLog: (msg: string, type?: any) => void) => {
         await dbService.deleteItem(id);
       } catch (e) {
         console.error('Delete failed', e);
-        addLog('历史项目删除失败', 'error');
+        addLog('创作历史删除失败', 'error');
       }
     },
     [addLog]

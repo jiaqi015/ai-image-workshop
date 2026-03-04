@@ -89,9 +89,9 @@ export const useShootingWorkflow = ({
     const runtimeStrategy = resolveRuntimeStrategy(strategy, masterMode);
     const shootPlan = masterMode ? applyMasterProfileToPlan(plan) : plan;
 
-    addLog(`已锁定主方案，开始批量生成。`, 'info');
+    addLog(`已锁定主方案，开始批量出图。`, 'info');
     if (masterMode) {
-      addLog('一致性锁定已启用：将使用固定模板批量生成。', 'network');
+      addLog('已启用风格锁定：将按统一模板批量出图。', 'network');
     }
 
     const TARGET_COUNT = 20;
@@ -122,7 +122,7 @@ export const useShootingWorkflow = ({
     if (initialBatch.length > 0) {
       void shootStreamBatch(initialBatch, shootPlan, runtimeStrategy, setFrames, setPlan).catch((error) => {
         const message = error instanceof Error ? error.message : '未知错误';
-        addLog(`首批镜头生成失败: ${message}`, 'error');
+        addLog(`首批画面生成失败: ${message}`, 'error');
       });
     }
 
@@ -150,7 +150,7 @@ export const useShootingWorkflow = ({
       };
 
       try {
-        addLog('[流水线] 正在补充分镜脚本（目标 20 帧）...', 'network');
+        addLog('正在补全分镜描述（目标 20 帧）...', 'network');
         const allDescriptions = await generateMoreFrames(
           shootPlan,
           needed,
@@ -167,9 +167,9 @@ export const useShootingWorkflow = ({
           conceptFrames: prev?.conceptFrames?.length ? prev.conceptFrames : conceptFramesSnapshot,
           selectedConceptId: selectedFrame.id,
         }));
-        addLog('[流水线] 分镜脚本准备完成。', 'success');
+        addLog('分镜描述已准备完成。', 'success');
       } catch (e) {
-        addLog('分镜脚本补充失败。', 'error');
+        addLog('分镜描述补全失败。', 'error');
       }
     } else {
       const syncedPlan = syncPlanWithDirectorPacket(shootPlan, existingDescriptions);
@@ -212,7 +212,7 @@ export const useShootingWorkflow = ({
       const runtimeStrategy = resolveRuntimeStrategy(strategy, masterMode);
       const basePlan = masterMode ? applyMasterProfileToPlan(plan) : plan;
 
-      addLog(masterMode ? `[一致性模式] 正在追加 ${count} 帧...` : `[扩展生成] 正在追加 ${count} 个镜头...`, 'network');
+      addLog(masterMode ? `正在追加 ${count} 帧（风格锁定）...` : `正在追加 ${count} 个新镜头...`, 'network');
       const startId = frames.length + 1;
 
       if (masterMode) {
@@ -242,11 +242,11 @@ export const useShootingWorkflow = ({
             conceptFrames: prev?.conceptFrames || syncedPlan.conceptFrames,
             selectedConceptId: prev?.selectedConceptId ?? syncedPlan.selectedConceptId,
           }));
-          addLog('[一致性模式] 追加任务已提交。', 'success');
+          addLog('追加请求已提交（风格锁定）。', 'success');
         } catch (e) {
           console.error(e);
           const message = e instanceof Error ? e.message : '未知错误';
-          addLog(`[一致性模式] 追加失败: ${message}`, 'error');
+          addLog(`追加失败（风格锁定）: ${message}`, 'error');
         } finally {
           setIsExtending(false);
         }
@@ -283,11 +283,11 @@ export const useShootingWorkflow = ({
           conceptFrames: prev?.conceptFrames || syncedPlan.conceptFrames,
           selectedConceptId: prev?.selectedConceptId ?? syncedPlan.selectedConceptId,
         }));
-        addLog('[扩展生成] 追加任务已提交。', 'success');
+        addLog('扩展请求已提交。', 'success');
       } catch (e) {
         console.error(e);
         const message = e instanceof Error ? e.message : '未知错误';
-        addLog(`[扩展生成] 追加失败: ${message}`, 'error');
+        addLog(`扩展失败: ${message}`, 'error');
       } finally {
         setIsExtending(false);
       }
@@ -344,7 +344,7 @@ export const useShootingWorkflow = ({
         };
       });
 
-      addLog(mode === 'fallback' ? `第 ${frameId} 帧换参数重试中...` : `第 ${frameId} 帧同参数重试中...`, 'network');
+      addLog(mode === 'fallback' ? `第 ${frameId} 帧正在用稳健参数重试...` : `第 ${frameId} 帧正在按原参数重试...`, 'network');
       isShootingRef.current = true;
       try {
         if (appState === AppState.CONCEPT) {

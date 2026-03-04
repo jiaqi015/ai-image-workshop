@@ -44,10 +44,10 @@ export const useStudioInfra = ({
         setAvailableModels(getAvailableModels());
         await validateApiKey('');
         setKeyConfigured(true);
-        addLog('系统初始化完成：模型网关连接成功。', 'success');
+        addLog('准备完成：模型连接正常。', 'success');
       } catch (e: any) {
         setKeyConfigured(false);
-        addLog(`模型网关不可用: ${e.message}`, 'error');
+        addLog(`模型连接不可用: ${e.message}`, 'error');
       }
     };
 

@@ -33,18 +33,18 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
   onClose,
 }) => {
   const statusMeta: Record<HistoryTaskStatus, { label: string; className: string }> = {
-    planning: { label: '进行中 · 规划', className: 'ui-tag ui-tag-info' },
-    concept: { label: '进行中 · 定调', className: 'ui-tag ui-tag-info' },
-    shooting: { label: '进行中 · 拍摄', className: 'ui-tag ui-tag-info' },
+    planning: { label: '进行中 · 构思方案', className: 'ui-tag ui-tag-info' },
+    concept: { label: '进行中 · 选择主方案', className: 'ui-tag ui-tag-info' },
+    shooting: { label: '进行中 · 批量出图', className: 'ui-tag ui-tag-info' },
     completed: { label: '已完成', className: 'ui-tag ui-tag-success' },
-    failed: { label: '未完成', className: 'ui-tag ui-tag-muted' },
+    failed: { label: '已中断', className: 'ui-tag ui-tag-muted' },
   };
   const resumeHint: Record<HistoryTaskStatus, string> = {
-    planning: '可继续：需求拆解',
-    concept: '可继续：选择主方案',
-    shooting: '可继续：批量出图',
-    completed: '已完成：可复用参数再生成',
-    failed: '需重试后继续',
+    planning: '可继续：完善方案方向',
+    concept: '可继续：挑选主方案',
+    shooting: '可继续：继续出图',
+    completed: '可复用这次风格继续创作',
+    failed: '建议重试后继续',
   };
 
   const formatDateTime = (value: number | undefined) => {
@@ -81,7 +81,7 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
               <div className="ui-surface-soft p-2">
                 <FilmIcon className="w-4 h-4" />
               </div>
-              <span>历史项目</span>
+              <span>创作历史</span>
             </h2>
             <button onClick={onClose} className="ui-btn-link p-1.5">✕</button>
           </div>
@@ -90,12 +90,11 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
             {history.length === 0 ? (
               <div className="h-40 flex flex-col items-center justify-center space-y-3" style={{ color: 'var(--ui-text-muted)' }}>
                 <CameraIcon className="w-9 h-9 opacity-60" />
-                <span className="text-xs">暂无历史项目</span>
+                <span className="text-xs">还没有创作记录</span>
               </div>
             ) : (
               history.map((item) => {
                 const recordTime = item.updatedAt || item.timestamp;
-                const ipLabel = item.clientIp && item.clientIp !== 'unknown' ? item.clientIp : '未知';
                 const sourceLabel = item.source === 'vercel_blob' ? '云端存档' : '本地存档';
                 const renderCount = Array.isArray(item.plan?.renderFrames) ? item.plan.renderFrames.length : 0;
                 const conceptCount = Array.isArray(item.plan?.conceptFrames) ? item.plan.conceptFrames.length : 0;
@@ -120,7 +119,7 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
                       <span className="ui-tag ui-tag-muted font-mono ui-numeric">{frameCount} 帧</span>
                     </div>
 
-                    <div className="ui-meta font-mono mb-1">来源：IP {ipLabel} · {sourceLabel}</div>
+                    <div className="ui-meta font-mono mb-1">存档位置：{sourceLabel}</div>
                     <div className="ui-meta mb-2">{resumeHint[statusKey]}</div>
 
                     <h3 className="text-sm font-semibold mb-1 line-clamp-1" style={{ color: 'var(--ui-text-primary)' }}>
@@ -137,7 +136,7 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
                       }}
                       className="absolute bottom-3 right-3 p-2 rounded-full opacity-0 group-hover:opacity-100 transition-all"
                       style={{ color: 'var(--ui-text-muted)' }}
-                      title="删除记录"
+                      title="删除这条记录"
                     >
                       <TrashIcon className="w-3.5 h-3.5" />
                     </button>
@@ -148,7 +147,7 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
           </div>
 
           <div className="p-4 border-t" style={{ borderColor: 'var(--ui-border)' }}>
-            <div className="ui-meta text-center">项目总数：{history.length}</div>
+            <div className="ui-meta text-center">共 {history.length} 条记录</div>
           </div>
         </div>
       </div>

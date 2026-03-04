@@ -1,8 +1,8 @@
 const RUNTIME_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bAborted\b/gi, '已取消'],
   [/\bBackend\b/gi, '后端'],
-  [/\bGateway\b/gi, '网关'],
-  [/\bPipeline Mode\b/gi, '流水线模式'],
+  [/\bGateway\b/gi, '服务端'],
+  [/\bPipeline Mode\b/gi, '流程模式'],
   [/\btimeout\b/gi, '超时'],
   [/\btimed out\b/gi, '超时'],
   [/\bnetwork error\b/gi, '网络异常'],

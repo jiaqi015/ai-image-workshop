@@ -166,7 +166,7 @@ export const Gallery: React.FC<GalleryProps> = ({ frames, plan, onRetryFrame, re
                         className="w-10 h-10 rounded-full border-2 animate-spin mb-3"
                         style={{ borderColor: 'rgba(255, 255, 255, 0.16)', borderTopColor: 'var(--ui-accent)' }}
                       />
-                      <span className="text-[11px]" style={{ color: 'var(--ui-text-muted)' }}>正在生成</span>
+                      <span className="text-[11px]" style={{ color: 'var(--ui-text-muted)' }}>正在出图</span>
                     </>
                   )}
 
@@ -210,12 +210,12 @@ export const Gallery: React.FC<GalleryProps> = ({ frames, plan, onRetryFrame, re
                       <span style={{ color: 'var(--ui-text-muted)' }}>
                         <TerminalIcon className="w-4 h-4" />
                       </span>
-                      <span className="text-[11px]" style={{ color: 'var(--ui-text-muted)' }}>正在准备提示词...</span>
+                      <span className="text-[11px]" style={{ color: 'var(--ui-text-muted)' }}>正在整理画面描述...</span>
                     </div>
                   )}
 
                   {frame.status === 'pending' && (
-                    <span className="text-[11px]" style={{ color: 'var(--ui-text-muted)' }}>待生成</span>
+                    <span className="text-[11px]" style={{ color: 'var(--ui-text-muted)' }}>等待出图</span>
                   )}
                 </div>
               )}
@@ -226,19 +226,19 @@ export const Gallery: React.FC<GalleryProps> = ({ frames, plan, onRetryFrame, re
                 <div className="flex flex-wrap gap-2">
                   {frame.metadata && (
                     <>
-                      <span className="ui-tag">{frame.metadata.model.includes('pro') ? '高质量' : '快速预览'}</span>
+                      <span className="ui-tag">{frame.metadata.model.includes('pro') ? '高质量' : '快速'}</span>
                       {frame.metadata.variant && (
                         <span
                           className="ui-tag cursor-pointer"
-                          title="复制完整提示词"
+                          title="复制创作指令"
                           onClick={(e) => handleCopyPrompt(e, frame)}
                         >
-                          {copiedId === frame.id ? '已复制完整提示词' : `${String(frame.metadata.variant).split('/')[0].substring(0, 10)}...`}
+                          {copiedId === frame.id ? '已复制创作指令' : `${String(frame.metadata.variant).split('/')[0].substring(0, 10)}...`}
                         </span>
                       )}
                       {frame.metadata.curationStatus && frame.metadata.curationStatus !== 'pending' && (
                         <span className={`ui-tag ui-numeric ${frame.metadata.curationStatus === 'keep' ? 'ui-tag-success' : 'ui-tag-muted'}`}>
-                          {frame.metadata.curationStatus === 'keep' ? '自动保留' : '自动剔除'}
+                          {frame.metadata.curationStatus === 'keep' ? '自动精选' : '自动跳过'}
                           {typeof frame.metadata.curationScore === 'number' ? ` ${frame.metadata.curationScore}` : ''}
                         </span>
                       )}
@@ -252,14 +252,14 @@ export const Gallery: React.FC<GalleryProps> = ({ frames, plan, onRetryFrame, re
 
                 <div className="pt-2 flex items-center justify-between border-t" style={{ borderColor: 'var(--ui-border)' }}>
                   <span className="text-[10px] font-mono uppercase" style={{ color: 'var(--ui-text-muted)' }}>
-                    {frame.metadata?.model.includes('pro') ? '高质量' : '预览'}
+                    {frame.metadata?.model.includes('pro') ? '高质量' : '快速'}
                   </span>
 
                   <div className="flex items-center gap-1">
                     <button
                       onClick={(e) => handleCopyPrompt(e, frame)}
                       className="flex items-center justify-center p-1.5 rounded-full transition-colors ui-btn-link"
-                      title="复制完整提示词"
+                      title="复制创作指令"
                     >
                       <TerminalIcon className="w-3.5 h-3.5" />
                     </button>
@@ -290,11 +290,11 @@ export const Gallery: React.FC<GalleryProps> = ({ frames, plan, onRetryFrame, re
           <div className="flex-none ui-header-h ui-header-pad flex items-center justify-between z-50 border-b border-white/20 bg-black/35">
             <div className="text-white/90 font-mono text-xs tracking-wide flex items-center gap-4">
               <span>
-                帧 {String(selectedIndex + 1).padStart(2, '0')} / {String(frames.length).padStart(2, '0')}
+                第 {String(selectedIndex + 1).padStart(2, '0')} 张 / 共 {String(frames.length).padStart(2, '0')} 张
               </span>
               <button onClick={(e) => handleCopyPrompt(e, selectedFrame)} className="flex items-center gap-2 hover:text-white">
                 <TerminalIcon className="w-3 h-3" />
-                <span className="hidden sm:inline">{copiedId === selectedFrame.id ? '已复制完整提示词' : '复制完整提示词'}</span>
+                <span className="hidden sm:inline">{copiedId === selectedFrame.id ? '已复制创作指令' : '复制创作指令'}</span>
               </button>
             </div>
             <button onClick={(e) => { e.stopPropagation(); closeLightbox(); }} className="p-2 text-white/90 hover:text-white">

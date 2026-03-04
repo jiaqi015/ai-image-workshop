@@ -44,14 +44,14 @@ export const PlanningLeftPanel: React.FC<PlanningLeftPanelProps> = ({
           {!isRight && (
             <>
               <section className="ui-surface-soft p-2.5">
-                <div className="ui-meta">当前阶段</div>
+                <div className="ui-meta">当前步骤</div>
                 <div className="mt-1 text-sm font-semibold" style={{ color: 'var(--ui-text-primary)' }}>{stageName}</div>
                 <div className="mt-1 ui-meta">{stageDesc}</div>
               </section>
 
               <section className="ui-surface-soft p-2.5 text-[11px] space-y-1.5 ui-numeric" style={{ color: 'var(--ui-text-secondary)' }}>
                 <div className="flex justify-between">
-                  <span className="ui-meta">总帧数</span>
+                  <span className="ui-meta">总画面</span>
                   <span>{total}</span>
                 </div>
                 <div className="flex justify-between">
@@ -59,7 +59,7 @@ export const PlanningLeftPanel: React.FC<PlanningLeftPanelProps> = ({
                   <span>{frameStats.completed}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="ui-meta">进行中</span>
+                  <span className="ui-meta">生成中</span>
                   <span>{studio.activeRequests}</span>
                 </div>
                 <div className="flex justify-between">
@@ -73,7 +73,7 @@ export const PlanningLeftPanel: React.FC<PlanningLeftPanelProps> = ({
               </section>
 
               <section className="ui-surface-soft p-2.5">
-                <div className="ui-field-label mb-2">任务日志</div>
+                <div className="ui-field-label mb-2">进度记录</div>
                 <div className="h-44 border rounded-[8px]" style={{ borderColor: 'var(--ui-border)' }}>
                   <ConsoleLog logs={studio.logs} isBusy={isTaskBusy} activitySignalKey={activitySignalKey} />
                 </div>
@@ -84,26 +84,26 @@ export const PlanningLeftPanel: React.FC<PlanningLeftPanelProps> = ({
           {!isLeft && (
             <>
               <section className="ui-surface-soft p-2.5 space-y-2">
-                <div className="ui-field-label">质量与模型</div>
+                <div className="ui-field-label">画质与引擎</div>
                 <div>
-                  <div className="ui-meta mb-1">产出策略</div>
+                  <div className="ui-meta mb-1">生成模式</div>
                   {renderStrategySelector(true)}
                 </div>
                 <div>
-                  <div className="ui-meta mb-1">使用引擎</div>
+                  <div className="ui-meta mb-1">模型配置</div>
                   {renderModelSelectors()}
                 </div>
               </section>
 
               <section className="ui-surface-soft p-2.5">
-                <div className="ui-field-label mb-2">决策依据摘要</div>
+                <div className="ui-field-label mb-2">方案要点</div>
                 <div className="max-h-[260px] overflow-y-auto space-y-2 pr-1">
                   {studio.appState === AppState.PLANNING && !studio.plan ? (
                     <DirectorThinking stream={stream} />
                   ) : studio.plan ? (
                     <>
                       <div className="ui-surface p-2 rounded-md">
-                        <div className="ui-meta">方案标题</div>
+                        <div className="ui-meta">本次主题</div>
                         <div className="mt-1 text-xs" style={{ color: 'var(--ui-text-secondary)' }}>{studio.plan.title}</div>
                       </div>
                       {studio.plan.directorInsight && (
@@ -116,14 +116,14 @@ export const PlanningLeftPanel: React.FC<PlanningLeftPanelProps> = ({
                       )}
                       {studio.plan.shootScope && (
                         <div className="ui-surface p-2 rounded-md">
-                          <div className="ui-meta">需求边界</div>
+                          <div className="ui-meta">拍摄边界</div>
                           <div className="mt-1 space-y-1 text-xs" style={{ color: 'var(--ui-text-secondary)' }}>
                             {(studio.plan.shootScope.nonNegotiables || []).slice(0, 4).map((item, i) => (
                               <div key={`rule-${i}`}>- {item}</div>
                             ))}
                             {(studio.plan.shootScope.flexibleElements || []).slice(0, 3).map((item, i) => (
                               <div key={`flex-${i}`} style={{ color: 'var(--ui-text-muted)' }}>
-                                可调整：{item}
+                                可微调：{item}
                               </div>
                             ))}
                           </div>
@@ -131,7 +131,7 @@ export const PlanningLeftPanel: React.FC<PlanningLeftPanelProps> = ({
                       )}
                     </>
                   ) : (
-                    <div className="ui-meta">正在生成决策依据...</div>
+                    <div className="ui-meta">正在整理方案要点...</div>
                   )}
                 </div>
               </section>

@@ -11,8 +11,8 @@ import { useStudioOrchestrator } from './hooks/useStudioOrchestrator';
 import { PlanningWorkspace } from './modules/planning/PlanningWorkspace';
 
 const STRATEGY_OPTIONS: Array<{ id: ShootStrategy; label: string; sub: string }> = [
-  { id: 'hybrid', label: '自动模式', sub: '平衡速度与质量（推荐）' },
-  { id: 'pro', label: '高质量模式', sub: '画质优先，耗时更长' },
+  { id: 'hybrid', label: '自动模式', sub: '速度与画质平衡（推荐）' },
+  { id: 'pro', label: '高质量模式', sub: '画质优先，耗时更久' },
 ];
 
 const RANDOM_TENSION_OPTIONS = [
@@ -140,10 +140,10 @@ export default function App() {
   const stageIndex =
     studio.appState === AppState.PLANNING ? 1 : studio.appState === AppState.CONCEPT ? 2 : studio.appState === AppState.SHOOTING ? 3 : 0;
   const stageMeta = [
-    { id: 0, name: '输入需求', desc: '描述目标画面' },
-    { id: 1, name: '生成方案', desc: '系统生成候选方案' },
-    { id: 2, name: '确认主方案', desc: '选择本次风格方向' },
-    { id: 3, name: '批量生成', desc: '输出可交付图像' },
+    { id: 0, name: '描述目标', desc: '写下你想要的画面' },
+    { id: 1, name: '生成候选', desc: 'AI 给你多组方向' },
+    { id: 2, name: '选定方向', desc: '确认最像你想要的一组' },
+    { id: 3, name: '批量出图', desc: '连续生成可交付画面' },
   ];
   const isIdleLanding = studio.appState === AppState.IDLE && !studio.plan;
   const inputCharCount = studio.userInput.trim().length;
@@ -170,7 +170,7 @@ export default function App() {
   const renderModelSelectors = () => (
     <div className="space-y-3">
       <div className="grid grid-cols-1 gap-2">
-        <label className="ui-field-label">文本服务商</label>
+        <label className="ui-field-label">文本服务</label>
         <select
           className="ui-select"
           value={selectedTextProvider}
@@ -204,7 +204,7 @@ export default function App() {
       </div>
 
       <div className="grid grid-cols-1 gap-2">
-        <label className="ui-field-label">图像服务商</label>
+        <label className="ui-field-label">图像服务</label>
         <select
           className="ui-select"
           value={selectedImageProvider}
@@ -243,7 +243,7 @@ export default function App() {
     <div className="fixed inset-0 z-[100] bg-black/55 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="ui-modal ui-modal-shell p-6">
         <div className="flex justify-between items-center mb-5">
-          <h3 className="text-sm font-semibold" style={{ color: 'var(--ui-text-primary)' }}>连接与模型设置</h3>
+          <h3 className="text-sm font-semibold" style={{ color: 'var(--ui-text-primary)' }}>连接与引擎</h3>
           <button onClick={() => studio.setShowSettingsModal(false)} className="ui-btn-link">
             <XIcon className="w-5 h-5" />
           </button>
@@ -251,36 +251,36 @@ export default function App() {
 
         <form onSubmit={studio.handleManualKeySubmit} className="space-y-4">
           <div className="space-y-2">
-            <label className="ui-field-label">网关令牌（可选）</label>
+            <label className="ui-field-label">访问令牌（可选）</label>
             <input
               type="text"
               className="ui-input px-3 font-mono"
-              placeholder="仅在后端启用 AI_GATEWAY_REQUIRE_TOKEN=1 时填写"
+              placeholder="仅在服务端开启令牌校验时填写（AI_GATEWAY_REQUIRE_TOKEN=1）"
               value={studio.manualKeyInput}
               onChange={(e) => studio.setManualKeyInput(e.target.value)}
             />
-            <div className="ui-meta">当前请求均通过后端网关处理。</div>
+            <div className="ui-meta">所有请求都会先经过你的服务端。</div>
           </div>
 
           {renderModelSelectors()}
 
           <div className="ui-surface-soft p-3 space-y-2">
-            <div className="ui-field-label">一致性控制</div>
+            <div className="ui-field-label">风格稳定</div>
             <button
               type="button"
               onClick={() => studio.setMasterMode(!studio.masterMode)}
               className={`w-full ui-chip px-3 py-2 ${studio.masterMode ? 'ui-chip-active' : ''}`}
             >
               <div className="flex items-center justify-between gap-3">
-                <span className="text-xs font-semibold">一致性锁定</span>
+                <span className="text-xs font-semibold">风格锁定</span>
                 <span className="text-[10px] font-mono">{studio.masterMode ? '开启' : '关闭'}</span>
               </div>
-              <div className="mt-1 ui-meta">固定角色与风格，减少批量结果抖动。</div>
+              <div className="mt-1 ui-meta">固定角色与风格，批量结果更统一。</div>
             </button>
           </div>
 
           <div className="ui-surface-soft p-3 space-y-2">
-            <div className="ui-field-label">体验指标（滚动统计）</div>
+            <div className="ui-field-label">使用表现（滚动统计）</div>
             <div className="grid grid-cols-2 gap-2 text-[11px]" style={{ color: 'var(--ui-text-secondary)' }}>
               <div className="ui-surface p-2.5 rounded-md">
                 <div className="ui-meta">首图时间</div>
@@ -291,7 +291,7 @@ export default function App() {
                 <div className="mt-1 font-mono">{Math.round(studio.uxMetricsSummary.completionRate * 100)}%</div>
               </div>
               <div className="ui-surface p-2.5 rounded-md">
-                <div className="ui-meta">失败恢复率</div>
+                <div className="ui-meta">重试成功率</div>
                 <div className="mt-1 font-mono">{Math.round(studio.uxMetricsSummary.recoveryRate * 100)}%</div>
               </div>
               <div className="ui-surface p-2.5 rounded-md">
@@ -365,7 +365,7 @@ export default function App() {
             type="button"
             className="flex items-center gap-3 text-left"
             onClick={() => studio.setIsHistoryOpen(true)}
-            title="打开历史项目"
+            title="打开创作历史"
           >
             <BrandLogo compact />
           </button>
@@ -373,7 +373,7 @@ export default function App() {
           {!isIdleLanding && (
             <div className="hidden md:flex items-center">
               <div className="px-2.5 py-1.5 ui-surface-soft text-[11px]" style={{ color: 'var(--ui-text-muted)' }}>
-                当前阶段：{stageMeta[stageIndex]?.name || '进行中'}
+                当前步骤：{stageMeta[stageIndex]?.name || '进行中'}
               </div>
             </div>
           )}
@@ -389,7 +389,7 @@ export default function App() {
               onClick={() => studio.setIsHistoryOpen(true)}
               className="ui-btn-secondary"
             >
-              历史
+              历史记录
             </button>
             {!isIdleLanding && (
               <button
@@ -397,7 +397,7 @@ export default function App() {
                 className="flex items-center gap-1.5 ui-btn-secondary"
               >
                 <RefreshIcon className="w-4 h-4" />
-                <span className="hidden sm:inline text-xs">新任务</span>
+                <span className="hidden sm:inline text-xs">重来</span>
               </button>
             )}
           </div>
@@ -441,7 +441,7 @@ export default function App() {
                       disabled={!studio.canStartPlanning}
                       className="flex-1 ui-btn-primary"
                     >
-                      开始生成方案
+                      开始创作
                     </button>
                     <div className="grid grid-cols-2 gap-2 sm:w-[260px]">
                       <button
@@ -449,27 +449,27 @@ export default function App() {
                         onClick={() => setStartConceptCount(4)}
                         className={`ui-chip text-center ${startConceptCount === 4 ? 'ui-chip-active' : ''}`}
                       >
-                        快速 4
+                        快速 4 组
                       </button>
                       <button
                         type="button"
                         onClick={() => setStartConceptCount(12)}
                         className={`ui-chip text-center ${startConceptCount === 12 ? 'ui-chip-active' : ''}`}
                       >
-                        深度 12
+                        深入 12 组
                       </button>
                     </div>
                   </div>
 
                   <section className="mt-3 ui-surface-soft p-2.5 space-y-2.5">
-                    <div className="ui-field-label">高级设置</div>
+                    <div className="ui-field-label">创作偏好</div>
                     <div>
-                      <div className="ui-field-label mb-1">产出策略</div>
+                      <div className="ui-field-label mb-1">生成模式</div>
                       {renderStrategySelector(true)}
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
-                        <div className="ui-field-label mb-1">随机选角</div>
+                        <div className="ui-field-label mb-1">人物倾向</div>
                         <select
                           className="ui-select ui-select-compact"
                           value={studio.randomPromptCastPreference}
@@ -483,7 +483,7 @@ export default function App() {
                         </select>
                       </div>
                       <div>
-                        <div className="ui-field-label mb-1">随机张力</div>
+                        <div className="ui-field-label mb-1">画面张力</div>
                         <select
                           className="ui-select ui-select-compact"
                           value={studio.randomPromptTensionLevel}
@@ -498,18 +498,18 @@ export default function App() {
                       </div>
                     </div>
                     <div className="ui-surface p-2 rounded-md flex items-center justify-between gap-2">
-                      <div className="ui-field-label">随机灵感</div>
+                      <div className="ui-field-label">来点灵感</div>
                       <button
                         type="button"
                         onClick={studio.handleRandomPrompt}
                         disabled={studio.isGeneratingRandom || studio.appState !== AppState.IDLE}
                         className="ui-btn-secondary ui-btn-compact px-2.5 disabled:opacity-40 disabled:cursor-not-allowed"
                       >
-                        {studio.isGeneratingRandom ? '生成中...' : '生成'}
+                        {studio.isGeneratingRandom ? '构思中...' : '换一个'}
                       </button>
                     </div>
                     <div className="space-y-1 text-[11px]" style={{ color: 'var(--ui-text-secondary)' }}>
-                      <div className="ui-field-label">当前引擎</div>
+                      <div className="ui-field-label">当前模型</div>
                       <div className="flex justify-between gap-3">
                         <span style={{ color: 'var(--ui-text-muted)' }}>文本模型</span>
                         <span className="font-mono">{providerLabel(selectedTextProvider)} / {studio.textModel}</span>
@@ -522,7 +522,7 @@ export default function App() {
                   </section>
 
                   <div className="mt-2 flex items-center justify-between gap-3 ui-meta ui-numeric">
-                    <span>回车立即开始，Shift + 回车换行。</span>
+                    <span>Enter 开始，Shift + Enter 换行。</span>
                     <span>{inputCharCount} 字</span>
                   </div>
                   {studio.readinessHint && <div className="mt-1 ui-meta">{studio.readinessHint}</div>}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-const PREHEAT_STEPS = ['解析需求', '整理角色与场景', '生成候选方案', '补全镜头细节', '准备首批画面'] as const;
+const PREHEAT_STEPS = ['理解你的需求', '整理人物与场景', '生成候选画面', '补全镜头细节', '准备首批出图'] as const;
 
 export interface PlanningStreamSnapshot {
   currentThought: string;
@@ -17,16 +17,16 @@ export interface PlanningStreamSnapshot {
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 export const usePlanningStream = (text: string): PlanningStreamSnapshot => {
-  const [currentThought, setCurrentThought] = useState('系统正在处理...');
-  const [subThought, setSubThought] = useState('等待生成内容...');
+  const [currentThought, setCurrentThought] = useState('正在整理你的画面需求...');
+  const [subThought, setSubThought] = useState('正在准备内容...');
   const [streamEchoes, setStreamEchoes] = useState<string[]>([]);
 
   const lastTextLength = useRef(0);
 
   useEffect(() => {
     if (!text) {
-      setCurrentThought('系统正在处理...');
-      setSubThought('等待生成内容...');
+      setCurrentThought('正在整理你的画面需求...');
+      setSubThought('正在准备内容...');
       setStreamEchoes([]);
       lastTextLength.current = 0;
       return;
@@ -43,13 +43,13 @@ export const usePlanningStream = (text: string): PlanningStreamSnapshot => {
     const keyMatch = newChunk.match(/"(title|directorInsight|productionNotes|continuity|shootScope|frames|visualVariants)"/);
     if (keyMatch) {
       const thoughtByKey: Record<string, string> = {
-        title: '正在生成项目标题',
+        title: '正在整理项目标题',
         directorInsight: '正在整理创作思路',
-        productionNotes: '正在生成执行建议',
-        continuity: '正在整理一致性配置',
-        shootScope: '正在确认拍摄约束',
-        frames: '正在拆解镜头列表',
-        visualVariants: '正在生成候选方案',
+        productionNotes: '正在完善拍摄建议',
+        continuity: '正在统一人物与风格',
+        shootScope: '正在确认拍摄边界',
+        frames: '正在拆解镜头清单',
+        visualVariants: '正在生成候选画面',
       };
       const nextThought = thoughtByKey[keyMatch[1]];
       if (nextThought) {

@@ -49,27 +49,26 @@ export const ConsoleLog: React.FC<ConsoleLogProps> = ({ logs, isBusy = false, ac
       : STALL_THRESHOLD_MS;
   const silentSeconds = Math.max(0, Math.floor((nowMs - lastActivityAt) / 1000));
   const isStalled = isBusy && nowMs - lastActivityAt > dynamicThresholdMs;
-  const signalText = !isBusy ? '空闲' : isStalled ? '无进展' : '运行中';
+  const signalText = !isBusy ? '待命' : isStalled ? '可能卡住' : '处理中';
+  const signalChipClass = !isBusy ? 'ui-tag ui-tag-muted' : isStalled ? 'ui-tag ui-tag-info' : 'ui-tag ui-tag-success';
 
   return (
     <div className="flex flex-col h-full ui-surface-soft rounded-[10px] font-sans">
-      <div className="flex items-center gap-3 px-3 py-2 border-b" style={{ borderColor: 'var(--ui-border)' }}>
+      <div className="flex items-center gap-2 px-2.5 py-2 border-b" style={{ borderColor: 'var(--ui-border)' }}>
         <span style={{ color: 'var(--ui-text-muted)' }}>
           <FilmIcon className="w-3.5 h-3.5" />
         </span>
-        <span className="text-[11px] font-semibold" style={{ color: 'var(--ui-text-secondary)' }}>任务日志</span>
-        <div className="ml-auto flex items-center gap-2">
+        <span className="text-[11px] font-semibold" style={{ color: 'var(--ui-text-secondary)' }}>进度记录</span>
+        <div className="ml-auto flex items-center gap-1.5">
           <span
             className="w-2 h-2 rounded-full"
             style={{ background: !isBusy ? '#b7bfcc' : isStalled ? '#f0b429' : 'var(--ui-accent)' }}
             aria-hidden="true"
           />
-          <span className="text-[10px] font-mono ui-numeric" style={{ color: 'var(--ui-text-muted)' }}>
-            任务状态: {signalText}
-          </span>
+          <span className={signalChipClass}>{signalText}</span>
           {isBusy && (
-            <span className="text-[9px] font-mono ui-numeric" style={{ color: 'var(--ui-text-muted)' }}>
-              无更新 {silentSeconds}秒
+            <span className="hidden 2xl:inline text-[9px] font-mono ui-numeric" style={{ color: 'var(--ui-text-muted)' }}>
+              {silentSeconds} 秒无更新
             </span>
           )}
         </div>
@@ -77,14 +76,14 @@ export const ConsoleLog: React.FC<ConsoleLogProps> = ({ logs, isBusy = false, ac
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 text-[11px] space-y-2 min-h-[120px]">
         {logs.length === 0 && (
-          <div className="italic px-2" style={{ color: 'var(--ui-text-muted)' }}>当前无任务，等待开始。</div>
+          <div className="italic px-2" style={{ color: 'var(--ui-text-muted)' }}>还没有新进展，开始后会在这里更新。</div>
         )}
         {logs.map((log) => (
-          <div key={log.id} className="flex gap-3 group px-2 py-1 border-l" style={{ borderColor: 'var(--ui-border)' }}>
-            <span className="shrink-0 font-mono text-[9px] pt-0.5 ui-numeric" style={{ color: 'var(--ui-text-muted)' }}>
+          <div key={log.id} className="flex gap-2.5 group px-2 py-1 border-l" style={{ borderColor: 'var(--ui-border)' }}>
+            <span className="shrink-0 w-[52px] font-mono text-[9px] pt-0.5 ui-numeric" style={{ color: 'var(--ui-text-muted)' }}>
               {log.timestamp}
             </span>
-            <div className="flex-1 break-all">
+            <div className="flex-1 break-words">
               <span className="leading-relaxed" style={{ color: 'var(--ui-text-secondary)' }}>
                 {log.message}
               </span>

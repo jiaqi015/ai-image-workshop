@@ -161,7 +161,7 @@ export const useStudioOrchestrator = () => {
         resetWorkflow();
         setStreamingPlanText(''); setUserInput(''); setPlan(null); setFrames([]); setLogs([]); setSelectedConceptUrl(undefined); setElapsedTime(0); setSelectedProposalId(null);
         setCurrentHistoryId(null);
-        addLog("已重置当前任务。", "info");
+        addLog("已清空当前创作。", "info");
     }, [abortDarkroom, addLog, resetWorkflow, resetUxTracking]);
 
     const restoreSession = useCallback((item: any) => {
@@ -186,7 +186,7 @@ export const useStudioOrchestrator = () => {
         }
         setFrames(restoredFrames);
         setLogs([]); setElapsedTime(0);
-        addLog(`已恢复历史项目 | ID: ${item.id}`, 'info');
+        addLog(`已恢复历史创作 | 编号：${item.id}`, 'info');
     }, [handleReset, addLog, transitionWorkflow, setAppState]);
 
     const handleVoiceInput = useCallback(() => {
@@ -197,7 +197,7 @@ export const useStudioOrchestrator = () => {
     const handleRandomPrompt = useCallback(async () => {
         if (isGeneratingRandom) return;
         setIsGeneratingRandom(true);
-        setUserInput("正在生成灵感描述...");
+        setUserInput("正在生成灵感...");
         try {
             const prompt = await generateProRandomPrompt({
                 tensionLevel: randomPromptTensionLevel,
@@ -217,11 +217,11 @@ export const useStudioOrchestrator = () => {
 
     const canStartPlanning = appState === AppState.IDLE && userInput.trim().length > 0;
     const startBlockedReason = useMemo(() => {
-        if (appState !== AppState.IDLE) return "当前有任务正在运行，请先重置或等待完成";
-        if (!userInput.trim()) return "请先输入你的画面需求";
+        if (appState !== AppState.IDLE) return "当前仍在处理中，请等待完成或点击重来";
+        if (!userInput.trim()) return "请先写下你想要的画面";
         return "";
     }, [appState, userInput]);
-    const readinessHint = keyConfigured ? "" : "网关状态异常，请检查后端模型配置";
+    const readinessHint = keyConfigured ? "" : "模型连接异常，请检查后端配置";
     const { curationSummary } = useAutoCuration({
         masterMode,
         appState,
@@ -294,7 +294,7 @@ export const useStudioOrchestrator = () => {
         onRetryAttempt: (frameId, mode) => {
             markRetryAttempt(frameId);
             if (mode === 'fallback') {
-                addLog(`第 ${frameId} 帧已切换到稳健重试参数。`, 'info');
+                addLog(`第 ${frameId} 帧已切换为稳健重试。`, 'info');
             }
         },
         shootStreamBatch,

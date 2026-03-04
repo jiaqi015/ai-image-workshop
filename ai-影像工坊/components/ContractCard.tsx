@@ -75,7 +75,7 @@ const ContinuitySection = ({ title, items, origin }: { title: string, items: {la
                  </h3>
                  {/* 来源标签 */}
                  <span className={`text-[10px] px-2 py-0.5 rounded border font-normal ${isUser ? 'text-zinc-400 bg-zinc-900/20 border-zinc-500/20' : 'text-zinc-500 bg-zinc-800 border-white/10'}`}>
-                    {isUser ? '用户锁定' : '系统建议'}
+                    {isUser ? '用户锁定' : 'AI 推荐'}
                  </span>
             </div>
             <div className="space-y-4">

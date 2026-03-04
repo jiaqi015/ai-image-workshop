@@ -59,28 +59,28 @@ interface PlanningWorkflowParams {
 }
 
 const buildDraftPlan = (userInput: string): ShootPlan => ({
-  title: '任务进行中',
-  directorInsight: `正在解析任务：${String(userInput || '').slice(0, 120)}`,
+  title: '正在准备方案',
+  directorInsight: `正在理解你的需求：${String(userInput || '').slice(0, 120)}`,
   productionNotes: {
-    lighting: '待生成',
-    palette: '待生成',
-    composition: '待生成',
+    lighting: '整理中',
+    palette: '整理中',
+    composition: '整理中',
   },
   continuity: {
     character: {
-      description: '待生成',
-      body: '待生成',
+      description: '整理中',
+      body: '整理中',
       details: [],
     },
     wardrobe: {
-      description: '待生成',
-      material: '待生成',
+      description: '整理中',
+      material: '整理中',
       accessories: [],
     },
     set: {
-      environment: '待生成',
-      timeOfDay: '待生成',
-      atmosphere: '待生成',
+      environment: '整理中',
+      timeOfDay: '整理中',
+      atmosphere: '整理中',
     },
   },
   shootScope: {
@@ -89,12 +89,12 @@ const buildDraftPlan = (userInput: string): ShootPlan => ({
     complexityLevel: 'medium',
   },
   contract: {
-    subjectIdentity: '待生成',
-    wardrobe: '待生成',
-    location: '待生成',
-    lighting: '待生成',
-    cameraLanguage: '待生成',
-    texture: '待生成',
+    subjectIdentity: '整理中',
+    wardrobe: '整理中',
+    location: '整理中',
+    lighting: '整理中',
+    cameraLanguage: '整理中',
+    texture: '整理中',
   },
   frames: [],
   visualVariants: [],
@@ -177,7 +177,7 @@ export const usePlanningWorkflow = ({
       let activeHistoryId: string | null = null;
 
       try {
-        addLog('已理解你的需求，正在拆解并规划可执行方案。', 'info');
+        addLog('已收到你的需求，正在整理可落地方案。', 'info');
         const draftPlan = buildDraftPlan(userInput);
         const draftId = await addToHistory(draftPlan, userInput, { taskStatus: 'planning' });
         activeHistoryId = draftId || null;
@@ -186,9 +186,9 @@ export const usePlanningWorkflow = ({
         }
 
         if (!keyConfigured) {
-          addLog('检测到网关状态异常，请先检查后端配置。', 'network');
+          addLog('连接状态异常，请先检查后端配置。', 'network');
         }
-        addLog(`已收到任务（文本模型：${directorModel}），开始生成候选方案...`, 'info');
+        addLog(`开始生成候选画面（文本模型：${directorModel}）...`, 'info');
 
         const generatedPlan = await generateShootPlan(
           userInput,
@@ -204,14 +204,14 @@ export const usePlanningWorkflow = ({
         const MIN_PLANNING_DISPLAY_MS = 3200;
         const elapsedMs = Date.now() - planningStartedAt;
         if (elapsedMs < MIN_PLANNING_DISPLAY_MS) {
-          addLog('正在进行风格与一致性复核...', 'network');
+          addLog('正在做风格一致性检查...', 'network');
           await waitWithAbort(MIN_PLANNING_DISPLAY_MS - elapsedMs, signal);
           if (!isShootingRef.current || signal.aborted) return;
         }
 
         const planForExecution = masterMode ? applyMasterProfileToPlan(generatedPlan) : generatedPlan;
         if (masterMode) {
-          addLog('已启用一致性锁定：角色、风格与姿态将保持一致。', 'network');
+          addLog('已启用风格锁定：角色与画面语言将保持一致。', 'network');
         }
         const microCasting = planForExecution.continuity?.character?.details?.join('、') || generateMicroCasting();
         const proposalFrames = buildConceptProposalFrames(planForExecution, conceptCount, imageModel, microCasting);
@@ -227,17 +227,17 @@ export const usePlanningWorkflow = ({
           const historyId = await addToHistory(planForExecution, userInput, { taskStatus: 'concept' });
           setCurrentHistoryId(historyId || null);
         }
-        addLog(`候选方案已生成，请从 ${conceptCount} 个方案中选择主方案。`, 'success');
+        addLog(`候选画面已就绪，请从 ${conceptCount} 组里选一组主方案。`, 'success');
         await executeFrameBatch(proposalFrames, planForExecution, 'flash', setFrames, setPlan);
       } catch (e: any) {
         if (e.message !== 'Aborted') {
           if (activeHistoryId) {
             await updateHistoryItem(activeHistoryId, null, { taskStatus: 'failed' });
           }
-          addLog(`方案生成失败: ${e.message}`, 'error');
+          addLog(`候选画面生成失败: ${e.message}`, 'error');
           transitionWorkflow({ type: 'PLAN_FAILED' });
         } else {
-          addLog('任务已取消', 'info');
+          addLog('已取消本次创作', 'info');
         }
       }
     },
@@ -270,13 +270,13 @@ export const usePlanningWorkflow = ({
   const handleExpandUniverse = useCallback(async () => {
     if (!plan) return;
     if (!canExpandConceptUniverse(masterMode)) {
-      addLog('一致性锁定已开启，暂不支持追加随机方案。', 'info');
+      addLog('风格锁定已开启，暂不支持追加随机方案。', 'info');
       return;
     }
 
     setIsExpandingUniverse(true);
     isShootingRef.current = true;
-    addLog('正在追加候选方案...', 'info');
+    addLog('正在追加候选画面...', 'info');
     try {
       const newVariants = await expandParallelUniverses(plan, 6, textModel);
       const startIdx = frames.length;
@@ -298,9 +298,9 @@ export const usePlanningWorkflow = ({
       setFrames((prev) => [...prev, ...newFrames]);
       setPlan((prev) => (prev ? { ...prev, conceptFrames: [...(prev.conceptFrames || []), ...newFrames] } : null));
       await executeFrameBatch(newFrames, plan, 'flash', setFrames, setPlan);
-      addLog('追加方案完成。', 'success');
+      addLog('追加完成。', 'success');
     } catch (e: any) {
-      addLog(`追加方案失败: ${e.message}`, 'error');
+      addLog(`追加失败: ${e.message}`, 'error');
     } finally {
       setIsExpandingUniverse(false);
     }
@@ -313,7 +313,7 @@ export const usePlanningWorkflow = ({
       if (!target) return;
 
       setRewritingFrameIds((prev) => (prev.includes(frameId) ? prev : [...prev, frameId]));
-      addLog(`候选 ${frameId} 正在重写提示词并重新生成...`, 'network');
+      addLog(`候选 ${frameId} 正在改写描述并重新生成...`, 'network');
 
       try {
         const rewrites = await expandParallelUniverses(plan, 1, textModel);
@@ -346,10 +346,10 @@ export const usePlanningWorkflow = ({
             : prev
         );
         await shootStreamBatch([rewrittenFrame], plan, 'flash', setFrames, setPlan);
-        addLog(`候选 ${frameId} 已重写完成。`, 'success');
+        addLog(`候选 ${frameId} 改写完成。`, 'success');
       } catch (error: any) {
         const message = error?.message || '未知错误';
-        addLog(`候选 ${frameId} 重写失败: ${message}`, 'error');
+        addLog(`候选 ${frameId} 改写失败: ${message}`, 'error');
       } finally {
         setRewritingFrameIds((prev) => prev.filter((id) => id !== frameId));
       }
@@ -365,7 +365,7 @@ export const usePlanningWorkflow = ({
 
       setExpandingFromProposalId(frameId);
       setIsExpandingUniverse(true);
-      addLog(`基于候选 ${frameId} 正在追加 ${count} 个相近方案...`, 'network');
+      addLog(`基于候选 ${frameId} 正在追加 ${count} 组相近画面...`, 'network');
 
       try {
         const variants = await expandParallelUniverses(plan, count, textModel);
@@ -390,10 +390,10 @@ export const usePlanningWorkflow = ({
         setFrames((prev) => [...prev, ...newFrames]);
         setPlan((prev) => (prev ? { ...prev, conceptFrames: [...(prev.conceptFrames || []), ...newFrames] } : null));
         await shootStreamBatch(newFrames, plan, 'flash', setFrames, setPlan);
-        addLog(`候选 ${frameId} 的延展方案已生成。`, 'success');
+        addLog(`候选 ${frameId} 的延展画面已生成。`, 'success');
       } catch (error: any) {
         const message = error?.message || '未知错误';
-        addLog(`延展方案失败: ${message}`, 'error');
+        addLog(`延展失败: ${message}`, 'error');
       } finally {
         setIsExpandingUniverse(false);
         setExpandingFromProposalId(null);

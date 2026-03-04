@@ -113,18 +113,18 @@ export const useRenderOrchestrator = (
         const classifyErrorReason = (raw: string) => {
             const text = String(raw || '').toLowerCase();
             if (text.includes('429') || text.includes('quota') || text.includes('rate')) {
-                return '配额或限流';
+                return '额度不足或请求过快';
             }
             if (text.includes('timeout') || text.includes('timed out') || text.includes('network')) {
                 return '网络超时';
             }
             if (text.includes('auth') || text.includes('unauthorized') || text.includes('forbidden') || text.includes('401') || text.includes('403')) {
-                return '鉴权失败';
+                return '权限校验失败';
             }
             if (text.includes('content') || text.includes('policy') || text.includes('safety')) {
-                return '内容策略拦截';
+                return '触发内容限制';
             }
-            return '生成异常';
+            return '出图异常';
         };
         
         setFrames(prev => prev.map(f => f.id === frame.id ? { ...f, status: 'generating', metadata: currentMetadata } : f));
@@ -167,7 +167,7 @@ export const useRenderOrchestrator = (
                 const reason = classifyErrorReason(rawErrorMsg);
                 const brief = localizeRuntimeText(String(rawErrorMsg).replace(/\s+/g, ' ').slice(0, 64));
                 
-                addLog(`第 ${frame.id} 帧生成失败 | ${reason}: ${brief}`, 'error');
+                addLog(`第 ${frame.id} 帧出图失败 | ${reason}: ${brief}`, 'error');
                 setFrames(prev => prev.map(f => f.id === frame.id ? { ...f, status: 'failed', error: `${reason}：${brief}` } : f));
             }
         }
@@ -232,7 +232,7 @@ export const useRenderOrchestrator = (
 
         const workers = [];
         const initialBatchSize = Math.min(policy.concurrency, framesToProcess.length);
-        addLog(`批量生成已启动 | 并发: ${policy.concurrency}`, 'info');
+        addLog(`批量出图已开始 | 同时生成: ${policy.concurrency}`, 'info');
         
         for (let i = 0; i < initialBatchSize; i++) {
              workers.push((async () => {
@@ -258,7 +258,7 @@ export const useRenderOrchestrator = (
          activeBatchLimitsRef.current.push(Math.max(1, policy.concurrency));
          drainSemaphore();
          
-         addLog(`已加入生成队列: ${frames.length} 帧 | 并发: ${policy.concurrency}`, 'network');
+         addLog(`已加入出图队列: ${frames.length} 帧 | 同时生成: ${policy.concurrency}`, 'network');
 
          const tasks = frames.map((frame, index) => (async () => {
             if (signal.aborted || !isShootingRef.current) return;
