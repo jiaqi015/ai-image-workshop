@@ -118,7 +118,7 @@ npm run dev
 生图模型：
 
 - OpenAI: `gpt-image-1` / `dall-e-3` / `dall-e-2`
-- Google: `gemini-3-pro-image-preview` / `gemini-2.5-flash-image`
+- Google: `gemini-3.1-flash-image-preview` / `gemini-3-pro-image-preview` / `gemini-2.5-flash-image`
 - 阿里: `wan2.2-t2i-plus` / `wan2.2-t2i-flash` / `wanx2.1-t2i-plus`
 - 字节: `doubao-seedream-4-0-250828` / `doubao-seedream-3-0-t2i-250415` / `doubao-seedream-5-0-lite`
 - MiniMax: `image-01`

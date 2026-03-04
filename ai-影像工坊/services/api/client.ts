@@ -28,7 +28,7 @@ const DEFAULT_TEXT_MODELS_BY_PROVIDER: Record<string, string[]> = {
 
 const DEFAULT_IMAGE_MODELS_BY_PROVIDER: Record<string, string[]> = {
     openai: ["gpt-image-1", "dall-e-3", "dall-e-2"],
-    google: ["gemini-3-pro-image-preview", "gemini-2.5-flash-image"],
+    google: ["gemini-3.1-flash-image-preview", "gemini-3-pro-image-preview", "gemini-2.5-flash-image"],
     byte: ["doubao-seedream-4-0-250828", "doubao-seedream-3-0-t2i-250415", "doubao-seedream-5-0-lite", "doubao-seedream-4-5"],
     ali: ["wan2.2-t2i-plus", "wan2.2-t2i-flash", "wanx2.1-t2i-plus"],
     minimax: ["image-01"],
@@ -82,8 +82,8 @@ const normalizeProviderOrder = (input: any, fallback: string[]) => {
 const DEFAULT_TEXT_MODELS = flattenByProvider(DEFAULT_TEXT_MODELS_BY_PROVIDER, DEFAULT_PROVIDER_ORDER.text);
 const DEFAULT_IMAGE_MODELS = flattenByProvider(DEFAULT_IMAGE_MODELS_BY_PROVIDER, DEFAULT_PROVIDER_ORDER.image);
 
-const DEFAULT_TEXT_MODEL = "gpt-5.1";
-const DEFAULT_IMAGE_MODEL = "gpt-image-1";
+const DEFAULT_TEXT_MODEL = "qwen-max";
+const DEFAULT_IMAGE_MODEL = "doubao-seedream-5-0-lite";
 
 type ModelPreferences = {
     textModel: string;
@@ -659,7 +659,7 @@ export const Infrastructure = {
     generateImage: async (prompt: string, modelType: "pro" | "flash", signal?: AbortSignal): Promise<string> => {
         if (signal?.aborted) throw new Error("Aborted");
 
-        const fallbackModel = modelType === "pro" ? "gemini-3-pro-image-preview" : "gemini-2.5-flash-image";
+        const fallbackModel = modelType === "pro" ? "gemini-3.1-flash-image-preview" : "gemini-2.5-flash-image";
         const data = await withRetry(
             () =>
                 callBackend(

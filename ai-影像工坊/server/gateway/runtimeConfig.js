@@ -38,7 +38,7 @@ export const DEFAULT_ROUTING = {
     providerOrder: ["openai", "google", "byte", "ali", "minimax", "zhipu"],
     models: {
       openai: ["gpt-image-1", "dall-e-3", "dall-e-2"],
-      google: ["gemini-3-pro-image-preview", "gemini-2.5-flash-image"],
+      google: ["gemini-3.1-flash-image-preview", "gemini-3-pro-image-preview", "gemini-2.5-flash-image"],
       ali: ["wan2.2-t2i-plus", "wan2.2-t2i-flash", "wanx2.1-t2i-plus"],
       byte: [
         "doubao-seedream-4-0-250828",
