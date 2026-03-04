@@ -86,9 +86,9 @@ const cameraLineTemplates = [
 ];
 
 const negativeLineTemplates = [
-  (p) => `避免${p.banA}、${p.banB}、${p.banC}，拒绝机械感和无瑕广告脸`,
-  (p) => `不要${p.banA}、${p.banB}、${p.banC}，画面要有体温，不要AI塑料质感`,
-  (p) => `禁用${p.banA}、${p.banB}、${p.banC}，宁可粗粝也不要假完美`,
+  (p) => `避免${p.banA}、${p.banB}、${p.banC}，拒绝机械感和无瑕广告脸，明确成年感`,
+  (p) => `不要${p.banA}、${p.banB}、${p.banC}，画面要有体温，不要AI塑料质感，拒绝未成年化`,
+  (p) => `禁用${p.banA}、${p.banB}、${p.banC}，宁可粗粝也不要假完美，避免幼态学生感`,
 ];
 
 const introLineTemplates = [

@@ -22,8 +22,8 @@ const RANDOM_TENSION_OPTIONS = [
 ] as const;
 
 const RANDOM_CAST_OPTIONS = [
-  { id: 'asian_girl_23_plus', label: '亚洲女孩 23+' },
-  { id: 'asian_woman_23_plus', label: '亚洲女性 23+' },
+  { id: 'asian_girl_23_plus', label: '亚洲年轻女性 23-28' },
+  { id: 'asian_woman_23_plus', label: '亚洲成熟女性 23-35' },
 ] as const;
 
 export default function App() {

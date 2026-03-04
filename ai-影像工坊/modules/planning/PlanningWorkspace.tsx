@@ -49,19 +49,21 @@ export const PlanningWorkspace: React.FC<PlanningWorkspaceProps> = ({
           <PlanningRightStage studio={studio} stream={stream} frameStats={frameStats} />
         </main>
 
-        <PlanningLeftPanel
-          className="hidden xl:block"
-          layout="right"
-          studio={studio}
-          stream={stream}
-          stageName={currentStage?.name || '进行中'}
-          stageDesc={currentStage?.desc || ''}
-          frameStats={frameStats}
-          renderStrategySelector={renderStrategySelector}
-          renderModelSelectors={renderModelSelectors}
-          isTaskBusy={isTaskBusy}
-          activitySignalKey={activitySignalKey}
-        />
+        <div className="hidden xl:block xl:-translate-x-3 min-h-0">
+          <PlanningLeftPanel
+            className="h-full"
+            layout="right"
+            studio={studio}
+            stream={stream}
+            stageName={currentStage?.name || '进行中'}
+            stageDesc={currentStage?.desc || ''}
+            frameStats={frameStats}
+            renderStrategySelector={renderStrategySelector}
+            renderModelSelectors={renderModelSelectors}
+            isTaskBusy={isTaskBusy}
+            activitySignalKey={activitySignalKey}
+          />
+        </div>
       </div>
 
       <div className="xl:hidden mt-4">

@@ -1,8 +1,41 @@
 import http from "node:http";
+import fs from "node:fs";
+import path from "node:path";
 import { URL } from "node:url";
-import handler from "../api/ai.js";
 
 const PORT = Number(process.env.LOCAL_API_PORT || 3001);
+const PROJECT_ROOT = process.cwd();
+
+const parseEnvLine = (line) => {
+  const trimmed = String(line || "").trim();
+  if (!trimmed || trimmed.startsWith("#")) return null;
+  const eqIndex = trimmed.indexOf("=");
+  if (eqIndex <= 0) return null;
+  const key = trimmed.slice(0, eqIndex).trim();
+  let value = trimmed.slice(eqIndex + 1).trim();
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    value = value.slice(1, -1);
+  }
+  return { key, value };
+};
+
+const loadEnvFile = (filename) => {
+  const filePath = path.join(PROJECT_ROOT, filename);
+  if (!fs.existsSync(filePath)) return;
+  const content = fs.readFileSync(filePath, "utf8");
+  for (const line of content.split(/\r?\n/)) {
+    const parsed = parseEnvLine(line);
+    if (!parsed) continue;
+    if (process.env[parsed.key] === undefined) {
+      process.env[parsed.key] = parsed.value;
+    }
+  }
+};
+
+loadEnvFile(".env");
+loadEnvFile(".env.local");
+const { default: aiHandler } = await import("../api/ai.js");
+const { default: historyHandler } = await import("../api/history.js");
 
 const parseJsonBody = async (req) => {
   const chunks = [];
@@ -34,11 +67,30 @@ const setCors = (res) => {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-gateway-token");
 };
 
+const resolveHandler = (pathname) => {
+  if (pathname === "/api/ai") {
+    return {
+      name: "ai",
+      handler: aiHandler,
+      defaultAction: "health",
+    };
+  }
+  if (pathname === "/api/history") {
+    return {
+      name: "history",
+      handler: historyHandler,
+      defaultAction: "list",
+    };
+  }
+  return null;
+};
+
 const server = http.createServer(async (req, res) => {
   const startedAt = Date.now();
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+  const route = resolveHandler(url.pathname);
 
-  if (url.pathname !== "/api/ai") {
+  if (!route) {
     setCors(res);
     sendJson(res, 404, { ok: false, error: "Not Found" });
     return;
@@ -54,7 +106,7 @@ const server = http.createServer(async (req, res) => {
 
   try {
     const body = req.method === "POST" ? await parseJsonBody(req) : {};
-    const action = String((req.method === "POST" ? body?.action : url.searchParams.get("action")) || "health");
+    const action = String((req.method === "POST" ? body?.action : url.searchParams.get("action")) || route.defaultAction);
 
     const mockReq = {
       method: req.method,
@@ -94,9 +146,9 @@ const server = http.createServer(async (req, res) => {
       },
     };
 
-    await handler(mockReq, mockRes);
+    await route.handler(mockReq, mockRes);
     const ms = Date.now() - startedAt;
-    console.log(`[api] ${req.method} ${url.pathname}?action=${action} -> ${res.statusCode} (${ms}ms)`);
+    console.log(`[api:${route.name}] ${req.method} ${url.pathname}?action=${action} -> ${res.statusCode} (${ms}ms)`);
   } catch (error) {
     const ms = Date.now() - startedAt;
     console.error(`[api] ${req.method} ${url.pathname} -> 500 (${ms}ms)`, error);
@@ -106,4 +158,5 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`[api] local gateway ready on http://127.0.0.1:${PORT}/api/ai`);
+  console.log(`[api] local history ready on http://127.0.0.1:${PORT}/api/history`);
 });

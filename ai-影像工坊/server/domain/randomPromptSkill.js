@@ -288,6 +288,8 @@ const resolveTargetWindow = (targetLength) => {
 
 const tryCompactText = (text) =>
   String(text || "")
+    .replace(/真实亚洲年轻女性23-28岁，/g, "亚洲年轻女性23-28岁，")
+    .replace(/真实亚洲成熟女性23-35岁，/g, "亚洲成熟女性23-35岁，")
     .replace(/真实亚洲女孩23\+，/g, "亚洲女孩23+，")
     .replace(/真实亚洲女性23\+，/g, "亚洲女性23+，")
     .replace(/真实亚洲成年人23\+，/g, "亚洲成年人23+，")
@@ -321,6 +323,51 @@ const truncateNatural = (text, cap, minLength = 0) => {
 
   const hardCap = Math.max(0, cap - 1);
   return `${source.slice(0, hardCap).replace(/[，；、\s]+$/g, "")}。`;
+};
+
+const ensurePromptLengthWindow = ({ prompt = "", window = { min: 180, max: 220 }, payload = {} } = {}) => {
+  let output = String(prompt || "").trim();
+  const min = Number(window?.min || 180);
+  const max = Number(window?.max || 220);
+
+  if (output.length > max) {
+    output = truncateNatural(output, max, min);
+  }
+
+  if (output.length < min) {
+    const fillers = [
+      "明确成年感，避免幼态与学生化造型",
+      `环境线索要完整：${String(payload?.atmosphere || "空气和光线状态要交代").replace(/。/g, "")}`,
+      "保留皮肤与衣料细节，不做广告级磨皮",
+    ];
+    for (const filler of fillers) {
+      if (output.length >= min) break;
+      if (!output.includes(filler)) {
+        output = `${output}${output.endsWith("。") ? "" : "。"}${filler}。`;
+      }
+    }
+  }
+
+  if (output.length > max) {
+    output = truncateNatural(output, max, min);
+  }
+
+  if (output.length < min) {
+    const hardPad = "保持纪实颗粒与成年质感，不要假完美。";
+    while (output.length < min) {
+      output = `${output}${output.endsWith("。") ? "" : "。"}${hardPad}`;
+      if (output.length > max) {
+        output = truncateNatural(output, max, min);
+        break;
+      }
+    }
+  }
+
+  if (output.length > max) {
+    output = truncateNatural(output, max, min);
+  }
+
+  return output;
 };
 
 const WARDROBE_TOP_RE = /T恤|衬衫|外套|背心|风衣|西装|夹克|连帽|针织/;
@@ -434,11 +481,11 @@ const needsNightCamera = (time, location) => /凌晨|深夜|夜|晚|雨后/.test
 const normalizeCastByPreference = (cast = "", castPreference = "asian_girl_23_plus") => {
   const source = String(cast || "").trim();
   const details = source
-    .replace(/^真实亚洲(?:女孩23\+|成年人23\+|女性23\+)?，?/g, "")
-    .replace(/^亚洲(?:女孩23\+|成年人23\+|女性23\+)?，?/g, "")
+    .replace(/^真实亚洲(?:女孩23\+|成年人23\+|女性23\+|年轻女性23-28岁|成熟女性23-35岁)?，?/g, "")
+    .replace(/^亚洲(?:女孩23\+|成年人23\+|女性23\+|年轻女性23-28岁|成熟女性23-35岁)?，?/g, "")
     .trim();
   const suffix = details || "东亚面孔，真实皮肤纹理可见";
-  const prefix = castPreference === "asian_woman_23_plus" ? "真实亚洲女性23+" : "真实亚洲女孩23+";
+  const prefix = castPreference === "asian_woman_23_plus" ? "真实亚洲成熟女性23-35岁" : "真实亚洲年轻女性23-28岁";
   return `${prefix}，${suffix}`;
 };
 
@@ -461,6 +508,8 @@ const applyTensionDirectives = (payload, tensionLevel = "medium") => {
 const ensureSceneConsistency = (payload, { castPreference = "asian_girl_23_plus", tensionLevel = "medium" } = {}) => {
   payload.cast = normalizeCastByPreference(payload.cast, castPreference);
   applyTensionDirectives(payload, tensionLevel);
+  if (!Array.isArray(payload.addOns)) payload.addOns = [];
+  payload.addOns = [...new Set([...payload.addOns, "明确成年感，避免幼态与学生化造型"])];
   const isConvenienceScene = String(payload.location).includes("便利店");
   if (isConvenienceScene && ![payload.propA, payload.propB].some((item) => item.includes("塑料袋") || item.includes("罐装饮料"))) {
     payload.propA = Math.random() > 0.5 ? "塑料袋" : "罐装饮料";
@@ -583,6 +632,7 @@ const buildCandidate = ({
   if (prompt.length > window.max) {
     prompt = truncateNatural(prompt, window.max, window.min);
   }
+  prompt = ensurePromptLengthWindow({ prompt, window, payload });
   const adversarial = runSkill({
     ledger: skillLedger,
     name: "adversarial.evaluate",

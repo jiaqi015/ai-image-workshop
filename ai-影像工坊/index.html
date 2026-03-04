@@ -301,8 +301,41 @@
         0% { transform: translateY(6px); opacity: 0; }
         100% { transform: translateY(0); opacity: 1; }
       }
+      @keyframes cine-sweep {
+        0% { transform: translateX(-135%); opacity: 0.12; }
+        50% { opacity: 0.34; }
+        100% { transform: translateX(165%); opacity: 0.12; }
+      }
+      @keyframes cine-pulse {
+        0%, 100% { opacity: 0.45; transform: scale(0.92); }
+        50% { opacity: 1; transform: scale(1); }
+      }
+      @keyframes cine-grain {
+        0% { transform: translate(0, 0); }
+        25% { transform: translate(0.6%, -0.6%); }
+        50% { transform: translate(-0.6%, 0.4%); }
+        75% { transform: translate(0.4%, 0.7%); }
+        100% { transform: translate(0, 0); }
+      }
       .animate-rise-fade {
         animation: rise-fade 420ms ease-out both;
+      }
+      .ui-cine-sweep {
+        background: linear-gradient(110deg, transparent 36%, rgba(217, 205, 184, 0.18) 50%, transparent 64%);
+        animation: cine-sweep 2.6s ease-in-out infinite;
+      }
+      .ui-cine-pulse {
+        animation: cine-pulse 1.7s var(--ui-ease-standard) infinite;
+      }
+      .ui-cine-grain {
+        opacity: 0.24;
+        background-image:
+          radial-gradient(rgba(255, 255, 255, 0.08) 0.5px, transparent 0.6px),
+          radial-gradient(rgba(255, 255, 255, 0.04) 0.5px, transparent 0.6px);
+        background-size: 3px 3px, 5px 5px;
+        background-position: 0 0, 1px 1px;
+        mix-blend-mode: soft-light;
+        animation: cine-grain 2.4s steps(4) infinite;
       }
       .ui-card-lift {
         transition: transform var(--ui-motion-base) var(--ui-ease-standard), box-shadow var(--ui-motion-base) var(--ui-ease-standard), border-color var(--ui-motion-base) var(--ui-ease-standard);

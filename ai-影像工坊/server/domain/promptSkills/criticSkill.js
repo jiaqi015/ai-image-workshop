@@ -88,6 +88,18 @@ const scoreRealism = ({ payload = {}, prompt = "" }) => {
     issues.push("缺少真实人体/材质细节");
   }
 
+  const adultCueOk = /23\+|23-28岁|23-35岁|成年/.test(text);
+  if (!adultCueOk) {
+    score -= 12;
+    issues.push("缺少明确成年锚点");
+  }
+
+  const underageCueHit = /未成年|少女|萝莉|学生妹|校服|幼态|童颜过重|稚嫩脸/.test(text);
+  if (underageCueHit) {
+    score -= 40;
+    issues.push("出现未成年化语义，选角不安全");
+  }
+
   if (containsAny(text, AI_STYLE_TOKENS)) {
     score -= 22;
     issues.push("出现AI渲染味词汇");

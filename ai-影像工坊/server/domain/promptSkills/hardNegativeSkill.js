@@ -3,12 +3,14 @@ const HARD_NEGATIVE_RULES = [
   { id: "plastic-skin", pattern: /(?:无瑕|完美皮肤|塑料皮肤|陶瓷肌|丝滑肌理)/gi, penalty: 22 },
   { id: "template-command-tone", pattern: /(?:情绪定调为|选角是|场景放在|服装用|道具给|动作是|拍法用)/g, penalty: 18 },
   { id: "fantasy-ad-like", pattern: /(?:唯美|梦幻|大片感|仙气|韩系柔焦)/g, penalty: 16 },
+  { id: "underage-cue", pattern: /(?:未成年|少女|萝莉|学生妹|校服|幼态|童颜过重|稚嫩脸)/g, penalty: 48 },
 ];
 
 const REPLACEMENTS = [
   { pattern: /(?:8k|4k|cgi|octane|unreal engine|ray tracing|超现实渲染)/gi, to: "" },
   { pattern: /(?:完美皮肤|塑料皮肤|陶瓷肌|无瑕)/g, to: "真实皮肤纹理" },
   { pattern: /(?:唯美|梦幻|大片感|仙气)/g, to: "纪实" },
+  { pattern: /(?:少女|萝莉|学生妹)/g, to: "成年女性" },
 ];
 
 const clean = (value) =>

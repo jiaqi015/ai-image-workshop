@@ -238,7 +238,8 @@ test('POST random_prompt returns 200 with bounded length and metadata', async ()
   assert.equal(typeof res.body?.metadata?.memory?.observedAfter, 'number');
   assert.equal(res.body?.metadata?.tensionLevel, 'high');
   assert.equal(res.body?.metadata?.castPreference, 'asian_girl_23_plus');
-  assert.match(String(res.body?.prompt || ''), /亚洲女孩23\+/);
+  assert.match(String(res.body?.prompt || ''), /女性/);
+  assert.match(String(res.body?.prompt || ''), /23/);
   assert.equal(typeof res.body?.shotInstruction, 'string');
   assert.ok(Array.isArray(res.body?.failureForecast));
 });

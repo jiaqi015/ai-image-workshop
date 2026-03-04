@@ -101,6 +101,28 @@ const buildDraftPlan = (userInput: string): ShootPlan => ({
   conceptFrames: [],
 });
 
+const waitWithAbort = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (ms <= 0) {
+      resolve();
+      return;
+    }
+    if (signal?.aborted) {
+      reject(new Error('Aborted'));
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      if (signal) signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      window.clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', onAbort);
+      reject(new Error('Aborted'));
+    };
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+  });
+
 export const usePlanningWorkflow = ({
   appState,
   userInput,
@@ -136,6 +158,7 @@ export const usePlanningWorkflow = ({
     async (options?: { conceptCount?: number }) => {
       if (!userInput.trim() || appState !== AppState.IDLE) return;
       const conceptCount = Math.max(4, Math.min(12, Math.floor(options?.conceptCount || 4)));
+      const planningStartedAt = Date.now();
 
       if (planningAbortController.current) planningAbortController.current.abort();
       planningAbortController.current = new AbortController();
@@ -177,6 +200,14 @@ export const usePlanningWorkflow = ({
           signal
         );
         if (!isShootingRef.current || signal.aborted) return;
+
+        const MIN_PLANNING_DISPLAY_MS = 3200;
+        const elapsedMs = Date.now() - planningStartedAt;
+        if (elapsedMs < MIN_PLANNING_DISPLAY_MS) {
+          addLog('正在进行风格与一致性复核...', 'network');
+          await waitWithAbort(MIN_PLANNING_DISPLAY_MS - elapsedMs, signal);
+          if (!isShootingRef.current || signal.aborted) return;
+        }
 
         const planForExecution = masterMode ? applyMasterProfileToPlan(generatedPlan) : generatedPlan;
         if (masterMode) {

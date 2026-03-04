@@ -14,6 +14,7 @@ export const PlanningStagePreload: React.FC<PlanningStagePreloadProps> = ({
   stream,
   onReset,
 }) => {
+  const CONTACT_SHEET = [0, 1, 2, 3];
   const progress = stream.stageProgress;
   const statusText = stream.currentThought || stream.displaySubThought || '正在生成方案';
   const activeStep = stream.preheatSteps[stream.activeStepIndex];
@@ -39,83 +40,78 @@ export const PlanningStagePreload: React.FC<PlanningStagePreloadProps> = ({
   const liveStateClass = isStalled ? 'ui-tag ui-tag-muted' : isWarning ? 'ui-tag ui-tag-info' : 'ui-tag ui-tag-success';
 
   return (
-    <div className="h-full w-full flex items-center justify-center p-3 md:p-4">
-      <div className="w-full ui-surface p-3.5 md:p-4">
+    <div className="h-full w-full flex items-center justify-center p-2.5 md:p-4">
+      <div className="w-full ui-surface p-3 md:p-4">
         <div className="flex items-center justify-between gap-2">
-          <div className="ui-meta tracking-[0.16em]" style={{ color: 'var(--ui-text-muted)' }}>
-            暗房处理中
+          <div className="text-[10px] tracking-[0.2em]" style={{ color: 'var(--ui-text-muted)' }}>
+            CONTACT SHEET PREVIEW
           </div>
           <span className={liveStateClass}>{liveStateText}</span>
         </div>
 
-        <div className="mt-3 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_252px] gap-3">
+        <div className="mt-3 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_244px] gap-3">
           <div
-            className="relative aspect-[16/10] overflow-hidden rounded-[10px] border"
+            className="relative overflow-hidden rounded-[11px] border p-3 md:p-4"
             style={{
               borderColor: 'var(--ui-border)',
               background:
-                'radial-gradient(120% 100% at 50% 0%, rgba(217,205,184,0.14), rgba(18,19,22,0.96) 60%), linear-gradient(180deg, rgba(16,17,20,0.9), rgba(12,13,15,0.98))',
+                'linear-gradient(180deg, rgba(26,27,30,0.96), rgba(15,16,18,0.98))',
             }}
           >
-            <div
-              className="absolute inset-0 opacity-25"
-              style={{
-                backgroundImage:
-                  'repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 3px)',
-              }}
-            />
-            <div className="absolute left-4 right-4 top-4 bottom-4 border" style={{ borderColor: 'rgba(255,255,255,0.14)' }} />
-            <div className="absolute left-1/2 top-4 bottom-4 w-px -translate-x-1/2" style={{ background: 'rgba(255,255,255,0.12)' }} />
-            <div className="absolute top-1/2 left-4 right-4 h-px -translate-y-1/2" style={{ background: 'rgba(255,255,255,0.12)' }} />
-
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="relative h-14 w-14">
-                <div className="absolute inset-0 rounded-full border" style={{ borderColor: 'rgba(255,255,255,0.24)' }} />
-                <div className="absolute inset-[4px] rounded-full border-2 border-transparent border-t-[var(--ui-accent)] border-r-[var(--ui-accent)] animate-spin" />
-                <div className="absolute inset-[18px] rounded-full" style={{ background: 'rgba(217,205,184,0.22)' }} />
-              </div>
+            <div className="ui-cine-grain absolute inset-0 pointer-events-none" />
+            <div className="grid grid-cols-2 gap-2.5">
+              {CONTACT_SHEET.map((id) => (
+                <div
+                  key={id}
+                  className="relative aspect-[4/5] overflow-hidden rounded-[8px] border"
+                  style={{ borderColor: 'rgba(255, 255, 255, 0.16)', background: 'rgba(255, 255, 255, 0.03)' }}
+                >
+                  <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(217,205,184,0.08), rgba(255,255,255,0.02))' }} />
+                  <div className="ui-cine-sweep absolute inset-0 pointer-events-none" />
+                  <div className="absolute left-2 top-2 text-[9px] font-mono ui-numeric" style={{ color: 'var(--ui-text-muted)' }}>
+                    #{String(id + 1).padStart(2, '0')}
+                  </div>
+                </div>
+              ))}
             </div>
 
-            <div className="absolute left-3 bottom-3 right-3">
-              <div className="text-xs truncate" style={{ color: 'var(--ui-text-secondary)' }}>
-                {statusText}
+            <div className="mt-3 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-xs truncate" style={{ color: 'var(--ui-text-secondary)' }}>
+                  {statusText}
+                </div>
+                <div className="mt-1 ui-meta">当前步骤：{activeStep}</div>
               </div>
-              <div className="mt-1 ui-meta">当前步骤：{activeStep}</div>
+              <div className="text-[11px] font-mono ui-numeric" style={{ color: 'var(--ui-text-muted)' }}>
+                {progress}%
+              </div>
             </div>
           </div>
 
           <div className="ui-surface-soft p-2.5 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="ui-meta">流程进度</div>
-              <div className="text-xs font-mono ui-numeric" style={{ color: 'var(--ui-text-secondary)' }}>
-                {progress}%
-              </div>
+            <div className="flex items-center gap-2">
+              <span className="ui-cine-pulse h-2 w-2 rounded-full" style={{ background: isStalled ? 'var(--ui-warning)' : 'var(--ui-accent)' }} />
+              <span className="ui-meta ui-numeric">最近更新：{silentSeconds} 秒前</span>
             </div>
+
             <div className="space-y-1.5">
               {stream.preheatSteps.map((step, index) => {
                 const active = index === stream.activeStepIndex;
                 return (
-                  <div
-                    key={step}
-                    className="flex items-center gap-2 rounded px-2 py-1"
-                    style={{
-                      background: active ? 'rgba(217,205,184,0.12)' : 'rgba(255,255,255,0.02)',
-                      color: active ? 'var(--ui-text-primary)' : 'var(--ui-text-muted)',
-                    }}
-                  >
+                  <div key={step} className="flex items-center gap-2">
                     <span
                       className="h-1.5 w-1.5 rounded-full"
                       style={{ background: active ? 'var(--ui-accent)' : 'rgba(255,255,255,0.22)' }}
                     />
-                    <span className="text-[11px]">{step}</span>
+                    <span className="text-[11px]" style={{ color: active ? 'var(--ui-text-primary)' : 'var(--ui-text-muted)' }}>
+                      {step}
+                    </span>
                   </div>
                 );
               })}
             </div>
+
             <div className="pt-1.5 border-t space-y-1" style={{ borderColor: 'var(--ui-border)' }}>
-              <div className="ui-meta">
-                最近更新：<span className="ui-numeric">{silentSeconds} 秒前</span>
-              </div>
               <div className="ui-meta">
                 文本模型：<span className="font-mono" style={{ color: 'var(--ui-text-secondary)' }}>{textModel}</span>
               </div>
@@ -123,10 +119,11 @@ export const PlanningStagePreload: React.FC<PlanningStagePreloadProps> = ({
                 图像模型：<span className="font-mono" style={{ color: 'var(--ui-text-secondary)' }}>{imageModel}</span>
               </div>
             </div>
+
             {isStalled && (
-              <div className="pt-2 space-y-2">
+              <div className="pt-1.5 space-y-2">
                 <div className="text-[11px]" style={{ color: 'var(--ui-text-secondary)' }}>
-                  超过 40 秒无新内容，可能已卡住。可直接重发任务。
+                  已超过 40 秒无新内容，建议重新发起。
                 </div>
                 {onReset && (
                   <button type="button" onClick={onReset} className="w-full ui-btn-secondary ui-btn-compact">
