@@ -40,12 +40,12 @@ export const buildDirectorShotPacket = (
   shotId: `S${String(index + 1).padStart(2, '0')}`,
   beatIndex: index + 1,
   description,
-  camera: seed?.camera || 'medium',
-  mood: seed?.mood || 'neutral',
+  camera: seed?.camera || '中景',
+  mood: seed?.mood || '中性',
   promptPack: {
     base: description,
-    style: seed?.promptPack?.style || packet?.styleProfile?.visualSignature || 'Cinematic',
-    variantHint: seed?.promptPack?.variantHint || packet?.styleProfile?.visualSignature || 'Cinematic',
+    style: seed?.promptPack?.style || packet?.styleProfile?.visualSignature || '电影感',
+    variantHint: seed?.promptPack?.variantHint || packet?.styleProfile?.visualSignature || '电影感',
   },
   negativePack: Array.isArray(seed?.negativePack) ? [...seed.negativePack] : [],
 });

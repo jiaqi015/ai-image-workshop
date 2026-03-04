@@ -31,12 +31,27 @@ export const PlanningWorkspace: React.FC<PlanningWorkspaceProps> = ({
   return (
     <div className="h-full min-h-0 ui-shell-pad">
       <div className="h-full min-h-0 ui-planning-grid">
+        <PlanningLeftPanel
+          className="hidden xl:block"
+          layout="left"
+          studio={studio}
+          stream={stream}
+          stageName={currentStage?.name || '进行中'}
+          stageDesc={currentStage?.desc || ''}
+          frameStats={frameStats}
+          renderStrategySelector={renderStrategySelector}
+          renderModelSelectors={renderModelSelectors}
+          isTaskBusy={isTaskBusy}
+          activitySignalKey={activitySignalKey}
+        />
+
         <main ref={studio.mainContentRef} className="min-h-0 overflow-y-auto ui-surface p-4 md:p-5">
           <PlanningRightStage studio={studio} stream={stream} frameStats={frameStats} />
         </main>
 
         <PlanningLeftPanel
           className="hidden xl:block"
+          layout="right"
           studio={studio}
           stream={stream}
           stageName={currentStage?.name || '进行中'}
@@ -51,6 +66,7 @@ export const PlanningWorkspace: React.FC<PlanningWorkspaceProps> = ({
 
       <div className="xl:hidden mt-4">
         <PlanningLeftPanel
+          layout="stacked"
           studio={studio}
           stream={stream}
           stageName={currentStage?.name || '进行中'}

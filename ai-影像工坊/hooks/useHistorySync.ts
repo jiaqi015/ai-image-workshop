@@ -61,10 +61,12 @@ export const useHistorySync = ({
 
   useEffect(() => {
     if (!currentHistoryId) return;
+    // IDLE often means reset/failure fallback; avoid overriding an explicit failed/planning status.
+    if (appState === AppState.IDLE) return;
     if (lastHistoryStatusRef.current === derivedHistoryStatus) return;
     lastHistoryStatusRef.current = derivedHistoryStatus;
     updateHistoryItem(currentHistoryId, null, { taskStatus: derivedHistoryStatus }).catch(() => undefined);
-  }, [currentHistoryId, derivedHistoryStatus, updateHistoryItem]);
+  }, [currentHistoryId, appState, derivedHistoryStatus, updateHistoryItem]);
 
   useEffect(() => {
     if (currentHistoryId) return;

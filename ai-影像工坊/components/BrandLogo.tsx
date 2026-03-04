@@ -6,22 +6,23 @@ type BrandLogoProps = {
 };
 
 export const BrandLogo: React.FC<BrandLogoProps> = ({ className = '', compact = false }) => {
+  const markSizeClass = compact ? 'h-8 w-8' : 'h-9 w-9';
+  const titleClass = compact ? 'text-[12px]' : 'text-[13px]';
+
   return (
-    <div className={`flex items-center gap-3 ${className}`.trim()}>
-      <div className="h-9 w-9 ui-surface-soft flex items-center justify-center" style={{ borderColor: 'var(--ui-border)' }}>
+    <div className={`flex items-center gap-2.5 ${className}`.trim()}>
+      <div className={`${markSizeClass} ui-surface-soft flex items-center justify-center`} style={{ borderColor: 'var(--ui-border)' }}>
         <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-          <rect x="3" y="6" width="18" height="13" rx="3" stroke="currentColor" strokeWidth="1.5" style={{ color: 'var(--ui-text-secondary)' }} />
-          <circle cx="12" cy="12.5" r="3.3" stroke="currentColor" strokeWidth="1.5" style={{ color: 'var(--ui-text-secondary)' }} />
-          <circle cx="18.4" cy="8.4" r="1.3" fill="var(--ui-accent)" />
+          <rect x="2.75" y="2.75" width="18.5" height="18.5" rx="5.2" stroke="currentColor" strokeWidth="1.35" style={{ color: 'var(--ui-text-secondary)' }} />
+          <circle cx="12" cy="12" r="5.25" stroke="currentColor" strokeWidth="1.35" style={{ color: 'var(--ui-text-secondary)' }} />
+          <circle cx="12" cy="12" r="2.15" fill="var(--ui-accent)" opacity="0.85" />
+          <path d="M12 6.75l2.15 1.2M17.25 12l-1.2 2.15M12 17.25l-2.15-1.2M6.75 12l1.2-2.15" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" style={{ color: 'var(--ui-text-muted)' }} />
         </svg>
       </div>
 
-      {!compact && (
-        <div className="leading-none">
-          <div className="text-[12px] font-semibold" style={{ color: 'var(--ui-text-primary)' }}>AI影像工坊</div>
-          <div className="mt-1 ui-meta">专业创作工作台</div>
-        </div>
-      )}
+      <div className={`${titleClass} font-semibold tracking-[0.08em] leading-none`} style={{ color: 'var(--ui-text-primary)' }}>
+        影像工坊
+      </div>
     </div>
   );
 };

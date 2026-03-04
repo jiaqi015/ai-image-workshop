@@ -95,7 +95,7 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
             ) : (
               history.map((item) => {
                 const recordTime = item.updatedAt || item.timestamp;
-                const ipLabel = item.clientIp && item.clientIp !== 'unknown' ? item.clientIp : 'IP未知';
+                const ipLabel = item.clientIp && item.clientIp !== 'unknown' ? item.clientIp : '未知';
                 const sourceLabel = item.source === 'vercel_blob' ? '云端存档' : '本地存档';
                 const renderCount = Array.isArray(item.plan?.renderFrames) ? item.plan.renderFrames.length : 0;
                 const conceptCount = Array.isArray(item.plan?.conceptFrames) ? item.plan.conceptFrames.length : 0;
@@ -120,7 +120,7 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
                       <span className="ui-tag ui-tag-muted font-mono ui-numeric">{frameCount} 帧</span>
                     </div>
 
-                    <div className="ui-meta font-mono mb-1">IP: {ipLabel} · {sourceLabel}</div>
+                    <div className="ui-meta font-mono mb-1">来源：IP {ipLabel} · {sourceLabel}</div>
                     <div className="ui-meta mb-2">{resumeHint[statusKey]}</div>
 
                     <h3 className="text-sm font-semibold mb-1 line-clamp-1" style={{ color: 'var(--ui-text-primary)' }}>

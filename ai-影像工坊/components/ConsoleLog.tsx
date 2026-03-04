@@ -69,7 +69,7 @@ export const ConsoleLog: React.FC<ConsoleLogProps> = ({ logs, isBusy = false, ac
           </span>
           {isBusy && (
             <span className="text-[9px] font-mono ui-numeric" style={{ color: 'var(--ui-text-muted)' }}>
-              无更新 {silentSeconds}s
+              无更新 {silentSeconds}秒
             </span>
           )}
         </div>

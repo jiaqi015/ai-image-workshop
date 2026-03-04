@@ -273,7 +273,7 @@ export const Gallery: React.FC<GalleryProps> = ({ frames, plan, onRetryFrame, re
                       ) : (
                         <span className="inline-flex items-center gap-1.5">
                           <DownloadIcon className="w-3.5 h-3.5" />
-                          下载 PNG
+                          下载图片
                         </span>
                       )}
                     </button>
@@ -302,14 +302,14 @@ export const Gallery: React.FC<GalleryProps> = ({ frames, plan, onRetryFrame, re
             </button>
           </div>
 
-          <div className="flex-1 min-h-0 flex items-center justify-center relative w-full p-4 overflow-hidden">
+          <div className="flex-1 min-h-0 flex items-start justify-center relative w-full p-2 md:p-3 overflow-hidden">
             {selectedIndex > 0 && (
               <button onClick={handlePrev} className="absolute left-4 z-40 p-2.5 rounded-full bg-black/40 text-white hover:bg-black/60">
                 <ChevronLeftIcon className="w-6 h-6" />
               </button>
             )}
             <div
-              className={`relative transition-transform duration-300 flex items-center justify-center h-full w-full ${
+              className={`relative transition-transform duration-300 flex items-start justify-center h-full w-full ${
                 isZoomed ? 'scale-125 cursor-zoom-out' : 'scale-100 cursor-zoom-in'
               }`}
               onClick={(e) => {
@@ -317,7 +317,7 @@ export const Gallery: React.FC<GalleryProps> = ({ frames, plan, onRetryFrame, re
                 setIsZoomed(!isZoomed);
               }}
             >
-              <img src={selectedFrame.imageUrl} className="max-h-full max-w-full object-contain rounded" draggable={false} />
+              <img src={selectedFrame.imageUrl} className="max-h-[calc(100vh-9.25rem)] max-w-full object-contain rounded self-start" draggable={false} />
             </div>
             {selectedIndex < frames.length - 1 && (
               <button onClick={handleNext} className="absolute right-4 z-40 p-2.5 rounded-full bg-black/40 text-white hover:bg-black/60">

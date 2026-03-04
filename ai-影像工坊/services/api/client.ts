@@ -571,7 +571,7 @@ export const Infrastructure = {
             signal
         );
 
-        if (!data?.plan) throw new Error("Backend 未返回导演计划");
+        if (!data?.plan) throw new Error("后端未返回导演计划");
 
         if (onChunk) {
             const progress = [
@@ -616,7 +616,7 @@ export const Infrastructure = {
         );
 
         const prompt = String(data?.prompt || "").trim();
-        if (!prompt) throw new Error("Backend 未返回随机提示词");
+        if (!prompt) throw new Error("后端未返回随机提示词");
 
         return {
             prompt,
@@ -675,7 +675,7 @@ export const Infrastructure = {
             1200,
             signal
         );
-        if (!data?.imageUrl) throw new Error("Backend 未返回图片数据");
+        if (!data?.imageUrl) throw new Error("后端未返回图片数据");
         return data.imageUrl;
     },
 };

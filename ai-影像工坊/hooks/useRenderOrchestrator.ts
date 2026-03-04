@@ -3,6 +3,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Frame, ShootPlan, ShootStrategy, FrameMetadata } from '../types';
 import { generateFrameImage, MemoryManager, ExecutionPolicy, getModelPreferences } from '../application/studioFacade'; // Updated Import
 import { selectFrameModelType } from '../services/routing/policy';
+import { localizeRuntimeText } from '../application/uiText';
 
 // ==========================================
 // Darkroom Hook (Core Execution Logic)
@@ -162,9 +163,9 @@ export const useRenderOrchestrator = (
             if (signal?.aborted || e.message === "Aborted") return;
             console.error(`Frame #${frame.id} Final Failure:`, e);
             if (isShootingRef.current) {
-                const errorMsg = e?.message || '未知生成错误';
-                const reason = classifyErrorReason(errorMsg);
-                const brief = String(errorMsg).replace(/\s+/g, ' ').slice(0, 64);
+                const rawErrorMsg = e?.message || '未知生成错误';
+                const reason = classifyErrorReason(rawErrorMsg);
+                const brief = localizeRuntimeText(String(rawErrorMsg).replace(/\s+/g, ' ').slice(0, 64));
                 
                 addLog(`第 ${frame.id} 帧生成失败 | ${reason}: ${brief}`, 'error');
                 setFrames(prev => prev.map(f => f.id === frame.id ? { ...f, status: 'failed', error: `${reason}：${brief}` } : f));
@@ -189,6 +190,7 @@ export const useRenderOrchestrator = (
 
         const queue = [...framesToProcess];
         const totalFrames = framesToProcess.length;
+        let dequeuedCount = 0;
         
         const processNext = async () => {
             if (signal.aborted || !isShootingRef.current) return; 
@@ -196,10 +198,13 @@ export const useRenderOrchestrator = (
             const frame = queue.shift();
             if (!frame) return;
 
+            const frameIndex = dequeuedCount;
+            dequeuedCount += 1;
+
             const targetModel: 'pro' | 'flash' = selectFrameModelType({
                 strategy: currentStrategy,
                 description: frame.description,
-                frameIndex: frame.id,
+                frameIndex,
                 totalFrames
             });
 

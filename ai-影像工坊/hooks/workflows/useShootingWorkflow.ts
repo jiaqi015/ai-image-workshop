@@ -218,7 +218,7 @@ export const useShootingWorkflow = ({
       if (masterMode) {
         try {
           const deterministicDescriptions = buildMasterShotList(basePlan.continuity?.set?.environment || '', count).map(
-            (desc, idx) => `${desc}, sequence take ${startId + idx}`
+            (desc, idx) => `${desc}，序列镜头 ${startId + idx}`
           );
           const newFrames: Frame[] = deterministicDescriptions.map((desc, idx) => ({
             id: startId + idx,

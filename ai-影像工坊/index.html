@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AI影像工坊 - 专业创作工作台</title>
+    <title>影像工坊</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
@@ -44,7 +44,8 @@
         --ui-hero-max: 680px;
         --ui-layout-pad-x: 12px;
         --ui-layout-pad-y: 12px;
-        --ui-side-panel-w: 272px;
+        --ui-side-left-w: 208px;
+        --ui-side-right-w: 224px;
         --ui-history-w: 320px;
         --ui-modal-max: 520px;
         --ui-lightbox-max: 1120px;
@@ -68,7 +69,8 @@
           --ui-hero-max: 720px;
           --ui-layout-pad-x: 16px;
           --ui-layout-pad-y: 16px;
-          --ui-side-panel-w: 280px;
+          --ui-side-left-w: 216px;
+          --ui-side-right-w: 232px;
           --ui-history-w: 360px;
           --ui-modal-max: 560px;
           --ui-lightbox-max: 1180px;
@@ -87,7 +89,8 @@
           --ui-hero-max: 760px;
           --ui-layout-pad-x: 20px;
           --ui-layout-pad-y: 20px;
-          --ui-side-panel-w: 288px;
+          --ui-side-left-w: 224px;
+          --ui-side-right-w: 240px;
           --ui-history-w: 380px;
           --ui-modal-max: 600px;
           --ui-lightbox-max: 1240px;
@@ -361,7 +364,7 @@
       }
       @media (min-width: 1280px) {
         .ui-planning-grid {
-          grid-template-columns: minmax(0, 1fr) var(--ui-side-panel-w);
+          grid-template-columns: var(--ui-side-left-w) minmax(0, 1fr) var(--ui-side-right-w);
         }
       }
       :focus-visible {

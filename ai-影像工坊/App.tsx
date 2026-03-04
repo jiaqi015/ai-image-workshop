@@ -273,7 +273,7 @@ export default function App() {
             >
               <div className="flex items-center justify-between gap-3">
                 <span className="text-xs font-semibold">一致性锁定</span>
-                <span className="text-[10px] font-mono uppercase">{studio.masterMode ? 'ON' : 'OFF'}</span>
+                <span className="text-[10px] font-mono">{studio.masterMode ? '开启' : '关闭'}</span>
               </div>
               <div className="mt-1 ui-meta">固定角色与风格，减少批量结果抖动。</div>
             </button>
@@ -343,15 +343,15 @@ export default function App() {
 
       {studio.conceptPreviewUrl && (
         <div
-          className="fixed inset-0 z-[100] bg-black/70 flex items-center justify-center p-4"
+          className="fixed inset-0 z-[100] bg-black/75 flex items-start justify-center p-2 md:p-3 pt-2 md:pt-3 overflow-y-auto"
           onClick={() => studio.setConceptPreviewUrl(null)}
         >
-          <button className="absolute top-4 right-4 p-2 text-white/70 hover:text-white">
+          <button className="absolute top-3 right-3 p-2 text-white/70 hover:text-white">
             <XIcon className="w-8 h-8" />
           </button>
           <img
             src={studio.conceptPreviewUrl}
-            className="max-h-full max-w-full object-contain ui-preview-shadow rounded"
+            className="max-h-[calc(100vh-0.8rem)] max-w-full object-contain ui-preview-shadow rounded self-start"
             onClick={(e) => e.stopPropagation()}
           />
         </div>
@@ -368,10 +368,6 @@ export default function App() {
             title="打开历史项目"
           >
             <BrandLogo compact />
-            <div className="hidden md:block">
-              <div className="text-xs font-semibold" style={{ color: 'var(--ui-text-primary)' }}>AI 影像工坊</div>
-              <div className="text-[11px]" style={{ color: 'var(--ui-text-muted)' }}>输入目标画面，系统自动推进 Agent 流程</div>
-            </div>
           </button>
 
           {!isIdleLanding && (
@@ -526,7 +522,7 @@ export default function App() {
                   </section>
 
                   <div className="mt-2 flex items-center justify-between gap-3 ui-meta ui-numeric">
-                    <span>Enter 立即开始，Shift + Enter 换行。</span>
+                    <span>回车立即开始，Shift + 回车换行。</span>
                     <span>{inputCharCount} 字</span>
                   </div>
                   {studio.readinessHint && <div className="mt-1 ui-meta">{studio.readinessHint}</div>}

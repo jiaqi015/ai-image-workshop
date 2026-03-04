@@ -22,6 +22,7 @@ import { useHistorySync } from './useHistorySync';
 import { useConceptSelection } from './useConceptSelection';
 import { useStudioInfra } from './useStudioInfra';
 import { useUxMetrics } from './useUxMetrics';
+import { localizeRuntimeText } from '../application/uiText';
 
 type PromptTensionLevel = NonNullable<RandomPromptRequest['tensionLevel']>;
 type PromptCastPreference = NonNullable<RandomPromptRequest['castPreference']>;
@@ -95,17 +96,18 @@ export const useStudioOrchestrator = () => {
 
     // 通用日志记录
     const addLog = useCallback((message: string, type: 'info' | 'success' | 'error' | 'network' = 'info', latency?: number) => {
+        const localizedMessage = localizeRuntimeText(message);
         setLogs(prev => [...prev, {
             id: Math.random().toString(36).substring(7),
             timestamp: new Date().toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-            message,
+            message: localizedMessage,
             type,
             latency
         }]);
     }, []);
 
     const addValidationLog = useCallback((msg: string) => {
-        setValidationLogs(prev => [...prev, msg]);
+        setValidationLogs(prev => [...prev, localizeRuntimeText(msg)]);
     }, []);
 
     const { activeRequests, isShootingRef, executeFrameBatch, shootStreamBatch, abortAll: abortDarkroom } = useRenderOrchestrator(addLog);

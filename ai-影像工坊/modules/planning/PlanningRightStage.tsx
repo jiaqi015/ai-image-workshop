@@ -16,9 +16,23 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
   const conceptTitle = studio.frames.length > 0 ? `${studio.frames.length} 个候选方案` : '正在生成候选方案';
   const shootingPendingCount = frameStats.scripting + frameStats.pending + frameStats.generating + studio.activeRequests;
   const shootingBatchDone = studio.appState === AppState.SHOOTING && shootingPendingCount === 0;
+  const variantLabel = (variant?: string) => {
+    if (!variant) return '均衡';
+    if (variant === 'strict') return '稳健';
+    if (variant === 'balanced') return '均衡';
+    if (variant === 'creative') return '创意';
+    return variant;
+  };
 
   if (studio.appState === AppState.PLANNING && !studio.plan) {
-    return <PlanningStagePreload textModel={studio.textModel} imageModel={studio.imageModel} stream={stream} />;
+    return (
+      <PlanningStagePreload
+        textModel={studio.textModel}
+        imageModel={studio.imageModel}
+        stream={stream}
+        onReset={studio.handleReset}
+      />
+    );
   }
 
   if (studio.appState === AppState.CONCEPT) {
@@ -137,7 +151,7 @@ export const PlanningRightStage: React.FC<PlanningRightStageProps> = ({ studio, 
                   <p className="text-xs leading-relaxed min-h-[40px]" style={{ color: 'var(--ui-text-secondary)' }}>
                     {proposalFrame.description || '等待方案说明'}
                   </p>
-                  <div className="mt-2 ui-meta font-mono ui-numeric">{proposalFrame.metadata?.variantType || 'balanced'}</div>
+                  <div className="mt-2 ui-meta font-mono">{variantLabel(proposalFrame.metadata?.variantType)}</div>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     <button
                       type="button"

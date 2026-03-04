@@ -111,9 +111,9 @@ const Adjudicator = {
         const buildOption = (id: "A" | "B", index: number): OptionBlueprint => ({
             optionId: id,
             anchors: {
-                facial: charOpts[index] || charOpts[0] || "Default Subject",
-                bodyForm: bodyOpts[index] || bodyOpts[0] || "Default Body",
-                wardrobe: wardrobeOpts[index] || wardrobeOpts[0] || "Default Outfit"
+                facial: charOpts[index] || charOpts[0] || "默认主体",
+                bodyForm: bodyOpts[index] || bodyOpts[0] || "标准体型",
+                wardrobe: wardrobeOpts[index] || wardrobeOpts[0] || "基础服装"
             },
             grammar: {
                 camera: ["Cinematic Angle", "Depth of Field"], // Placeholder, effectively handled by PromptEngine defaults
@@ -247,7 +247,7 @@ ${styleDirective}
 
             if (!rawData.continuity) rawData.continuity = FALLBACK_PLAN.continuity;
             if (!rawData.continuity.character) rawData.continuity.character = { ...FALLBACK_PLAN.continuity.character };
-            if (!rawData.continuity.character.body) rawData.continuity.character.body = "Default Body Type";
+            if (!rawData.continuity.character.body) rawData.continuity.character.body = "标准体型";
             enforceAsianRealismPlan(rawData);
 
             // Ensure blueprint token exists and is current.
@@ -285,7 +285,7 @@ ${styleDirective}
                 return await postProcessPlan(backendPlan);
             } catch (e: any) {
                 if (e.message === "Aborted" || signal?.aborted) throw e;
-                if (onChunk) onChunk(`\n[系统警报] 后端导演域降级 (${e.message})，切换本地编排...\n`);
+                if (onChunk) onChunk(`\n[系统警报] 后端导演域降级，正在切换本地编排...\n`);
             }
         }
 
@@ -298,7 +298,7 @@ ${styleDirective}
         } catch (e: any) {
             if (e.message === "Aborted" || signal?.aborted) throw e;
             console.error("Director API Failed:", e);
-            if (onChunk) onChunk(`\n[系统警报] 导演链路通讯故障 (${e.message})。正在切换备用线路...\n`);
+            if (onChunk) onChunk(`\n[系统警报] 导演链路通讯故障，正在切换备用线路...\n`);
             return FALLBACK_PLAN;
         }
     },
@@ -319,7 +319,7 @@ ${styleDirective}
             const json = JSONHealer.heal(res, { variants: [] });
             return await LocalizationService.processPlanFrames(json.variants || [], "Visual Style", targetModel);
         } catch (e) {
-            return Array(count).fill("新平行宇宙方案 (生成失败)");
+            return Array(count).fill("新平行宇宙方案（生成失败）");
         }
     },
 
@@ -346,7 +346,7 @@ ${styleDirective}
             remaining -= chunks[chunks.length - 1];
         }
 
-        if (onLog) onLog(`[并行引擎] 启动 ${chunks.length} 线程流水线 (Pipeline Mode)...`);
+        if (onLog) onLog(`[并行引擎] 启动 ${chunks.length} 线程流水线（并行模式）...`);
 
         const results = await Promise.all(
             chunks.map(async (batchSize, i) => {
@@ -369,7 +369,7 @@ ${styleDirective}
                          if (onLog) onLog(`  🚀 线程 #${threadId}: 剧本就绪，发射影像生成任务...`);
                          onChunkReady(localizedScripts, i);
                      } else {
-                         if (onLog) onLog(`  ✅ 线程 #${threadId}: 闭环完成 (${localizedScripts.length}帧, ${duration}s)`);
+                         if (onLog) onLog(`  ✅ 线程 #${threadId}: 闭环完成（${localizedScripts.length}帧，${duration}秒）`);
                      }
 
                      return localizedScripts;
