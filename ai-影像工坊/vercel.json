@@ -1,6 +1,14 @@
 {
   "rewrites": [
     {
+      "source": "/beke19",
+      "destination": "/beke19/index.html"
+    },
+    {
+      "source": "/beke19/",
+      "destination": "/beke19/index.html"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
