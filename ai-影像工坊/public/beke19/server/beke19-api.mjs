@@ -687,20 +687,19 @@ function attachResearchQuality(snapshot, options = {}) {
 // src/data/latestSnapshot.ts
 var quote = {
   symbol: "BEKE",
-  price: 15.09,
+  price: 16.59,
   currency: "USD",
-  previousClose: 14.84,
-  asOf: "2026-07-03T15:15:00+08:00",
-  source: "Delayed public market data snapshot"
+  previousClose: 16.43,
+  asOf: "2026-07-07T15:00:00+08:00",
+  source: "\u5EF6\u8FDF\u884C\u60C5\u6570\u636E"
 };
 var fallbackPriceHistory = [
-  { date: "2026-06-27", close: 14.32 },
-  { date: "2026-06-28", close: 14.48 },
-  { date: "2026-06-29", close: 14.63 },
-  { date: "2026-06-30", close: 14.77 },
-  { date: "2026-07-01", close: 14.91 },
-  { date: "2026-07-02", close: 15.03 },
-  { date: "2026-07-03", close: 15.09 }
+  { date: "2026-06-30", close: 14.53 },
+  { date: "2026-07-01", close: 15.05 },
+  { date: "2026-07-02", close: 15.09 },
+  { date: "2026-07-03", close: 16.09 },
+  { date: "2026-07-04", close: 16.24 },
+  { date: "2026-07-07", close: 16.59 }
 ];
 var fallbackFactors = [
   {
@@ -4060,6 +4059,9 @@ function cloneRun(run) {
 
 // src/research/providers/mock.ts
 var REAL_PRICE_HISTORY = [
+  { date: "2026-06-30", close: 14.53 },
+  { date: "2026-07-01", close: 15.05 },
+  { date: "2026-07-02", close: 15.09 },
   { date: "2026-07-03", close: 16.09 },
   { date: "2026-07-04", close: 16.24 },
   { date: "2026-07-07", close: 16.59 }
@@ -4080,7 +4082,7 @@ var MockMarketProvider = class {
       price: latestPrice,
       currency: "USD",
       previousClose,
-      asOf: "2026-07-02T15:00:00+08:00",
+      asOf: "2026-07-07T15:00:00+08:00",
       source: "\u5EF6\u8FDF\u884C\u60C5\u6570\u636E"
     };
   }
