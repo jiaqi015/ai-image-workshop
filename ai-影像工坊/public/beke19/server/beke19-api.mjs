@@ -4059,36 +4059,15 @@ function cloneRun(run) {
 }
 
 // src/research/providers/mock.ts
-var priceCallCounter = 0;
-function seededRandom(seed) {
-  const x = Math.sin(seed) * 1e4;
-  return x - Math.floor(x);
-}
-function generateRealisticPrice() {
-  const now = /* @__PURE__ */ new Date();
-  const hour = now.getHours();
-  const minute = now.getMinutes();
-  const second = now.getSeconds();
-  const ms = now.getMilliseconds();
-  priceCallCounter++;
-  const seed = hour * 36e5 + minute * 6e4 + second * 1e3 + ms + priceCallCounter;
-  const basePrice = 15.09;
-  const maxVariation = 0.15;
-  const intradayVariation = Math.sin(seed / 864e5 * Math.PI * 2) * maxVariation;
-  const randomNoise = (seededRandom(seed) - 0.5) * 0.1;
-  const price = Number((basePrice + intradayVariation + randomNoise).toFixed(2));
-  const previousClose = 15.09;
-  return { price, previousClose };
-}
-function generatePriceHistory(days) {
-  const realHistory = [
-    { date: "2026-06-26", close: 14.26 },
-    { date: "2026-06-29", close: 14.55 },
-    { date: "2026-06-30", close: 14.53 },
-    { date: "2026-07-01", close: 15.05 },
-    { date: "2026-07-02", close: 15.09 }
-  ];
-  return realHistory.slice(-days);
+var REAL_PRICE_HISTORY = [
+  { date: "2026-06-26", close: 14.26 },
+  { date: "2026-06-29", close: 14.55 },
+  { date: "2026-06-30", close: 14.53 },
+  { date: "2026-07-01", close: 15.05 },
+  { date: "2026-07-02", close: 15.09 }
+];
+function getLatestRealPrice() {
+  return REAL_PRICE_HISTORY[REAL_PRICE_HISTORY.length - 1].close;
 }
 var MockMarketProvider = class {
   name = "MockMarketProvider";
@@ -4096,14 +4075,14 @@ var MockMarketProvider = class {
     if (symbol !== "BEKE") {
       throw new Error(`Unsupported symbol: ${symbol}`);
     }
-    const { price, previousClose } = generateRealisticPrice();
-    const changePercent = (price - previousClose) / previousClose * 100;
+    const latestPrice = getLatestRealPrice();
+    const previousClose = REAL_PRICE_HISTORY[REAL_PRICE_HISTORY.length - 2]?.close ?? latestPrice;
     return {
       symbol: "BEKE",
-      price,
+      price: latestPrice,
       currency: "USD",
       previousClose,
-      asOf: (/* @__PURE__ */ new Date()).toISOString(),
+      asOf: "2026-07-02T15:00:00+08:00",
       source: "\u5EF6\u8FDF\u884C\u60C5\u6570\u636E"
     };
   }
@@ -4111,7 +4090,7 @@ var MockMarketProvider = class {
     if (symbol !== "BEKE") {
       throw new Error(`Unsupported symbol: ${symbol}`);
     }
-    return generatePriceHistory(days);
+    return REAL_PRICE_HISTORY.slice(-days);
   }
 };
 var publicItems = [
@@ -4119,37 +4098,19 @@ var publicItems = [
     id: "ke-buyback-20260702",
     title: "\u8D1D\u58F3-W 7 \u6708 2 \u65E5\u7EE7\u7EED\u6267\u884C\u7EA6 500 \u4E07\u7F8E\u5143\u56DE\u8D2D",
     source: "\u4E1C\u65B9\u8D22\u5BCC",
-    url: "https://quote.eastmoney.com/us/BEKE.html?jump_to_web=true",
+    url: "https://quote.eastmoney.com/us/BEKE.html",
     publishedAt: "2026-07-03T08:00:00Z",
     summary: "\u516C\u5F00\u5E02\u573A\u4FE1\u606F\u663E\u793A\u8D1D\u58F3-W 7 \u6708 2 \u65E5\u7EE7\u7EED\u56DE\u8D2D\u80A1\u4EFD\uFF0C\u56DE\u8D2D\u8282\u594F\u4ECD\u662F BEKE \u4FEE\u590D\u4EA4\u6613\u7684\u91CD\u8981\u652F\u6491\u3002",
     reliability: 0.72
   },
   {
     id: "beke-close-20260702",
-    title: "BEKE 7 \u6708 2 \u65E5\u6536\u4E8E 15.09 \u7F8E\u5143\uFF0C\u673A\u6784\u76EE\u6807\u4EF7\u5747\u503C\u9AD8\u4E8E\u73B0\u4EF7",
+    title: "BEKE 7 \u6708 2 \u65E5\u6536\u4E8E 15.09 \u7F8E\u5143",
     source: "\u8BC1\u5238\u4E4B\u661F",
-    url: "https://www.sohu.com/a/1045050282_122123195",
+    url: "https://www.sohu.com/",
     publishedAt: "2026-07-03T06:01:00Z",
-    summary: "\u8BC1\u5238\u4E4B\u661F\u636E\u516C\u5F00\u4FE1\u606F\u6574\u7406\uFF0CBEKE 7 \u6708 2 \u65E5\u6536\u4E8E 15.09 \u7F8E\u5143\uFF0C\u673A\u6784\u76EE\u6807\u4EF7\u5747\u503C\u7EA6 20.68 \u7F8E\u5143\u3002",
+    summary: "BEKE 7 \u6708 2 \u65E5\u6536\u4E8E 15.09 \u7F8E\u5143\uFF0C\u673A\u6784\u76EE\u6807\u4EF7\u5747\u503C\u9AD8\u4E8E\u73B0\u4EF7\u3002",
     reliability: 0.62
-  },
-  {
-    id: "ke-buyback-20260701",
-    title: "\u8D1D\u58F3-W 7 \u6708 1 \u65E5\u8017\u8D44\u7EA6 500 \u4E07\u7F8E\u5143\u56DE\u8D2D",
-    source: "\u5BCC\u9014\u725B\u725B",
-    url: "https://www.futunn.com/hk/stock/BEKE-US/news",
-    publishedAt: "2026-07-02T10:30:00Z",
-    summary: "\u6E2F\u80A1\u516C\u544A\u4FE1\u606F\u663E\u793A\u8D1D\u58F3-W 7 \u6708 1 \u65E5\u7EE7\u7EED\u56DE\u8D2D\uFF0C\u8BF4\u660E\u8D44\u672C\u56DE\u62A5\u8282\u594F\u4ECD\u5728\u5EF6\u7EED\u3002",
-    reliability: 0.7
-  },
-  {
-    id: "china-adr-sentiment",
-    title: "\u4E2D\u6982\u80A1\u677F\u5757\u5206\u5316\uFF0C\u5730\u4EA7\u79D1\u6280\u80A1\u627F\u538B",
-    source: "\u8D22\u8054\u793E",
-    url: "https://www.cls.cn/",
-    publishedAt: "2026-07-02T09:00:00Z",
-    summary: "\u4E2D\u6982\u80A1\u677F\u5757\u6574\u4F53\u5206\u5316\uFF0C\u5730\u4EA7\u79D1\u6280\u7C7B\u516C\u53F8\u627F\u538B\uFF0C\u53EF\u80FD\u653E\u5927 BEKE ADR \u7684\u77ED\u7EBF\u6CE2\u52A8\u3002",
-    reliability: 0.6
   },
   {
     id: "property-policy-watch",
@@ -4159,98 +4120,18 @@ var publicItems = [
     publishedAt: "2026-07-01T10:00:00Z",
     summary: "\u4F4F\u5EFA\u90E8\u4F1A\u8BAE\u5F3A\u8C03\u56E0\u57CE\u65BD\u7B56\u652F\u6301\u521A\u6027\u548C\u6539\u5584\u6027\u4F4F\u623F\u9700\u6C42\uFF0C\u4F46\u5E02\u573A\u4ECD\u9700\u8981\u6210\u4EA4\u548C\u623F\u4EF7\u6570\u636E\u9A8C\u8BC1\u3002",
     reliability: 0.75
-  },
-  {
-    id: "ke-buyback-mandate-20260629",
-    title: "KE Holdings Steps Up Share Buybacks Under June 2026 Mandate",
-    source: "MarketWatch",
-    url: "https://www.marketwatch.com/investing/stock/beke",
-    publishedAt: "2026-06-29T13:35:00Z",
-    summary: "MarketWatch \u805A\u5408\u4FE1\u606F\u663E\u793A\uFF0CKE Holdings \u5728 6 \u6708\u56DE\u8D2D\u6388\u6743\u4E0B\u7EE7\u7EED\u63A8\u8FDB\u80A1\u4EFD\u56DE\u8D2D\u3002",
-    reliability: 0.68
-  },
-  {
-    id: "ke-price-stabilize",
-    title: "BEKE 6 \u6708\u4E0B\u65EC\u4EF7\u683C\u56DE\u843D\u540E\u4F01\u7A33",
-    source: "KE Holdings IR",
-    url: "https://investors.ke.com/stock-information/historical-price-lookup/",
-    publishedAt: "2026-06-26T21:00:00Z",
-    summary: "\u5386\u53F2\u4EF7\u683C\u663E\u793A 6 \u6708\u4E0B\u65EC\u6536\u76D8\u4EF7\u56DE\u843D\u540E\u4F01\u7A33\uFF0C\u6210\u4E3A\u672C\u6B21\u76EE\u6807\u4EF7\u6982\u7387\u66F4\u65B0\u7684\u5E02\u573A\u57FA\u7840\u3002",
-    reliability: 0.82
-  },
-  {
-    id: "beke-gf-score-20260617",
-    title: "BEKE \u8FD1\u671F\u56DE\u64A4\u540E\uFF0C\u5E02\u573A\u91CD\u65B0\u8BA8\u8BBA\u4F30\u503C\u8D28\u91CF",
-    source: "MarketWatch",
-    url: "https://www.marketwatch.com/investing/stock/beke#gf-score-20260617",
-    publishedAt: "2026-06-17T20:10:00Z",
-    summary: "\u516C\u5F00\u5E02\u573A\u805A\u5408\u4FE1\u606F\u663E\u793A\uFF0CBEKE \u8FD1\u671F\u56DE\u64A4\u540E\u4F30\u503C\u8D28\u91CF\u548C\u8D8B\u52BF\u53CD\u8F6C\u6761\u4EF6\u91CD\u65B0\u53D7\u5230\u5173\u6CE8\u3002",
-    reliability: 0.6
-  },
-  {
-    id: "ke-agm-2026",
-    title: "\u8D1D\u58F3\u5E74\u5EA6\u80A1\u4E1C\u5927\u4F1A\u901A\u8FC7\u8463\u4E8B\u91CD\u9009\u4E0E\u4E00\u822C\u56DE\u8D2D\u6388\u6743",
-    source: "KE Holdings IR",
-    url: "https://investors.ke.com/news-releases/news-release-details/ke-holdings-inc-announces-results-annual-general-meeting-2",
-    publishedAt: "2026-06-12T12:00:00Z",
-    summary: "\u80A1\u4E1C\u5927\u4F1A\u901A\u8FC7\u7AE0\u7A0B\u66F4\u65B0\u3001\u8463\u4E8B\u91CD\u9009\u53CA\u80A1\u4EFD\u53D1\u884C\u548C\u56DE\u8D2D\u6388\u6743\uFF0C\u8D44\u672C\u56DE\u62A5\u9884\u671F\u4ECD\u662F\u5E02\u573A\u5173\u6CE8\u70B9\u3002",
-    reliability: 0.85
-  },
-  {
-    id: "ke-q1-2026",
-    title: "\u8D1D\u58F3 Q1 2026 \u6536\u5165\u540C\u6BD4\u4E0B\u964D\uFF0C\u4F46\u6BDB\u5229\u7387\u6539\u5584",
-    source: "KE Holdings IR",
-    url: "https://investors.ke.com/news-releases/news-release-details/ke-holdings-inc-announces-first-quarter-2026-unaudited-financial/",
-    publishedAt: "2026-05-19T12:00:00Z",
-    summary: "Q1 2026 \u51C0\u6536\u5165\u540C\u6BD4\u4E0B\u964D 19.0%\uFF0C\u65E2\u6709\u623F\u548C\u65B0\u623F\u4EA4\u6613 GTV \u627F\u538B\uFF1B\u6BDB\u5229\u7387\u6539\u5584\u81F3 24.1%\uFF0C\u663E\u793A\u6210\u672C\u548C\u4E1A\u52A1\u7ED3\u6784\u4ECD\u6709\u97E7\u6027\u3002",
-    reliability: 0.9
-  },
-  {
-    id: "property-data-weak",
-    title: "\u56FD\u5BB6\u7EDF\u8BA1\u5C40\uFF1A6 \u6708\u623F\u5730\u4EA7\u9500\u552E\u6570\u636E\u4ECD\u504F\u5F31",
-    source: "\u56FD\u5BB6\u7EDF\u8BA1\u5C40",
-    url: "https://www.stats.gov.cn/",
-    publishedAt: "2026-07-01T09:00:00Z",
-    summary: "\u56FD\u5BB6\u7EDF\u8BA1\u5C40\u6570\u636E\u663E\u793A\uFF0C6 \u6708\u623F\u5730\u4EA7\u9500\u552E\u9762\u79EF\u548C\u91D1\u989D\u540C\u6BD4\u4ECD\u4E0B\u964D\uFF0C\u884C\u4E1A\u4FEE\u590D\u5C1A\u9700\u65F6\u95F4\u3002",
-    reliability: 0.8
-  },
-  {
-    id: "china-adr-rebound",
-    title: "\u4E2D\u6982\u80A1\u677F\u5757\u5C0F\u5E45\u53CD\u5F39\uFF0CKWEB \u6307\u6570\u4E0A\u6DA8 1.2%",
-    source: "\u8D22\u8054\u793E",
-    url: "https://www.cls.cn/",
-    publishedAt: "2026-07-02T15:00:00Z",
-    summary: "\u4E2D\u6982\u80A1\u677F\u5757\u5C0F\u5E45\u53CD\u5F39\uFF0CKWEB \u6307\u6570\u4E0A\u6DA8 1.2%\uFF0C\u4F46\u6210\u4EA4\u91CF\u840E\u7F29\uFF0C\u53CD\u5F39\u6301\u7EED\u6027\u5F85\u89C2\u5BDF\u3002",
-    reliability: 0.65
   }
 ];
-function selectNewsByTime(items) {
-  const hour = (/* @__PURE__ */ new Date()).getHours();
-  const seed = hour % 3;
-  if (seed === 0) {
-    return items.filter(
-      (item) => item.source === "KE Holdings IR" || item.source === "\u4E1C\u65B9\u8D22\u5BCC" || item.source === "\u8BC1\u5238\u4E4B\u661F"
-    );
-  } else if (seed === 1) {
-    return items.filter(
-      (item) => item.source === "\u8D22\u8054\u793E" || item.source === "\u65B0\u534E\u793E" || item.source === "\u56FD\u5BB6\u7EDF\u8BA1\u5C40"
-    );
-  } else {
-    return items.filter(
-      (item) => item.source === "MarketWatch" || item.source === "\u5BCC\u9014\u725B\u725B"
-    );
-  }
-}
 var MockNewsProvider = class {
   name = "MockNewsProvider";
   async fetch(_query, _sinceHours) {
-    return selectNewsByTime(publicItems);
+    return publicItems;
   }
 };
 var MockOfficialProvider = class {
   name = "MockOfficialProvider";
   async fetchRecentItems(_sinceHours) {
-    return publicItems.filter((item) => item.source === "KE Holdings IR");
+    return publicItems.filter((item) => item.source === "KE Holdings IR" || item.source === "\u8BC1\u5238\u4E4B\u661F");
   }
 };
 var MockMacroProvider = class {
@@ -4261,19 +4142,13 @@ var MockMacroProvider = class {
         name: "\u4E2D\u6982\u98CE\u9669\u504F\u597D",
         score: 0.2,
         direction: "neutral",
-        rationale: "\u4E2D\u6982\u60C5\u7EEA\u77ED\u7EBF\u4FEE\u590D\uFF0C\u4F46\u6CE2\u52A8\u4ECD\u9AD8\u3002KWEB \u6307\u6570\u8FD1\u4E00\u5468\u4E0A\u6DA8 1.2%\uFF0C\u4F46\u6210\u4EA4\u91CF\u840E\u7F29\u3002"
+        rationale: "\u4E2D\u6982\u60C5\u7EEA\u77ED\u7EBF\u4FEE\u590D\uFF0C\u4F46\u6CE2\u52A8\u4ECD\u9AD8\u3002"
       },
       {
         name: "\u5730\u4EA7\u653F\u7B56\u89C2\u5BDF",
         score: 0.1,
         direction: "neutral",
-        rationale: "\u653F\u7B56\u9884\u671F\u5B58\u5728\uFF0C\u4F46\u5C1A\u672A\u5F62\u6210\u65B0\u7684\u5F3A\u50AC\u5316\u3002\u4F4F\u5EFA\u90E8\u8868\u6001\u652F\u6301\u521A\u9700\uFF0C\u4F46\u5E02\u573A\u7B49\u5F85\u66F4\u591A\u6570\u636E\u9A8C\u8BC1\u3002"
-      },
-      {
-        name: "\u7F8E\u8054\u50A8\u653F\u7B56",
-        score: 0,
-        direction: "neutral",
-        rationale: "\u7F8E\u8054\u50A8\u7EF4\u6301\u5229\u7387\u4E0D\u53D8\uFF0C\u5E02\u573A\u9884\u671F\u5E74\u5185\u964D\u606F\u6982\u7387\u4E0B\u964D\uFF0C\u5BF9\u6210\u957F\u80A1\u4F30\u503C\u6784\u6210\u538B\u529B\u3002"
+        rationale: "\u653F\u7B56\u9884\u671F\u5B58\u5728\uFF0C\u4F46\u5C1A\u672A\u5F62\u6210\u65B0\u7684\u5F3A\u50AC\u5316\u3002"
       }
     ];
   }
