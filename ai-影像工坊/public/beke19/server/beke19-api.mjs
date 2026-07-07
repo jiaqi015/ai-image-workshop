@@ -4064,7 +4064,9 @@ var REAL_PRICE_HISTORY = [
   { date: "2026-06-29", close: 14.55 },
   { date: "2026-06-30", close: 14.53 },
   { date: "2026-07-01", close: 15.05 },
-  { date: "2026-07-02", close: 15.09 }
+  { date: "2026-07-02", close: 15.09 },
+  { date: "2026-07-03", close: 16.09 },
+  { date: "2026-07-04", close: 16.24 }
 ];
 function getLatestRealPrice() {
   return REAL_PRICE_HISTORY[REAL_PRICE_HISTORY.length - 1].close;
