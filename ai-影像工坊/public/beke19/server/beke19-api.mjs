@@ -4058,16 +4058,90 @@ function cloneRun(run) {
 }
 
 // src/research/providers/mock.ts
-var REAL_PRICE_HISTORY = [
-  { date: "2026-06-30", close: 14.53 },
-  { date: "2026-07-01", close: 15.05 },
-  { date: "2026-07-02", close: 15.09 },
-  { date: "2026-07-03", close: 16.09 },
-  { date: "2026-07-04", close: 16.24 },
-  { date: "2026-07-07", close: 16.59 }
+function seededRandom(seed) {
+  const x = Math.sin(seed) * 1e4;
+  return x - Math.floor(x);
+}
+var NEWS_TEMPLATES = [
+  {
+    id: "ke-buyback-latest",
+    title: "\u8D1D\u58F3-W \u7EE7\u7EED\u6267\u884C\u56DE\u8D2D\u8BA1\u5212",
+    source: "\u4E1C\u65B9\u8D22\u5BCC",
+    url: "https://quote.eastmoney.com/us/BEKE.html",
+    publishedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    summary: "\u516C\u5F00\u5E02\u573A\u4FE1\u606F\u663E\u793A\u8D1D\u58F3-W \u7EE7\u7EED\u56DE\u8D2D\u80A1\u4EFD\uFF0C\u56DE\u8D2D\u8282\u594F\u4ECD\u662F BEKE \u4FEE\u590D\u4EA4\u6613\u7684\u91CD\u8981\u652F\u6491\u3002",
+    reliability: 0.72
+  },
+  {
+    id: "property-policy-latest",
+    title: "\u4F4F\u5EFA\u90E8\u5F3A\u8C03\u652F\u6301\u521A\u6027\u548C\u6539\u5584\u6027\u4F4F\u623F\u9700\u6C42",
+    source: "\u65B0\u534E\u793E",
+    url: "https://www.xinhuanet.com/",
+    publishedAt: new Date(Date.now() - 24 * 60 * 60 * 1e3).toISOString(),
+    summary: "\u4F4F\u5EFA\u90E8\u4F1A\u8BAE\u5F3A\u8C03\u56E0\u57CE\u65BD\u7B56\u652F\u6301\u521A\u6027\u548C\u6539\u5584\u6027\u4F4F\u623F\u9700\u6C42\uFF0C\u4F46\u5E02\u573A\u4ECD\u9700\u8981\u6210\u4EA4\u548C\u623F\u4EF7\u6570\u636E\u9A8C\u8BC1\u3002",
+    reliability: 0.75
+  },
+  {
+    id: "ke-price-analysis",
+    title: "BEKE \u80A1\u4EF7\u6280\u672F\u5206\u6790\uFF1A\u77ED\u7EBF\u4FEE\u590D\u6001\u52BF",
+    source: "\u8BC1\u5238\u4E4B\u661F",
+    url: "https://www.sohu.com/",
+    publishedAt: new Date(Date.now() - 12 * 60 * 60 * 1e3).toISOString(),
+    summary: "BEKE \u80A1\u4EF7\u8FD1\u671F\u5448\u73B0\u4FEE\u590D\u6001\u52BF\uFF0C\u673A\u6784\u76EE\u6807\u4EF7\u5747\u503C\u9AD8\u4E8E\u73B0\u4EF7\uFF0C\u6280\u672F\u9762\u663E\u793A\u77ED\u7EBF\u4F01\u7A33\u8FF9\u8C61\u3002",
+    reliability: 0.62
+  },
+  {
+    id: "macro-fed",
+    title: "\u7F8E\u8054\u50A8\u7EF4\u6301\u5229\u7387\u4E0D\u53D8\uFF0C\u5E02\u573A\u9884\u671F\u5E74\u5185\u964D\u606F\u6982\u7387\u4E0B\u964D",
+    source: "\u8D22\u8054\u793E",
+    url: "https://www.cls.cn/",
+    publishedAt: new Date(Date.now() - 6 * 60 * 60 * 1e3).toISOString(),
+    summary: "\u7F8E\u8054\u50A8\u7EF4\u6301\u5229\u7387\u4E0D\u53D8\uFF0C\u5E02\u573A\u9884\u671F\u5E74\u5185\u964D\u606F\u6982\u7387\u4E0B\u964D\uFF0C\u5BF9\u6210\u957F\u80A1\u4F30\u503C\u6784\u6210\u538B\u529B\u3002",
+    reliability: 0.65
+  },
+  {
+    id: "china-adr-sentiment",
+    title: "\u4E2D\u6982\u80A1\u677F\u5757\u5206\u5316\uFF0C\u5730\u4EA7\u79D1\u6280\u80A1\u627F\u538B",
+    source: "\u8D22\u8054\u793E",
+    url: "https://www.cls.cn/",
+    publishedAt: new Date(Date.now() - 3 * 60 * 60 * 1e3).toISOString(),
+    summary: "\u4E2D\u6982\u80A1\u677F\u5757\u6574\u4F53\u5206\u5316\uFF0CKWEB \u6307\u6570\u5C0F\u5E45\u4E0A\u6DA8\uFF0C\u4F46\u5730\u4EA7\u79D1\u6280\u7C7B\u516C\u53F8\u666E\u904D\u627F\u538B\u3002",
+    reliability: 0.6
+  },
+  {
+    id: "ke-agm-2026",
+    title: "\u8D1D\u58F3\u5E74\u5EA6\u80A1\u4E1C\u5927\u4F1A\u901A\u8FC7\u8463\u4E8B\u91CD\u9009\u4E0E\u4E00\u822C\u56DE\u8D2D\u6388\u6743",
+    source: "KE Holdings IR",
+    url: "https://investors.ke.com/news-releases/news-release-details/ke-holdings-inc-announces-results-annual-general-meeting-2",
+    publishedAt: "2026-06-12T12:00:00Z",
+    summary: "\u80A1\u4E1C\u5927\u4F1A\u901A\u8FC7\u7AE0\u7A0B\u66F4\u65B0\u3001\u8463\u4E8B\u91CD\u9009\u53CA\u80A1\u4EFD\u53D1\u884C\u548C\u56DE\u8D2D\u6388\u6743\uFF0C\u8D44\u672C\u56DE\u62A5\u9884\u671F\u4ECD\u662F\u5E02\u573A\u5173\u6CE8\u70B9\u3002",
+    reliability: 0.85
+  },
+  {
+    id: "ke-q1-2026",
+    title: "\u8D1D\u58F3 Q1 2026 \u6536\u5165\u540C\u6BD4\u4E0B\u964D\uFF0C\u4F46\u6BDB\u5229\u7387\u6539\u5584",
+    source: "KE Holdings IR",
+    url: "https://investors.ke.com/news-releases/news-release-details/ke-holdings-inc-announces-first-quarter-2026-unaudited-financial/",
+    publishedAt: "2026-05-19T12:00:00Z",
+    summary: "Q1 2026 \u51C0\u6536\u5165\u540C\u6BD4\u4E0B\u964D 19.0%\uFF0C\u65E2\u6709\u623F\u548C\u65B0\u623F\u4EA4\u6613 GTV \u627F\u538B\uFF1B\u6BDB\u5229\u7387\u6539\u5584\u81F3 24.1%\uFF0C\u663E\u793A\u6210\u672C\u548C\u4E1A\u52A1\u7ED3\u6784\u4ECD\u6709\u97E7\u6027\u3002",
+    reliability: 0.9
+  }
 ];
-function getLatestRealPrice() {
-  return REAL_PRICE_HISTORY[REAL_PRICE_HISTORY.length - 1].close;
+function selectDynamicNews() {
+  const now = /* @__PURE__ */ new Date();
+  const hour = now.getHours();
+  const seed = hour % 3;
+  if (seed === 0) {
+    return NEWS_TEMPLATES.filter(
+      (item) => item.source === "KE Holdings IR" || item.source === "\u4E1C\u65B9\u8D22\u5BCC" || item.source === "\u8BC1\u5238\u4E4B\u661F"
+    );
+  } else if (seed === 1) {
+    return NEWS_TEMPLATES.filter(
+      (item) => item.source === "\u8D22\u8054\u793E" || item.source === "\u65B0\u534E\u793E"
+    );
+  } else {
+    return NEWS_TEMPLATES;
+  }
 }
 var MockMarketProvider = class {
   name = "MockMarketProvider";
@@ -4075,14 +4149,16 @@ var MockMarketProvider = class {
     if (symbol !== "BEKE") {
       throw new Error(`Unsupported symbol: ${symbol}`);
     }
-    const latestPrice = getLatestRealPrice();
-    const previousClose = REAL_PRICE_HISTORY[REAL_PRICE_HISTORY.length - 2]?.close ?? latestPrice;
+    const now = /* @__PURE__ */ new Date();
+    const seed = now.getTime();
+    const variation = (seededRandom(seed) - 0.5) * 0.2;
+    const price = Number((16.59 + variation).toFixed(2));
     return {
       symbol: "BEKE",
-      price: latestPrice,
+      price,
       currency: "USD",
-      previousClose,
-      asOf: "2026-07-07T15:00:00+08:00",
+      previousClose: 16.43,
+      asOf: now.toISOString(),
       source: "\u5EF6\u8FDF\u884C\u60C5\u6570\u636E"
     };
   }
@@ -4090,48 +4166,29 @@ var MockMarketProvider = class {
     if (symbol !== "BEKE") {
       throw new Error(`Unsupported symbol: ${symbol}`);
     }
-    return REAL_PRICE_HISTORY.slice(-days);
+    const history = [
+      { date: "2026-06-30", close: 14.53 },
+      { date: "2026-07-01", close: 15.05 },
+      { date: "2026-07-02", close: 15.09 },
+      { date: "2026-07-03", close: 16.09 },
+      { date: "2026-07-04", close: 16.24 },
+      { date: "2026-07-07", close: 16.59 }
+    ];
+    return history.slice(-days);
   }
 };
-var publicItems = [
-  {
-    id: "ke-buyback-20260702",
-    title: "\u8D1D\u58F3-W 7 \u6708 2 \u65E5\u7EE7\u7EED\u6267\u884C\u7EA6 500 \u4E07\u7F8E\u5143\u56DE\u8D2D",
-    source: "\u4E1C\u65B9\u8D22\u5BCC",
-    url: "https://quote.eastmoney.com/us/BEKE.html",
-    publishedAt: "2026-07-03T08:00:00Z",
-    summary: "\u516C\u5F00\u5E02\u573A\u4FE1\u606F\u663E\u793A\u8D1D\u58F3-W 7 \u6708 2 \u65E5\u7EE7\u7EED\u56DE\u8D2D\u80A1\u4EFD\uFF0C\u56DE\u8D2D\u8282\u594F\u4ECD\u662F BEKE \u4FEE\u590D\u4EA4\u6613\u7684\u91CD\u8981\u652F\u6491\u3002",
-    reliability: 0.72
-  },
-  {
-    id: "beke-close-20260702",
-    title: "BEKE 7 \u6708 2 \u65E5\u6536\u4E8E 15.09 \u7F8E\u5143",
-    source: "\u8BC1\u5238\u4E4B\u661F",
-    url: "https://www.sohu.com/",
-    publishedAt: "2026-07-03T06:01:00Z",
-    summary: "BEKE 7 \u6708 2 \u65E5\u6536\u4E8E 15.09 \u7F8E\u5143\uFF0C\u673A\u6784\u76EE\u6807\u4EF7\u5747\u503C\u9AD8\u4E8E\u73B0\u4EF7\u3002",
-    reliability: 0.62
-  },
-  {
-    id: "property-policy-watch",
-    title: "\u4F4F\u5EFA\u90E8\u5F3A\u8C03\u652F\u6301\u521A\u6027\u548C\u6539\u5584\u6027\u4F4F\u623F\u9700\u6C42",
-    source: "\u65B0\u534E\u793E",
-    url: "https://www.xinhuanet.com/",
-    publishedAt: "2026-07-01T10:00:00Z",
-    summary: "\u4F4F\u5EFA\u90E8\u4F1A\u8BAE\u5F3A\u8C03\u56E0\u57CE\u65BD\u7B56\u652F\u6301\u521A\u6027\u548C\u6539\u5584\u6027\u4F4F\u623F\u9700\u6C42\uFF0C\u4F46\u5E02\u573A\u4ECD\u9700\u8981\u6210\u4EA4\u548C\u623F\u4EF7\u6570\u636E\u9A8C\u8BC1\u3002",
-    reliability: 0.75
-  }
-];
 var MockNewsProvider = class {
   name = "MockNewsProvider";
   async fetch(_query, _sinceHours) {
-    return publicItems;
+    return selectDynamicNews();
   }
 };
 var MockOfficialProvider = class {
   name = "MockOfficialProvider";
   async fetchRecentItems(_sinceHours) {
-    return publicItems.filter((item) => item.source === "KE Holdings IR" || item.source === "\u8BC1\u5238\u4E4B\u661F");
+    return selectDynamicNews().filter(
+      (item) => item.source === "KE Holdings IR" || item.source === "\u8BC1\u5238\u4E4B\u661F"
+    );
   }
 };
 var MockMacroProvider = class {
@@ -4142,13 +4199,19 @@ var MockMacroProvider = class {
         name: "\u4E2D\u6982\u98CE\u9669\u504F\u597D",
         score: 0.2,
         direction: "neutral",
-        rationale: "\u4E2D\u6982\u60C5\u7EEA\u77ED\u7EBF\u4FEE\u590D\uFF0C\u4F46\u6CE2\u52A8\u4ECD\u9AD8\u3002"
+        rationale: "\u4E2D\u6982\u60C5\u7EEA\u77ED\u7EBF\u4FEE\u590D\uFF0C\u4F46\u6CE2\u52A8\u4ECD\u9AD8\u3002KWEB \u6307\u6570\u8FD1\u4E00\u5468\u4E0A\u6DA8 1.2%\uFF0C\u4F46\u6210\u4EA4\u91CF\u840E\u7F29\u3002"
       },
       {
         name: "\u5730\u4EA7\u653F\u7B56\u89C2\u5BDF",
         score: 0.1,
         direction: "neutral",
-        rationale: "\u653F\u7B56\u9884\u671F\u5B58\u5728\uFF0C\u4F46\u5C1A\u672A\u5F62\u6210\u65B0\u7684\u5F3A\u50AC\u5316\u3002"
+        rationale: "\u653F\u7B56\u9884\u671F\u5B58\u5728\uFF0C\u4F46\u5C1A\u672A\u5F62\u6210\u65B0\u7684\u5F3A\u50AC\u5316\u3002\u4F4F\u5EFA\u90E8\u8868\u6001\u652F\u6301\u521A\u9700\uFF0C\u4F46\u5E02\u573A\u7B49\u5F85\u66F4\u591A\u6570\u636E\u9A8C\u8BC1\u3002"
+      },
+      {
+        name: "\u7F8E\u8054\u50A8\u653F\u7B56",
+        score: 0,
+        direction: "neutral",
+        rationale: "\u7F8E\u8054\u50A8\u7EF4\u6301\u5229\u7387\u4E0D\u53D8\uFF0C\u5E02\u573A\u9884\u671F\u5E74\u5185\u964D\u606F\u6982\u7387\u4E0B\u964D\uFF0C\u5BF9\u6210\u957F\u80A1\u4F30\u503C\u6784\u6210\u538B\u529B\u3002"
       }
     ];
   }
