@@ -36,6 +36,7 @@ loadEnvFile(".env");
 loadEnvFile(".env.local");
 const { default: aiHandler } = await import("../api/ai.js");
 const { default: historyHandler } = await import("../api/history.js");
+const { default: beke19Handler } = await import("../api/beke19.js");
 
 const parseJsonBody = async (req) => {
   const chunks = [];
@@ -80,6 +81,13 @@ const resolveHandler = (pathname) => {
       name: "history",
       handler: historyHandler,
       defaultAction: "list",
+    };
+  }
+  if (pathname === "/api/beke19") {
+    return {
+      name: "beke19",
+      handler: beke19Handler,
+      defaultAction: "snapshot",
     };
   }
   return null;
@@ -159,4 +167,5 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`[api] local gateway ready on http://127.0.0.1:${PORT}/api/ai`);
   console.log(`[api] local history ready on http://127.0.0.1:${PORT}/api/history`);
+  console.log(`[api] local beke19 ready on http://127.0.0.1:${PORT}/api/beke19?action=snapshot`);
 });
