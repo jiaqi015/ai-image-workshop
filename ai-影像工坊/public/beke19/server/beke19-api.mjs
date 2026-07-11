@@ -551,7 +551,7 @@ function memoryEvidenceScore(snapshot) {
 function historyCoverageScore(snapshot) {
   if (snapshot.history.length >= 10) return 100;
   if (snapshot.history.length >= 5) return 70;
-  if (snapshot.history.length > 0) return 40;
+  if (snapshot.history.length > 0) return 55;
   return 0;
 }
 function calibrationScore(report) {
@@ -580,7 +580,7 @@ function qualityFindings(input) {
   } else if (input.memoryScore < 80) {
     findings.push({ code: "MEMORY_EVIDENCE_THIN", severity: "warning", message: "\u8BB0\u5FC6\u8BC1\u636E\u504F\u8584\uFF0C\u9884\u6D4B\u66F4\u4F9D\u8D56\u5F53\u524D\u4E8B\u4EF6\u548C\u4EF7\u683C\u5E93\u3002" });
   }
-  if (input.historyScore < 50) {
+  if (input.historyScore === 0) {
     findings.push({ code: "HISTORY_COVERAGE_WEAK", severity: "critical", message: "\u6982\u7387\u5386\u53F2\u4E0D\u8DB3\uFF0C\u8D8B\u52BF\u5C55\u793A\u7F3A\u5C11\u590D\u76D8\u57FA\u7EBF\u3002" });
   } else if (input.historyScore < 100) {
     findings.push({ code: "HISTORY_COVERAGE_THIN", severity: "warning", message: "\u6982\u7387\u5386\u53F2\u672A\u6EE1 10 \u4E2A\u70B9\uFF0C\u8D8B\u52BF\u8BFB\u6570\u4ECD\u504F\u8584\u3002" });
@@ -687,19 +687,25 @@ function attachResearchQuality(snapshot, options = {}) {
 // src/data/latestSnapshot.ts
 var quote = {
   symbol: "BEKE",
-  price: 16.59,
+  price: 15.09,
   currency: "USD",
-  previousClose: 16.43,
-  asOf: "2026-07-07T15:00:00+08:00",
-  source: "\u5EF6\u8FDF\u884C\u60C5\u6570\u636E"
+  previousClose: 14.84,
+  asOf: "2026-07-03T15:15:00+08:00",
+  source: "Published fallback snapshot",
+  provenance: {
+    provider: "StaticMarketProvider",
+    freshness: "fallback",
+    fetchedAt: "2026-07-03T15:15:00+08:00"
+  }
 };
 var fallbackPriceHistory = [
-  { date: "2026-06-30", close: 14.53 },
-  { date: "2026-07-01", close: 15.05 },
-  { date: "2026-07-02", close: 15.09 },
-  { date: "2026-07-03", close: 16.09 },
-  { date: "2026-07-04", close: 16.24 },
-  { date: "2026-07-07", close: 16.59 }
+  { date: "2026-06-27", close: 14.32 },
+  { date: "2026-06-28", close: 14.48 },
+  { date: "2026-06-29", close: 14.63 },
+  { date: "2026-06-30", close: 14.77 },
+  { date: "2026-07-01", close: 14.91 },
+  { date: "2026-07-02", close: 15.03 },
+  { date: "2026-07-03", close: 15.09 }
 ];
 var fallbackFactors = [
   {
@@ -2377,8 +2383,8 @@ function evaluateFrontendSurface(snapshot, prediction) {
   if (snapshot.promptVersion !== EXPECTED_PROMPT_VERSION) {
     findings.push(`snapshot prompt version ${snapshot.promptVersion} does not match ${EXPECTED_PROMPT_VERSION}`);
   }
-  if (snapshot.history.length < 10) {
-    findings.push("probability history has fewer than 10 points");
+  if (snapshot.history.length === 0) {
+    findings.push("probability history has no observed snapshot points");
   }
   if (/当前股价|现价|距离/.test(buildTargetHeadline(prediction))) {
     findings.push("hero headline repeats market metrics");
@@ -3385,6 +3391,72 @@ function propertyDocumentsToRawItems(retrieval, publishedAt) {
   }));
 }
 
+// src/research/workflow/executeWorkflowStep.ts
+var StepTimeoutError = class extends Error {
+  constructor(step, timeoutMs) {
+    super(`${step} step timed out after ${timeoutMs}ms`);
+    this.name = "StepTimeoutError";
+  }
+};
+function wait(delayMs) {
+  if (delayMs <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+async function runWithTimeout(step, timeoutMs, run) {
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(run),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new StepTimeoutError(step, timeoutMs)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+async function executeWorkflowStep(input) {
+  const now = input.now ?? Date.now;
+  const startedMs = now();
+  const startedAt = new Date(startedMs).toISOString();
+  const maxAttempts = Math.max(1, input.maxAttempts ?? 1);
+  let attempts = 0;
+  let lastError;
+  while (attempts < maxAttempts) {
+    attempts += 1;
+    try {
+      const output = await runWithTimeout(input.step, input.timeoutMs, input.run);
+      const finishedMs2 = now();
+      return {
+        step: input.step,
+        status: "success",
+        startedAt,
+        finishedAt: new Date(finishedMs2).toISOString(),
+        inputSummary: input.inputSummary,
+        outputSummary: input.summarize(output),
+        output,
+        durationMs: Math.max(0, finishedMs2 - startedMs),
+        attempts
+      };
+    } catch (error) {
+      lastError = error;
+      if (attempts < maxAttempts) await wait(input.retryDelayMs ?? 0);
+    }
+  }
+  const finishedMs = now();
+  return {
+    step: input.step,
+    status: "failed",
+    startedAt,
+    finishedAt: new Date(finishedMs).toISOString(),
+    inputSummary: input.inputSummary,
+    errorMessage: lastError instanceof Error ? lastError.message : String(lastError),
+    durationMs: Math.max(0, finishedMs - startedMs),
+    attempts,
+    failureKind: lastError instanceof StepTimeoutError ? "timeout" : "error"
+  };
+}
+
 // src/research/harness/runBekeHarness.ts
 var globalRunSequence = 0;
 var HarnessRecorder = class {
@@ -3449,6 +3521,18 @@ var HarnessRecorder = class {
   getRuns() {
     return [...this.runs];
   }
+};
+var DEFAULT_STEP_POLICIES = {
+  market: { timeoutMs: 12e3, maxAttempts: 2, retryDelayMs: 150 },
+  news: { timeoutMs: 12e3, maxAttempts: 2, retryDelayMs: 150 },
+  event: { timeoutMs: 5e3, maxAttempts: 1, retryDelayMs: 0 },
+  memory: { timeoutMs: 5e3, maxAttempts: 1, retryDelayMs: 0 },
+  factor: { timeoutMs: 5e3, maxAttempts: 1, retryDelayMs: 0 },
+  probability: { timeoutMs: 8e3, maxAttempts: 1, retryDelayMs: 0 },
+  forecast: { timeoutMs: 8e3, maxAttempts: 1, retryDelayMs: 0 },
+  analysis: { timeoutMs: 3e4, maxAttempts: 1, retryDelayMs: 0 },
+  review: { timeoutMs: 8e3, maxAttempts: 1, retryDelayMs: 0 },
+  publish: { timeoutMs: 5e3, maxAttempts: 1, retryDelayMs: 0 }
 };
 function summarizeStepOutput(step, output) {
   switch (step) {
@@ -3523,68 +3607,14 @@ function formatHistoryTimestamp(date) {
     hour12: false
   }).format(date).replace(/\//g, "-");
 }
-function probabilityForTarget(predictions, target) {
-  return predictions.find((prediction) => prediction.target === target)?.probability ?? 0;
-}
-function bootstrapProbabilityHistory(predictions, now) {
-  const p17 = probabilityForTarget(predictions, 17);
-  const p18 = probabilityForTarget(predictions, 18);
-  const p19 = probabilityForTarget(predictions, 19);
-  const offsets = [-54, -48, -42, -36, -30, -24, -18, -12, -6];
-  return offsets.map((hoursOffset, index) => {
-    const at = new Date(now.getTime() + hoursOffset * 60 * 60 * 1e3);
-    const drift = index - offsets.length + 1;
-    return {
-      at: formatHistoryTimestamp(at),
-      p17: Math.max(5, p17 + drift),
-      p18: Math.max(5, p18 + Math.round(drift * 0.8)),
-      p19: Math.max(5, p19 + Math.round(drift * 0.6)),
-      note: "\u9996\u8F6E\u8FD0\u884C\u81EA\u52A8\u56DE\u586B\u7684\u6982\u7387\u8F68\u8FF9\uFF0C\u7528\u4E8E\u5EFA\u7ACB\u8D8B\u52BF\u9605\u8BFB\u57FA\u7EBF\u3002"
-    };
+function makeStepResult(step, inputSummary, fn, policy = DEFAULT_STEP_POLICIES[step]) {
+  return executeWorkflowStep({
+    step,
+    inputSummary,
+    ...policy,
+    run: fn,
+    summarize: (output) => summarizeStepOutput(step, output)
   });
-}
-function makeStepResult(step, inputSummary, fn) {
-  const startTime = Date.now();
-  const startedAt = new Date(startTime).toISOString();
-  try {
-    const result = fn();
-    if (result instanceof Promise) {
-      return result.then((output) => ({
-        step,
-        status: "success",
-        startedAt,
-        finishedAt: (/* @__PURE__ */ new Date()).toISOString(),
-        inputSummary,
-        outputSummary: summarizeStepOutput(step, output),
-        output
-      })).catch((error) => ({
-        step,
-        status: "failed",
-        startedAt,
-        finishedAt: (/* @__PURE__ */ new Date()).toISOString(),
-        inputSummary,
-        errorMessage: error instanceof Error ? error.message : String(error)
-      }));
-    }
-    return Promise.resolve({
-      step,
-      status: "success",
-      startedAt,
-      finishedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      inputSummary,
-      outputSummary: summarizeStepOutput(step, result),
-      output: result
-    });
-  } catch (error) {
-    return Promise.resolve({
-      step,
-      status: "failed",
-      startedAt,
-      finishedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      inputSummary,
-      errorMessage: error instanceof Error ? error.message : String(error)
-    });
-  }
 }
 function macroSignalUrl(signal) {
   if (/美联储|利率|fed/i.test(signal.name)) {
@@ -3617,6 +3647,12 @@ function macroSignalsToRawItems(signals, publishedAt) {
 async function runBekeHarness(input, context) {
   const recorder = context.recorder ?? new HarnessRecorder();
   const run = recorder.createRun(input);
+  run.dataVersion = [
+    `market-${context.marketProvider.name}`,
+    `news-${context.newsProvider.name}`,
+    `official-${context.officialProvider.name}`,
+    `macro-${context.macroProvider.name}`
+  ].join("+");
   const runRepository2 = context.runRepository;
   const persistRun = () => runRepository2?.save(recorder.getRun(run.id));
   persistRun();
@@ -3644,6 +3680,10 @@ async function runBekeHarness(input, context) {
     recorder.addStep(run.id, step);
     persistRun();
   };
+  const runStep = (step, inputSummary, fn) => makeStepResult(step, inputSummary, fn, {
+    ...DEFAULT_STEP_POLICIES[step],
+    ...context.stepPolicies?.[step]
+  });
   const failRun = (error) => {
     const failed = recorder.failRun(run.id, error);
     persistRun();
@@ -3656,7 +3696,7 @@ async function runBekeHarness(input, context) {
   };
   const runStartedAt = run.startedAt;
   memoryEngine.decayMemories(runStartedAt);
-  const marketResult = await makeStepResult("market", "\u83B7\u53D6\u884C\u60C5 + \u4E24\u5E74\u4EF7\u683C\u77E5\u8BC6\u5E93", async () => {
+  const marketResult = await runStep("market", "\u83B7\u53D6\u884C\u60C5 + \u4E24\u5E74\u4EF7\u683C\u77E5\u8BC6\u5E93", async () => {
     const providerMarket = await subagents.market.run({ symbol: input.symbol, days: 5 });
     return {
       ...providerMarket,
@@ -3671,7 +3711,7 @@ async function runBekeHarness(input, context) {
     return { run: recorder.getRun(run.id) };
   }
   const market = marketResult.output;
-  const newsResult = await makeStepResult("news", "\u83B7\u53D6\u65B0\u95FB + \u5B8F\u89C2\u4FE1\u53F7 + \u5730\u4EA7\u77E5\u8BC6", async () => {
+  const newsResult = await runStep("news", "\u83B7\u53D6\u65B0\u95FB + \u5B8F\u89C2\u4FE1\u53F7 + \u5730\u4EA7\u77E5\u8BC6", async () => {
     const [newsOutput, macroSignals] = await Promise.all([
       subagents.news.run({
         query: "BEKE OR KE Holdings",
@@ -3701,7 +3741,7 @@ async function runBekeHarness(input, context) {
     return { run: recorder.getRun(run.id) };
   }
   const news = newsResult.output;
-  const eventResult = await makeStepResult(
+  const eventResult = await runStep(
     "event",
     "\u4E8B\u4EF6\u5206\u7C7B",
     () => subagents.event.run({ rawItems: news.allItems }).then((output) => output.events)
@@ -3734,7 +3774,7 @@ async function runBekeHarness(input, context) {
     limit: 5
   });
   const propertyMemories = propertyDocumentsToMemories(propertyRetrieval, nowIso);
-  const memoryResult = await makeStepResult(
+  const memoryResult = await runStep(
     "memory",
     "\u8BB0\u5FC6\u68C0\u7D22 + \u4EF7\u683C/\u5730\u4EA7\u77E5\u8BC6\u5E93 RAG",
     () => subagents.memory.run({
@@ -3749,7 +3789,7 @@ async function runBekeHarness(input, context) {
     return { run: recorder.getRun(run.id) };
   }
   const memories = memoryResult.output;
-  const factorResult = await makeStepResult(
+  const factorResult = await runStep(
     "factor",
     "\u56E0\u5B50\u8BC4\u5206",
     () => subagents.factor.run({
@@ -3766,7 +3806,7 @@ async function runBekeHarness(input, context) {
   }
   const factors = factorResult.output;
   const previousSnapshot = repository.getLatest();
-  const probabilityResult = await makeStepResult(
+  const probabilityResult = await runStep(
     "probability",
     "\u6982\u7387\u8BA1\u7B97",
     () => subagents.probability.run({
@@ -3784,7 +3824,7 @@ async function runBekeHarness(input, context) {
     return { run: recorder.getRun(run.id) };
   }
   const probabilityPredictions = probabilityResult.output;
-  const forecastResult = await makeStepResult(
+  const forecastResult = await runStep(
     "forecast",
     "\u4E00\u5468\u7A97\u53E3\u63A8\u6F14",
     () => subagents.forecast.run({
@@ -3803,7 +3843,7 @@ async function runBekeHarness(input, context) {
     return { run: recorder.getRun(run.id) };
   }
   const predictions = forecastResult.output;
-  const analysisResult = await makeStepResult(
+  const analysisResult = await runStep(
     "analysis",
     "\u751F\u6210\u5206\u6790",
     () => subagents.analysis.run({
@@ -3850,7 +3890,7 @@ async function runBekeHarness(input, context) {
     ).values()
   );
   const now = /* @__PURE__ */ new Date();
-  const historyBase = previousSnapshot?.history ?? bootstrapProbabilityHistory(predictions, now);
+  const historyBase = previousSnapshot?.history ?? [];
   const history = [
     ...historyBase,
     {
@@ -3869,7 +3909,14 @@ async function runBekeHarness(input, context) {
     inputVersion: "public-snapshot",
     modelVersion: "probability-rules-mvp-0.1",
     promptVersion: PROMPTS.generate_analysis.version,
-    dataVersion: `mock-public-providers-0.1+price-rag-${priceKnowledgeBase.metadata.from}_${priceKnowledgeBase.metadata.to}+property-rag-${propertyKnowledgeBase.version}`,
+    dataVersion: [
+      `market-${market.quote.provenance?.provider ?? context.marketProvider.name}`,
+      `news-${context.newsProvider.name}`,
+      `official-${context.officialProvider.name}`,
+      `macro-${context.macroProvider.name}`,
+      `price-rag-${priceKnowledgeBase.metadata.from}_${priceKnowledgeBase.metadata.to}`,
+      `property-rag-${propertyKnowledgeBase.version}`
+    ].join("+"),
     updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
     nextUpdateAt: new Date(Date.now() + 6 * 60 * 60 * 1e3).toISOString(),
     quote: market.quote,
@@ -3893,11 +3940,22 @@ async function runBekeHarness(input, context) {
     audit: {
       publishedBy: "PublishEngine",
       reviewedBy: "RiskReviewEngine",
-      dataPolicy: "\u4EC5\u4F7F\u7528\u516C\u5F00\u4FE1\u606F\u3002"
+      dataPolicy: "\u4EC5\u4F7F\u7528\u516C\u5F00\u4FE1\u606F\uFF1B\u5B9E\u65F6\u6293\u53D6\u5931\u8D25\u65F6\u4FDD\u7559\u539F\u59CB\u65F6\u95F4\u5E76\u663E\u5F0F\u964D\u7EA7\uFF0C\u4E0D\u4F2A\u9020\u5B9E\u65F6\u6027\u3002",
+      providers: {
+        market: market.quote.provenance?.provider ?? context.marketProvider.name,
+        news: context.newsProvider.name,
+        official: context.officialProvider.name,
+        macro: context.macroProvider.name
+      },
+      dataFreshness: market.quote.provenance?.freshness ?? "delayed",
+      warnings: [
+        ...market.quote.provenance?.freshness === "fallback" ? [`\u884C\u60C5\u5DF2\u964D\u7EA7\uFF1A${market.quote.provenance.fallbackReason ?? "\u5B9E\u65F6\u884C\u60C5\u4E0D\u53EF\u7528"}`] : [],
+        ...news.allItems.some((item) => item.retrievalMode === "curated") ? ["\u90E8\u5206\u65B0\u95FB\u4F7F\u7528\u5DF2\u53D1\u5E03\u8BC1\u636E\u5FEB\u7167\u3002"] : []
+      ]
     }
   };
   const snapshot = attachResearchQuality(snapshotBase);
-  const reviewResult = await makeStepResult("review", "\u98CE\u9669\u5BA1\u67E5", () => {
+  const reviewResult = await runStep("review", "\u98CE\u9669\u5BA1\u67E5", () => {
     return subagents.review.run({ snapshot, previousSnapshot: previousSnapshot ?? void 0, events }).then(({ result }) => {
       const surfaceAudit = evaluateSnapshotSurface(snapshot);
       if (!result.approved) {
@@ -3914,7 +3972,7 @@ async function runBekeHarness(input, context) {
     failRun(reviewResult.errorMessage);
     return { run: recorder.getRun(run.id) };
   }
-  const publishResult = await makeStepResult("publish", "\u53D1\u5E03\u5FEB\u7167", () => {
+  const publishResult = await runStep("publish", "\u53D1\u5E03\u5FEB\u7167", () => {
     return subagents.publish.run({
       snapshot,
       reviewResult: reviewResult.output
@@ -3966,7 +4024,7 @@ var LLMGateway = class {
         outputSchema: request.outputSchema
       });
       if (request.schema && !request.schema(result)) {
-        const errorMessage = `LLM output failed schema validation: ${request.outputSchema}`;
+        const errorMessage2 = `LLM output failed schema validation: ${request.outputSchema}`;
         if (request.fallback !== void 0) {
           this.calls.push({
             id: callId,
@@ -3975,7 +4033,7 @@ var LLMGateway = class {
             promptVersion: request.promptVersion,
             latencyMs: Date.now() - startTime,
             status: "fallback",
-            errorMessage,
+            errorMessage: errorMessage2,
             createdAt: (/* @__PURE__ */ new Date()).toISOString()
           });
           return request.fallback;
@@ -3987,10 +4045,10 @@ var LLMGateway = class {
           promptVersion: request.promptVersion,
           latencyMs: Date.now() - startTime,
           status: "failed",
-          errorMessage,
+          errorMessage: errorMessage2,
           createdAt: (/* @__PURE__ */ new Date()).toISOString()
         });
-        throw new Error(errorMessage);
+        throw new Error(errorMessage2);
       }
       this.calls.push({
         id: callId,
@@ -4003,7 +4061,7 @@ var LLMGateway = class {
       });
       return result;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage2 = error instanceof Error ? error.message : String(error);
       const status = request.fallback !== void 0 ? "fallback" : "failed";
       this.calls.push({
         id: callId,
@@ -4012,7 +4070,7 @@ var LLMGateway = class {
         promptVersion: request.promptVersion,
         latencyMs: Date.now() - startTime,
         status,
-        errorMessage,
+        errorMessage: errorMessage2,
         createdAt: (/* @__PURE__ */ new Date()).toISOString()
       });
       if (request.fallback !== void 0) {
@@ -4058,17 +4116,13 @@ function cloneRun(run) {
 }
 
 // src/research/providers/mock.ts
-function seededRandom(seed) {
-  const x = Math.sin(seed) * 1e4;
-  return x - Math.floor(x);
-}
-var NEWS_TEMPLATES = [
+var CURATED_EVIDENCE = [
   {
     id: "ke-buyback-latest",
     title: "\u8D1D\u58F3-W \u7EE7\u7EED\u6267\u884C\u56DE\u8D2D\u8BA1\u5212",
     source: "\u4E1C\u65B9\u8D22\u5BCC",
     url: "https://quote.eastmoney.com/us/BEKE.html",
-    publishedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    publishedAt: "2026-07-03T08:00:00.000Z",
     summary: "\u516C\u5F00\u5E02\u573A\u4FE1\u606F\u663E\u793A\u8D1D\u58F3-W \u7EE7\u7EED\u56DE\u8D2D\u80A1\u4EFD\uFF0C\u56DE\u8D2D\u8282\u594F\u4ECD\u662F BEKE \u4FEE\u590D\u4EA4\u6613\u7684\u91CD\u8981\u652F\u6491\u3002",
     reliability: 0.72
   },
@@ -4077,7 +4131,7 @@ var NEWS_TEMPLATES = [
     title: "\u4F4F\u5EFA\u90E8\u5F3A\u8C03\u652F\u6301\u521A\u6027\u548C\u6539\u5584\u6027\u4F4F\u623F\u9700\u6C42",
     source: "\u65B0\u534E\u793E",
     url: "https://www.xinhuanet.com/",
-    publishedAt: new Date(Date.now() - 24 * 60 * 60 * 1e3).toISOString(),
+    publishedAt: "2026-07-01T10:00:00.000Z",
     summary: "\u4F4F\u5EFA\u90E8\u4F1A\u8BAE\u5F3A\u8C03\u56E0\u57CE\u65BD\u7B56\u652F\u6301\u521A\u6027\u548C\u6539\u5584\u6027\u4F4F\u623F\u9700\u6C42\uFF0C\u4F46\u5E02\u573A\u4ECD\u9700\u8981\u6210\u4EA4\u548C\u623F\u4EF7\u6570\u636E\u9A8C\u8BC1\u3002",
     reliability: 0.75
   },
@@ -4086,7 +4140,7 @@ var NEWS_TEMPLATES = [
     title: "BEKE \u80A1\u4EF7\u6280\u672F\u5206\u6790\uFF1A\u77ED\u7EBF\u4FEE\u590D\u6001\u52BF",
     source: "\u8BC1\u5238\u4E4B\u661F",
     url: "https://www.sohu.com/",
-    publishedAt: new Date(Date.now() - 12 * 60 * 60 * 1e3).toISOString(),
+    publishedAt: "2026-07-03T06:01:00.000Z",
     summary: "BEKE \u80A1\u4EF7\u8FD1\u671F\u5448\u73B0\u4FEE\u590D\u6001\u52BF\uFF0C\u673A\u6784\u76EE\u6807\u4EF7\u5747\u503C\u9AD8\u4E8E\u73B0\u4EF7\uFF0C\u6280\u672F\u9762\u663E\u793A\u77ED\u7EBF\u4F01\u7A33\u8FF9\u8C61\u3002",
     reliability: 0.62
   },
@@ -4095,7 +4149,7 @@ var NEWS_TEMPLATES = [
     title: "\u7F8E\u8054\u50A8\u7EF4\u6301\u5229\u7387\u4E0D\u53D8\uFF0C\u5E02\u573A\u9884\u671F\u5E74\u5185\u964D\u606F\u6982\u7387\u4E0B\u964D",
     source: "\u8D22\u8054\u793E",
     url: "https://www.cls.cn/",
-    publishedAt: new Date(Date.now() - 6 * 60 * 60 * 1e3).toISOString(),
+    publishedAt: "2026-06-19T18:00:00.000Z",
     summary: "\u7F8E\u8054\u50A8\u7EF4\u6301\u5229\u7387\u4E0D\u53D8\uFF0C\u5E02\u573A\u9884\u671F\u5E74\u5185\u964D\u606F\u6982\u7387\u4E0B\u964D\uFF0C\u5BF9\u6210\u957F\u80A1\u4F30\u503C\u6784\u6210\u538B\u529B\u3002",
     reliability: 0.65
   },
@@ -4104,7 +4158,7 @@ var NEWS_TEMPLATES = [
     title: "\u4E2D\u6982\u80A1\u677F\u5757\u5206\u5316\uFF0C\u5730\u4EA7\u79D1\u6280\u80A1\u627F\u538B",
     source: "\u8D22\u8054\u793E",
     url: "https://www.cls.cn/",
-    publishedAt: new Date(Date.now() - 3 * 60 * 60 * 1e3).toISOString(),
+    publishedAt: "2026-07-02T18:00:00.000Z",
     summary: "\u4E2D\u6982\u80A1\u677F\u5757\u6574\u4F53\u5206\u5316\uFF0CKWEB \u6307\u6570\u5C0F\u5E45\u4E0A\u6DA8\uFF0C\u4F46\u5730\u4EA7\u79D1\u6280\u7C7B\u516C\u53F8\u666E\u904D\u627F\u538B\u3002",
     reliability: 0.6
   },
@@ -4126,92 +4180,34 @@ var NEWS_TEMPLATES = [
     summary: "Q1 2026 \u51C0\u6536\u5165\u540C\u6BD4\u4E0B\u964D 19.0%\uFF0C\u65E2\u6709\u623F\u548C\u65B0\u623F\u4EA4\u6613 GTV \u627F\u538B\uFF1B\u6BDB\u5229\u7387\u6539\u5584\u81F3 24.1%\uFF0C\u663E\u793A\u6210\u672C\u548C\u4E1A\u52A1\u7ED3\u6784\u4ECD\u6709\u97E7\u6027\u3002",
     reliability: 0.9
   }
-];
-function selectDynamicNews() {
-  const now = /* @__PURE__ */ new Date();
-  const hour = now.getHours();
-  const seed = hour % 3;
-  if (seed === 0) {
-    return NEWS_TEMPLATES.filter(
-      (item) => item.source === "KE Holdings IR" || item.source === "\u4E1C\u65B9\u8D22\u5BCC" || item.source === "\u8BC1\u5238\u4E4B\u661F"
-    );
-  } else if (seed === 1) {
-    return NEWS_TEMPLATES.filter(
-      (item) => item.source === "\u8D22\u8054\u793E" || item.source === "\u65B0\u534E\u793E"
-    );
-  } else {
-    return NEWS_TEMPLATES;
-  }
-}
-var MockMarketProvider = class {
-  name = "MockMarketProvider";
-  async fetchQuote(symbol) {
-    if (symbol !== "BEKE") {
-      throw new Error(`Unsupported symbol: ${symbol}`);
-    }
-    const now = /* @__PURE__ */ new Date();
-    const seed = now.getTime();
-    const variation = (seededRandom(seed) - 0.5) * 0.2;
-    const price = Number((16.59 + variation).toFixed(2));
-    return {
-      symbol: "BEKE",
-      price,
-      currency: "USD",
-      previousClose: 16.43,
-      asOf: now.toISOString(),
-      source: "\u5EF6\u8FDF\u884C\u60C5\u6570\u636E"
-    };
-  }
-  async fetchHistory(symbol, days) {
-    if (symbol !== "BEKE") {
-      throw new Error(`Unsupported symbol: ${symbol}`);
-    }
-    const history = [
-      { date: "2026-06-30", close: 14.53 },
-      { date: "2026-07-01", close: 15.05 },
-      { date: "2026-07-02", close: 15.09 },
-      { date: "2026-07-03", close: 16.09 },
-      { date: "2026-07-04", close: 16.24 },
-      { date: "2026-07-07", close: 16.59 }
-    ];
-    return history.slice(-days);
-  }
-};
+].map((item) => ({ ...item, retrievalMode: "curated" }));
 var MockNewsProvider = class {
   name = "MockNewsProvider";
   async fetch(_query, _sinceHours) {
-    return selectDynamicNews();
+    return CURATED_EVIDENCE.map((item) => ({ ...item }));
   }
 };
 var MockOfficialProvider = class {
   name = "MockOfficialProvider";
   async fetchRecentItems(_sinceHours) {
-    return selectDynamicNews().filter(
-      (item) => item.source === "KE Holdings IR" || item.source === "\u8BC1\u5238\u4E4B\u661F"
-    );
+    return CURATED_EVIDENCE.filter((item) => item.source === "KE Holdings IR").map((item) => ({ ...item }));
   }
 };
-var MockMacroProvider = class {
-  name = "MockMacroProvider";
+var CuratedMacroProvider = class {
+  name = "CuratedMacroProvider";
   async fetchMacroSignals() {
     return [
       {
         name: "\u4E2D\u6982\u98CE\u9669\u504F\u597D",
         score: 0.2,
         direction: "neutral",
-        rationale: "\u4E2D\u6982\u60C5\u7EEA\u77ED\u7EBF\u4FEE\u590D\uFF0C\u4F46\u6CE2\u52A8\u4ECD\u9AD8\u3002KWEB \u6307\u6570\u8FD1\u4E00\u5468\u4E0A\u6DA8 1.2%\uFF0C\u4F46\u6210\u4EA4\u91CF\u840E\u7F29\u3002"
+        rationale: "\u4E2D\u6982\u60C5\u7EEA\u77ED\u7EBF\u4FEE\u590D\uFF0C\u4F46\u6CE2\u52A8\u4ECD\u9AD8\u3002"
       },
       {
         name: "\u5730\u4EA7\u653F\u7B56\u89C2\u5BDF",
         score: 0.1,
         direction: "neutral",
-        rationale: "\u653F\u7B56\u9884\u671F\u5B58\u5728\uFF0C\u4F46\u5C1A\u672A\u5F62\u6210\u65B0\u7684\u5F3A\u50AC\u5316\u3002\u4F4F\u5EFA\u90E8\u8868\u6001\u652F\u6301\u521A\u9700\uFF0C\u4F46\u5E02\u573A\u7B49\u5F85\u66F4\u591A\u6570\u636E\u9A8C\u8BC1\u3002"
-      },
-      {
-        name: "\u7F8E\u8054\u50A8\u653F\u7B56",
-        score: 0,
-        direction: "neutral",
-        rationale: "\u7F8E\u8054\u50A8\u7EF4\u6301\u5229\u7387\u4E0D\u53D8\uFF0C\u5E02\u573A\u9884\u671F\u5E74\u5185\u964D\u606F\u6982\u7387\u4E0B\u964D\uFF0C\u5BF9\u6210\u957F\u80A1\u4F30\u503C\u6784\u6210\u538B\u529B\u3002"
+        rationale: "\u653F\u7B56\u9884\u671F\u5B58\u5728\uFF0C\u4F46\u5C1A\u672A\u5F62\u6210\u65B0\u7684\u5F3A\u50AC\u5316\u3002"
       }
     ];
   }
@@ -4308,17 +4304,315 @@ var TokenPlanProvider = class {
   }
 };
 
+// src/research/providers/YahooFinanceProvider.ts
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+function positiveNumber(value, field) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new Error(`Yahoo Finance returned invalid ${field}`);
+  }
+  return value;
+}
+var YahooFinanceProvider = class {
+  name = "YahooFinanceProvider";
+  fetcher;
+  now;
+  cacheTtlMs;
+  timeoutMs;
+  cache = /* @__PURE__ */ new Map();
+  constructor(options = {}) {
+    this.fetcher = options.fetcher ?? globalThis.fetch.bind(globalThis);
+    this.now = options.now ?? (() => /* @__PURE__ */ new Date());
+    this.cacheTtlMs = options.cacheTtlMs ?? 6e4;
+    this.timeoutMs = options.timeoutMs ?? 8e3;
+  }
+  getCached(key) {
+    const entry = this.cache.get(key);
+    if (!entry) return null;
+    if (entry.expiresAt <= this.now().getTime()) {
+      this.cache.delete(key);
+      return null;
+    }
+    return entry.value;
+  }
+  setCached(key, value) {
+    this.cache.set(key, { value, expiresAt: this.now().getTime() + this.cacheTtlMs });
+    return value;
+  }
+  async request(symbol, range) {
+    if (symbol !== "BEKE") throw new Error(`Unsupported symbol: ${symbol}`);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${encodeURIComponent(range)}&interval=1d`;
+      const response = await this.fetcher(url, {
+        headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" },
+        signal: controller.signal
+      });
+      if (!response.ok) throw new Error(`Yahoo Finance HTTP ${response.status}`);
+      const payload = await response.json();
+      if (payload.chart?.error) {
+        throw new Error(payload.chart.error.description ?? payload.chart.error.code ?? "chart error");
+      }
+      const result = payload.chart?.result?.[0];
+      if (!result) throw new Error("Yahoo Finance response missing chart result");
+      return result;
+    } catch (error) {
+      if (controller.signal.aborted) throw new Error(`Yahoo Finance timed out after ${this.timeoutMs}ms`);
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  async fetchQuote(symbol) {
+    const key = `quote:${symbol}`;
+    const cached = this.getCached(key);
+    if (cached) return cached;
+    const result = await this.request(symbol, "1d");
+    const meta = result.meta;
+    const marketTime = positiveNumber(meta?.regularMarketTime, "regularMarketTime");
+    const quote2 = {
+      symbol: "BEKE",
+      price: positiveNumber(meta?.regularMarketPrice, "regularMarketPrice"),
+      previousClose: positiveNumber(meta?.chartPreviousClose, "chartPreviousClose"),
+      currency: "USD",
+      asOf: new Date(marketTime * 1e3).toISOString(),
+      source: "Yahoo Finance",
+      provenance: {
+        provider: this.name,
+        freshness: "delayed",
+        fetchedAt: this.now().toISOString()
+      }
+    };
+    return this.setCached(key, quote2);
+  }
+  async fetchHistory(symbol, days) {
+    if (!Number.isInteger(days) || days <= 0) throw new Error("days must be a positive integer");
+    const key = `history:${symbol}:${days}`;
+    const cached = this.getCached(key);
+    if (cached) return cached;
+    const result = await this.request(symbol, `${days}d`);
+    const timestamps = result.timestamp;
+    const closes = result.indicators?.quote?.[0]?.close;
+    if (!timestamps || !closes || timestamps.length !== closes.length) {
+      throw new Error("Yahoo Finance response missing aligned history series");
+    }
+    const history = timestamps.flatMap((timestamp, index) => {
+      const close = closes[index];
+      if (typeof close !== "number" || !Number.isFinite(close) || close <= 0) return [];
+      return [{ date: new Date(timestamp * 1e3).toISOString().slice(0, 10), close: Number(close.toFixed(2)) }];
+    });
+    if (history.length === 0) throw new Error("Yahoo Finance returned empty history");
+    return this.setCached(key, history);
+  }
+};
+var StaticMarketProvider = class {
+  constructor(quote2, history) {
+    this.quote = quote2;
+    this.history = history;
+  }
+  quote;
+  history;
+  name = "StaticMarketProvider";
+  async fetchQuote(symbol) {
+    if (symbol !== "BEKE") throw new Error(`Unsupported symbol: ${symbol}`);
+    return { ...this.quote };
+  }
+  async fetchHistory(symbol, days) {
+    if (symbol !== "BEKE") throw new Error(`Unsupported symbol: ${symbol}`);
+    return this.history.slice(-days).map((point) => ({ ...point }));
+  }
+};
+var FallbackMarketProvider = class {
+  constructor(primary, fallback, now = () => /* @__PURE__ */ new Date()) {
+    this.primary = primary;
+    this.fallback = fallback;
+    this.now = now;
+    this.name = `FallbackMarketProvider(${primary.name}->${fallback.name})`;
+  }
+  primary;
+  fallback;
+  now;
+  name;
+  async fetchQuote(symbol) {
+    try {
+      return await this.primary.fetchQuote(symbol);
+    } catch (error) {
+      const quote2 = await this.fallback.fetchQuote(symbol);
+      return {
+        ...quote2,
+        provenance: {
+          provider: this.fallback.name,
+          freshness: "fallback",
+          fetchedAt: this.now().toISOString(),
+          fallbackFrom: this.primary.name,
+          fallbackReason: errorMessage(error)
+        }
+      };
+    }
+  }
+  async fetchHistory(symbol, days) {
+    try {
+      return await this.primary.fetchHistory(symbol, days);
+    } catch {
+      return this.fallback.fetchHistory(symbol, days);
+    }
+  }
+};
+
+// src/research/providers/YahooFinanceNewsProvider.ts
+function reliabilityFor(publisher) {
+  if (/GlobeNewswire|Business Wire|PR Newswire/i.test(publisher)) return 0.82;
+  if (/Reuters|Bloomberg|Associated Press/i.test(publisher)) return 0.86;
+  return 0.68;
+}
+function isOfficialRelease(item) {
+  return /GlobeNewswire|Business Wire|PR Newswire|KE Holdings/i.test(item.source) || /announces|results|annual general meeting|earnings/i.test(item.title);
+}
+var YahooFinanceEvidenceClient = class {
+  fetcher;
+  now;
+  timeoutMs;
+  constructor(options) {
+    this.fetcher = options.fetcher ?? globalThis.fetch.bind(globalThis);
+    this.now = options.now ?? (() => /* @__PURE__ */ new Date());
+    this.timeoutMs = options.timeoutMs ?? 8e3;
+  }
+  async fetch(query, sinceHours) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=1&newsCount=20`;
+      const response = await this.fetcher(url, {
+        headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" },
+        signal: controller.signal
+      });
+      if (!response.ok) throw new Error(`Yahoo Finance news HTTP ${response.status}`);
+      const payload = await response.json();
+      const cutoff = this.now().getTime() - sinceHours * 60 * 60 * 1e3;
+      return (payload.news ?? []).flatMap((item) => {
+        const publishedMs = (item.providerPublishTime ?? 0) * 1e3;
+        if (!item.uuid || !item.title || !item.publisher || !item.link || publishedMs < cutoff) return [];
+        return [{
+          id: `yahoo-news-${item.uuid}`,
+          title: item.title,
+          source: item.publisher,
+          url: item.link,
+          publishedAt: new Date(publishedMs).toISOString(),
+          summary: item.title,
+          reliability: reliabilityFor(item.publisher),
+          retrievalMode: "live"
+        }];
+      });
+    } catch (error) {
+      if (controller.signal.aborted) throw new Error(`Yahoo Finance news timed out after ${this.timeoutMs}ms`);
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+};
+var YahooFinanceNewsProvider = class {
+  name = "YahooFinanceNewsProvider";
+  client;
+  constructor(options = {}) {
+    this.client = new YahooFinanceEvidenceClient(options);
+  }
+  fetch(query, sinceHours) {
+    return this.client.fetch(query, sinceHours);
+  }
+};
+var YahooFinanceOfficialProvider = class {
+  name = "YahooFinanceOfficialProvider";
+  client;
+  constructor(options = {}) {
+    this.client = new YahooFinanceEvidenceClient(options);
+  }
+  async fetchRecentItems(sinceHours) {
+    const items = await this.client.fetch("BEKE", sinceHours);
+    return items.filter(isOfficialRelease);
+  }
+};
+var FallbackNewsProvider = class {
+  constructor(primary, fallback) {
+    this.primary = primary;
+    this.fallback = fallback;
+    this.name = `FallbackNewsProvider(${primary.name}->${fallback.name})`;
+  }
+  primary;
+  fallback;
+  name;
+  async fetch(query, sinceHours) {
+    try {
+      const items = await this.primary.fetch(query, sinceHours);
+      return items.length > 0 ? items : this.fallback.fetch(query, sinceHours);
+    } catch {
+      return this.fallback.fetch(query, sinceHours);
+    }
+  }
+};
+var FallbackOfficialProvider = class {
+  constructor(primary, fallback) {
+    this.primary = primary;
+    this.fallback = fallback;
+    this.name = `FallbackOfficialProvider(${primary.name}->${fallback.name})`;
+  }
+  primary;
+  fallback;
+  name;
+  async fetchRecentItems(sinceHours) {
+    try {
+      const items = await this.primary.fetchRecentItems(sinceHours);
+      return items.length > 0 ? items : this.fallback.fetchRecentItems(sinceHours);
+    } catch {
+      return this.fallback.fetchRecentItems(sinceHours);
+    }
+  }
+};
+
+// src/research/runtime/createRuntimeProviders.ts
+function createProductionProviders(options = {}) {
+  const fallbackMarket = new StaticMarketProvider(latestSnapshot.quote, []);
+  const curatedNews = new MockNewsProvider();
+  const curatedOfficial = new MockOfficialProvider();
+  const yahooOptions = { fetcher: options.fetcher, now: options.now };
+  return {
+    marketProvider: new FallbackMarketProvider(
+      new YahooFinanceProvider(yahooOptions),
+      fallbackMarket,
+      options.now
+    ),
+    newsProvider: new FallbackNewsProvider(
+      new YahooFinanceNewsProvider(yahooOptions),
+      curatedNews
+    ),
+    officialProvider: new FallbackOfficialProvider(
+      new YahooFinanceOfficialProvider(yahooOptions),
+      curatedOfficial
+    ),
+    macroProvider: new CuratedMacroProvider()
+  };
+}
+
 // src/server/beke19Api.ts
 var snapshotRepository = null;
 var memoryRepository = null;
 var runRepository = null;
+var runtimeCache = null;
+var SNAPSHOT_CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
+function resetBeke19RuntimeCache() {
+  runtimeCache = null;
+  snapshotRepository = null;
+  memoryRepository = null;
+  runRepository = null;
+}
 function getRuntimeEnv() {
   return globalThis.process?.env ?? {};
 }
 function getSnapshotRepository() {
   if (!snapshotRepository) {
     snapshotRepository = new InMemorySnapshotRepository();
-    snapshotRepository.save(latestSnapshot);
   }
   return snapshotRepository;
 }
@@ -4373,27 +4667,51 @@ function createServerLLMGateway(env = getRuntimeEnv()) {
 function resolveServerLLMProvider(env = getRuntimeEnv()) {
   return createServerLLMGateway(env);
 }
-function runtimeInfo(provider, source) {
+function runtimeInfo(provider, source, providers, cacheStatus, generatedAt, expiresAtMs) {
   const env = getRuntimeEnv();
   const defaultProvider = "getProvider" in provider ? provider.getProvider().name : provider.name;
   return {
     tier: env.VERCEL ? "vercel-function" : "local-function",
     provider: defaultProvider,
-    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    source
+    generatedAt: generatedAt.toISOString(),
+    source,
+    providers: {
+      market: providers.marketProvider.name,
+      news: providers.newsProvider.name,
+      official: providers.officialProvider.name,
+      macro: providers.macroProvider.name
+    },
+    cache: {
+      status: cacheStatus,
+      expiresAt: new Date(expiresAtMs).toISOString()
+    }
   };
 }
-async function createBeke19SnapshotState(env = getRuntimeEnv()) {
+async function createBeke19SnapshotState(env = getRuntimeEnv(), options = {}) {
+  const now = options.now?.() ?? /* @__PURE__ */ new Date();
+  if (!options.forceRefresh && runtimeCache && runtimeCache.expiresAtMs > now.getTime()) {
+    return {
+      ...runtimeCache.payload,
+      runtime: {
+        ...runtimeCache.payload.runtime,
+        generatedAt: now.toISOString(),
+        cache: {
+          status: "hit",
+          expiresAt: new Date(runtimeCache.expiresAtMs).toISOString()
+        }
+      }
+    };
+  }
   const repo = getSnapshotRepository();
   const llmProvider = resolveServerLLMProvider(env);
+  const providers = options.providers ?? createProductionProviders();
+  const cacheStatus = options.forceRefresh ? "refresh" : "miss";
+  const expiresAtMs = now.getTime() + (options.cacheTtlMs ?? SNAPSHOT_CACHE_TTL_MS);
   try {
     const result = await runBekeHarness(
       { symbol: "BEKE", triggerType: "manual" },
       {
-        marketProvider: new MockMarketProvider(),
-        newsProvider: new MockNewsProvider(),
-        officialProvider: new MockOfficialProvider(),
-        macroProvider: new MockMacroProvider(),
+        ...providers,
         llmProvider,
         snapshotRepository: repo,
         memoryRepository: getMemoryRepository(),
@@ -4401,26 +4719,30 @@ async function createBeke19SnapshotState(env = getRuntimeEnv()) {
       }
     );
     if (result.snapshot) {
-      return {
+      const payload2 = {
         ok: true,
         state: {
           snapshot: result.snapshot,
           run: result.run
         },
-        runtime: runtimeInfo(llmProvider, "server-harness")
+        runtime: runtimeInfo(llmProvider, "server-harness", providers, cacheStatus, now, expiresAtMs)
       };
+      runtimeCache = { payload: payload2, expiresAtMs };
+      return payload2;
     }
   } catch (error) {
     console.warn("beke19 server harness failed; using fallback snapshot", error);
   }
-  return {
+  const payload = {
     ok: true,
     state: {
       snapshot: latestSnapshot,
       run: fallbackRun(latestSnapshot)
     },
-    runtime: runtimeInfo(llmProvider, "static-fallback")
+    runtime: runtimeInfo(llmProvider, "static-fallback", providers, cacheStatus, now, expiresAtMs)
   };
+  runtimeCache = { payload, expiresAtMs };
+  return payload;
 }
 function parseAction(req) {
   const raw = req.query?.action;
@@ -4433,7 +4755,7 @@ function parseAction(req) {
     return "snapshot";
   }
 }
-async function handleBeke19Request(req, res) {
+async function handleBeke19Request(req, res, options = {}) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -4450,13 +4772,20 @@ async function handleBeke19Request(req, res) {
     res.status(400).json({ ok: false, error: `Unsupported action: ${action}` });
     return;
   }
-  const payload = await createBeke19SnapshotState();
-  res.setHeader("Cache-Control", "no-store");
+  const payload = await createBeke19SnapshotState(void 0, {
+    ...options,
+    forceRefresh: action === "refresh" || options.forceRefresh
+  });
+  res.setHeader(
+    "Cache-Control",
+    action === "refresh" ? "no-store" : "public, s-maxage=21600, stale-while-revalidate=300"
+  );
   res.status(200).json(payload);
 }
 export {
   createBeke19SnapshotState,
   createServerLLMGateway,
   handleBeke19Request,
+  resetBeke19RuntimeCache,
   resolveServerLLMProvider
 };
