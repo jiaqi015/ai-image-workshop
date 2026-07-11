@@ -4470,6 +4470,11 @@ function reliabilityFor(publisher) {
 function isOfficialRelease(item) {
   return /GlobeNewswire|Business Wire|PR Newswire|KE Holdings/i.test(item.source) || /announces|results|annual general meeting|earnings/i.test(item.title);
 }
+function isBekeRelevant(item) {
+  const tickers = item.relatedTickers ?? [];
+  if (tickers.some((ticker) => ticker.toUpperCase() === "BEKE")) return true;
+  return /\bBEKE\b|KE Holdings|贝壳/i.test(item.title ?? "");
+}
 var YahooFinanceEvidenceClient = class {
   fetcher;
   now;
@@ -4493,7 +4498,7 @@ var YahooFinanceEvidenceClient = class {
       const cutoff = this.now().getTime() - sinceHours * 60 * 60 * 1e3;
       return (payload.news ?? []).flatMap((item) => {
         const publishedMs = (item.providerPublishTime ?? 0) * 1e3;
-        if (!item.uuid || !item.title || !item.publisher || !item.link || publishedMs < cutoff) return [];
+        if (!isBekeRelevant(item) || !item.uuid || !item.title || !item.publisher || !item.link || publishedMs < cutoff) return [];
         return [{
           id: `yahoo-news-${item.uuid}`,
           title: item.title,
