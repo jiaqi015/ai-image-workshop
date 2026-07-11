@@ -16751,6 +16751,11 @@ function sanitizeOpinionEvidence(opinion, context) {
 function sanitizeEditedEvidence(output, context) {
   if (!output.targetViews) return output;
   const known = new Set(context.evidence.map((item) => item.evidenceId));
+  const withoutLedgerSentences = (value, fallback) => {
+    const sentences = value.split(/[。；\n]/).map((sentence) => sentence.trim()).filter(Boolean);
+    const editorial = sentences.filter((sentence) => !/\d+(?:\.\d+)?%|现价|当前股价|差距/.test(sentence));
+    return editorial.length > 0 ? `${editorial.join("\uFF1B")}\u3002` : fallback;
+  };
   return {
     ...output,
     headline: (() => {
@@ -16760,8 +16765,12 @@ function sanitizeEditedEvidence(output, context) {
     })(),
     targetViews: Object.fromEntries(TARGETS.map((target) => {
       const view = output.targetViews[target];
+      const evidenceFallback = `\u4E3B\u8981\u652F\u6491\uFF1A${view.evidenceFor[0]}\uFF1B\u4E3B\u8981\u98CE\u9669\uFF1A${view.evidenceAgainst[0]}\u3002`;
       return [target, {
         ...view,
+        headline: withoutLedgerSentences(view.headline, `${target} \u7F8E\u5143\u89E6\u8FBE\u4ECD\u9700\u540E\u7EED\u8BC1\u636E\u9A8C\u8BC1\u3002`),
+        plainSummary: withoutLedgerSentences(view.plainSummary, evidenceFallback),
+        weekOutlook: /(未来一周|未来7天|未来七天|未来 7 日|下周)/.test(view.weekOutlook) ? view.weekOutlook : `\u672A\u6765\u4E00\u5468\uFF1A${view.weekOutlook}`,
         evidenceRefs: view.evidenceRefs ? {
           support: view.evidenceRefs.support.filter((evidenceId) => known.has(evidenceId)),
           risk: view.evidenceRefs.risk.filter((evidenceId) => known.has(evidenceId))
@@ -17324,7 +17333,7 @@ function evaluateFrontendSurface(snapshot, prediction) {
     findings.push("frontend contract leaks old debug or duplicate labels");
   }
   const boldForecast = surfaces.find((surface) => surface.role === "bold-week-forecast");
-  if (boldForecast && !/(未来一周|先观察)/.test(boldForecast.text)) {
+  if (boldForecast && !/(未来一周|未来7天|未来七天|未来 7 日|下周|先观察)/.test(boldForecast.text)) {
     findings.push("one-week forecast lacks a clear observation statement");
   }
   if (boldForecast && /戏眼|敲门|主菜|大牛市宣言/.test(boldForecast.text)) {
@@ -22001,6 +22010,7 @@ async function generateBeke19SnapshotState(env, options, now, stateStore) {
   const cacheStatus = options.forceRefresh ? "refresh" : "miss";
   const expiresAtMs = now.getTime() + (options.cacheTtlMs ?? SNAPSHOT_CACHE_TTL_MS);
   let degradedReason = "Harness did not produce a publishable snapshot";
+  let failedRun;
   try {
     const result = await runBekeHarness(
       { symbol: "BEKE", triggerType: "manual" },
@@ -22024,6 +22034,8 @@ async function generateBeke19SnapshotState(env, options, now, stateStore) {
       runtimeCache = { payload: payload2, expiresAtMs };
       return payload2;
     }
+    failedRun = result.run;
+    degradedReason = result.run.errorMessage ?? degradedReason;
   } catch (error51) {
     console.warn("beke19 server harness failed; using fallback snapshot", error51);
     degradedReason = error51 instanceof Error ? error51.message : String(error51);
@@ -22032,7 +22044,7 @@ async function generateBeke19SnapshotState(env, options, now, stateStore) {
     ok: true,
     state: {
       snapshot: latestSnapshot,
-      run: fallbackRun(latestSnapshot)
+      run: failedRun ? toPublicRun(failedRun) : fallbackRun(latestSnapshot)
     },
     runtime: {
       ...runtimeInfo(llmProvider, "static-fallback", providers, cacheStatus, now, expiresAtMs, stateStore.name),
