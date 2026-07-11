@@ -17512,7 +17512,13 @@ var blockedTerms = [
 ];
 function reviewBlockedTerms(text) {
   const normalized = text.toLowerCase();
-  return blockedTerms.filter((term) => term === "\u65E0\u98CE\u9669" ? /无风险(?!利率)/.test(normalized) : normalized.includes(term.toLowerCase())).map((term) => ({
+  return blockedTerms.filter((term) => {
+    if (term === "\u65E0\u98CE\u9669") return /无风险(?!利率)/.test(normalized);
+    if (["buy", "sell", "hold"].includes(term)) {
+      return new RegExp(`\\b${term}\\b`, "i").test(normalized);
+    }
+    return normalized.includes(term.toLowerCase());
+  }).map((term) => ({
     code: "BLOCKED_TERM",
     severity: "high",
     message: `\u7981\u6B62\u6295\u8D44\u5EFA\u8BAE\u8BED\u8A00: ${term}`
