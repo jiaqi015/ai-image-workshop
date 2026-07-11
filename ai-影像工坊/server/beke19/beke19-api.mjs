@@ -16730,11 +16730,39 @@ function deterministicFallback(context, reason) {
 function validContextOpinion(value, role, contextId) {
   return value.role === role && value.contextId === contextId;
 }
-function hasOnlyKnownEvidenceRefs(opinion, context) {
+function sanitizeOpinionEvidence(opinion, context) {
   const known = new Set(context.evidence.map((item) => item.evidenceId));
-  return Object.values(opinion.targets).every(
-    (target) => [...target.evidenceRefs, ...target.counterEvidenceRefs].every((evidenceId) => known.has(evidenceId))
-  );
+  let removed = 0;
+  const targets = Object.fromEntries(TARGETS.map((target) => {
+    const view = opinion.targets[target];
+    const evidenceRefs = view.evidenceRefs.filter((evidenceId) => known.has(evidenceId));
+    const counterEvidenceRefs = view.counterEvidenceRefs.filter((evidenceId) => known.has(evidenceId));
+    removed += view.evidenceRefs.length - evidenceRefs.length;
+    removed += view.counterEvidenceRefs.length - counterEvidenceRefs.length;
+    return [target, { ...view, evidenceRefs, counterEvidenceRefs }];
+  }));
+  return {
+    ...opinion,
+    targets,
+    dataGaps: removed > 0 ? [...opinion.dataGaps, `\u5DF2\u5254\u9664 ${removed} \u4E2A\u4E0A\u4E0B\u6587\u4E4B\u5916\u7684\u8BC1\u636E\u5F15\u7528`] : opinion.dataGaps
+  };
+}
+function sanitizeEditedEvidence(output, context) {
+  if (!output.targetViews) return output;
+  const known = new Set(context.evidence.map((item) => item.evidenceId));
+  return {
+    ...output,
+    targetViews: Object.fromEntries(TARGETS.map((target) => {
+      const view = output.targetViews[target];
+      return [target, {
+        ...view,
+        evidenceRefs: view.evidenceRefs ? {
+          support: view.evidenceRefs.support.filter((evidenceId) => known.has(evidenceId)),
+          risk: view.evidenceRefs.risk.filter((evidenceId) => known.has(evidenceId))
+        } : void 0
+      }];
+    }))
+  };
 }
 function clearAndConsistent(output, context) {
   if (BANNED_UNCLEAR_TERMS.test(JSON.stringify(output))) return false;
@@ -16767,13 +16795,14 @@ var AnalysisEngine = class {
         promptVersion: prompt.version,
         input: { context },
         outputSchema: "ResearchAgentOpinion@v1",
-        schema: (value) => isResearchAgentOpinion(value) && validContextOpinion(value, role, context.contextId) && hasOnlyKnownEvidenceRefs(value, context)
+        schema: (value) => isResearchAgentOpinion(value) && validContextOpinion(value, role, context.contextId)
       });
-      const [quant, bull, bear] = await Promise.all([
+      const rawOpinions = await Promise.all([
         opinionRequest("quant", "quant_research", PROMPTS.quant_research),
         opinionRequest("bull", "bull_research", PROMPTS.bull_research),
         opinionRequest("bear", "bear_research", PROMPTS.bear_research)
       ]);
+      const [quant, bull, bear] = rawOpinions.map((opinion) => sanitizeOpinionEvidence(opinion, context));
       const edited = await gateway.run({
         task: "edit_research",
         promptVersion: PROMPTS.research_editor.version,
@@ -16781,11 +16810,12 @@ var AnalysisEngine = class {
         outputSchema: "AnalysisOutput@v2",
         schema: isAnalysisOutput
       });
-      if (!clearAndConsistent(edited, context)) {
+      const sanitizedEdited = sanitizeEditedEvidence(edited, context);
+      if (!clearAndConsistent(sanitizedEdited, context)) {
         return deterministicFallback(context, "Model output failed clarity or consistency checks");
       }
       return {
-        ...edited,
+        ...sanitizedEdited,
         factorViews: context.factors,
         generation: {
           mode: "model_loop",
