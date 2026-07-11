@@ -19349,16 +19349,21 @@ function responseFormatFor(outputSchema) {
   };
 }
 var ArkChatCompletionsProvider = class {
-  constructor(apiKey, baseUrl = "https://ark.cn-beijing.volces.com/api/v3", modelId = "doubao-1-5-pro-32k-250115") {
+  constructor(apiKey, baseUrl = "https://ark.cn-beijing.volces.com/api/v3", editorModelId = "doubao-1-5-pro-32k-250115", agentModelId = editorModelId) {
     this.apiKey = apiKey;
     this.baseUrl = baseUrl;
-    this.modelId = modelId;
+    this.editorModelId = editorModelId;
+    this.agentModelId = agentModelId;
+    this.modelId = agentModelId === editorModelId ? editorModelId : `${agentModelId} \u2192 ${editorModelId}`;
   }
   apiKey;
   baseUrl;
-  modelId;
+  editorModelId;
+  agentModelId;
   name = "ArkChatCompletionsProvider";
+  modelId;
   async complete(request) {
+    const isResearchEditor = request.outputSchema === "AnalysisOutput@v2";
     const response = await fetch(`${this.baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
       headers: {
@@ -19366,14 +19371,14 @@ var ArkChatCompletionsProvider = class {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: this.modelId,
+        model: isResearchEditor ? this.editorModelId : this.agentModelId,
         messages: [
           { role: "system", content: systemPromptFor2(request) },
           { role: "user", content: `JSON input:
 ${JSON.stringify(request.input)}` }
         ],
         response_format: responseFormatFor(request.outputSchema),
-        max_completion_tokens: 4e3
+        max_completion_tokens: isResearchEditor ? 3200 : 1600
       })
     });
     if (!response.ok) {
@@ -21954,7 +21959,7 @@ function createServerLLMGateway(env = getRuntimeEnv()) {
   const providerName = apiKey ? useArk ? "ArkChatCompletionsProvider" : useOpenAI ? "OpenAIResponsesProvider" : "TokenPlanProvider" : "MockLLMProvider";
   const gateway = new LLMGateway(providerName);
   if (apiKey) {
-    gateway.registerProvider(useArk ? new ArkChatCompletionsProvider(apiKey, baseUrl, env.LLM_MODEL) : useOpenAI ? new OpenAIResponsesProvider(apiKey, baseUrl, env.LLM_MODEL) : new TokenPlanProvider(apiKey, baseUrl, env.LLM_MODEL));
+    gateway.registerProvider(useArk ? new ArkChatCompletionsProvider(apiKey, baseUrl, env.LLM_MODEL, env.LLM_AGENT_MODEL) : useOpenAI ? new OpenAIResponsesProvider(apiKey, baseUrl, env.LLM_MODEL) : new TokenPlanProvider(apiKey, baseUrl, env.LLM_MODEL));
   }
   gateway.registerProvider(new MockLLMProvider());
   return gateway;
