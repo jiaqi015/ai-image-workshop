@@ -18576,11 +18576,12 @@ function buildResearchBriefs(snapshot, prediction) {
   const targetView = snapshot.analysis.targetViews?.[prediction.target];
   if (targetView?.historicalAnchor && targetView.panoramicAnalysis && targetView.guidance?.length) {
     return [
-      { label: "\u3010\u4E13\u5BB6\u65AD\u8A00\u3011", body: targetView.headline },
-      { label: "\u3010\u6DF1\u5EA6\u63A8\u6F14\u4E0E\u672C\u8D28\u6EAF\u6E90\u3011", body: `${targetView.historicalAnchor} ${targetView.plainSummary}` },
-      { label: "\u3010\u5168\u7EF4\u666F\u5206\u6790\u3011", body: targetView.panoramicAnalysis },
+      { kind: "assertion", label: "\u3010\u65AD\u8A00\u3011", body: targetView.headline },
+      { kind: "reasoning", label: "\u3010\u63A8\u6F14\u3011", body: `${targetView.historicalAnchor} ${targetView.plainSummary}` },
+      { kind: "panorama", label: "\u3010\u5168\u7EF4\u3011", body: targetView.panoramicAnalysis },
       {
-        label: "\u3010\u6307\u5BFC\u4E0E\u5EFA\u8BAE\u3011",
+        kind: "guidance",
+        label: "\u3010\u5EFA\u8BAE\u3011",
         body: "",
         items: targetView.guidance.map((item) => `${item.action}\uFF1A${item.signal}\uFF08${item.horizon}\uFF09`)
       }
@@ -18588,9 +18589,9 @@ function buildResearchBriefs(snapshot, prediction) {
   }
   if (targetView) {
     return [
-      { label: "\u7ED3\u8BBA\u5148\u8BF4", body: targetView.plainSummary },
-      { label: "\u8BC1\u636E\u600E\u6837\u5F71\u54CD\u80A1\u4EF7", body: `\u652F\u6301\u8DEF\u5F84\uFF1A${targetView.evidenceFor.join("\uFF1B")}\u3002\u538B\u5236\u8DEF\u5F84\uFF1A${targetView.evidenceAgainst.join("\uFF1B")}\u3002` },
-      { label: "\u4EC0\u4E48\u60C5\u51B5\u4E0B\u4F1A\u6539\u5224", body: `\u6B63\u5411\u6761\u4EF6\uFF1A${targetView.debate.bullCase} \u53CD\u5411\u6761\u4EF6\uFF1A${targetView.debate.bearCase} \u5F53\u524D\u57FA\u51C6\uFF1A${targetView.debate.baseCase}` }
+      { kind: "summary", label: "\u7ED3\u8BBA\u5148\u8BF4", body: targetView.plainSummary },
+      { kind: "evidence", label: "\u8BC1\u636E\u600E\u6837\u5F71\u54CD\u80A1\u4EF7", body: `\u652F\u6301\u8DEF\u5F84\uFF1A${targetView.evidenceFor.join("\uFF1B")}\u3002\u538B\u5236\u8DEF\u5F84\uFF1A${targetView.evidenceAgainst.join("\uFF1B")}\u3002` },
+      { kind: "revision", label: "\u4EC0\u4E48\u60C5\u51B5\u4E0B\u4F1A\u6539\u5224", body: `\u6B63\u5411\u6761\u4EF6\uFF1A${targetView.debate.bullCase} \u53CD\u5411\u6761\u4EF6\uFF1A${targetView.debate.bearCase} \u5F53\u524D\u57FA\u51C6\uFF1A${targetView.debate.baseCase}` }
     ];
   }
   const positiveFactors = snapshot.factors.filter((factor) => factor.direction === "positive").slice(0, 2).map((factor) => factor.label).join("\u3001") || "\u4EF7\u683C\u548C\u56DE\u8D2D";
@@ -18598,14 +18599,17 @@ function buildResearchBriefs(snapshot, prediction) {
   const stocktake = /没有新的|不是新新闻|存量信息|复核/.test(snapshot.analysis.changes) ? "\u65E0\u65B0\u589E\u516C\u544A\uFF1B\u672C\u8F6E\u662F\u5B58\u91CF\u516C\u5F00\u4FE1\u606F\u590D\u6838\uFF0C\u91CD\u70B9\u770B\u65E7\u8BC1\u636E\u662F\u5426\u4ECD\u80FD\u89E3\u91CA\u5F53\u524D\u76D8\u9762\u3002" : stripEndPunctuation(snapshot.analysis.changes);
   return [
     {
+      kind: "summary",
       label: "\u7ED3\u8BBA\u5148\u8BF4",
       body: `\u5F53\u524D\u652F\u6301\u56E0\u7D20\u662F${naturalListText(positiveFactors)}\uFF1B\u4E3B\u8981\u7EA6\u675F\u662F${naturalListText(pressureFactors)}\u3002`
     },
     {
+      kind: "revision",
       label: "\u4EC0\u4E48\u60C5\u51B5\u4E0B\u4F1A\u6539\u5224",
       body: "\u6B63\u5411\u8BC1\u636E\u8FDE\u7EED\u6539\u5584\u65F6\u4E0A\u8C03\u5224\u65AD\uFF1B\u5173\u952E\u7EA6\u675F\u6076\u5316\u65F6\u4E0B\u8C03\u5224\u65AD\uFF1B\u5176\u4F59\u60C5\u51B5\u7EF4\u6301\u5F53\u524D\u57FA\u51C6\u3002"
     },
     {
+      kind: "evidence",
       label: "\u4FE1\u606F\u53D1\u751F\u4E86\u4EC0\u4E48\u53D8\u5316",
       body: stocktake.replace("\u65E0\u65B0\u589E\u516C\u544A\uFF1B", "\u6CA1\u6709\u65B0\u7684\u516C\u53F8\u516C\u544A\uFF1B")
     }
@@ -18618,22 +18622,25 @@ function buildResearchNotes(snapshot, prediction) {
   }
   if (targetView) {
     return [
-      { label: "\u672A\u6765 7 \u5929\u9A8C\u8BC1\u4EC0\u4E48", body: targetView.weekOutlook },
-      { label: "\u54EA\u4E9B\u60C5\u51B5\u4F1A\u63A8\u7FFB\u7ED3\u8BBA", body: targetView.invalidation },
-      { label: "\u4E0B\u4E00\u6279\u5173\u952E\u6570\u636E", body: targetView.watchpoint }
+      { kind: "outlook", label: "\u672A\u6765 7 \u5929\u9A8C\u8BC1\u4EC0\u4E48", body: targetView.weekOutlook },
+      { kind: "invalidation", label: "\u54EA\u4E9B\u60C5\u51B5\u4F1A\u63A8\u7FFB\u7ED3\u8BBA", body: targetView.invalidation },
+      { kind: "watch", label: "\u4E0B\u4E00\u6279\u5173\u952E\u6570\u636E", body: targetView.watchpoint }
     ];
   }
   const factorSignal = snapshot.factors.filter((factor) => factor.coverage !== "missing" && factor.direction !== "neutral").map((factor) => `${factor.label}${factor.direction === "positive" ? "\u504F\u6B63\u5411" : "\u504F\u8D1F\u5411"}`).join("\uFF0C") || "\u6682\u65E0\u7EBF\u6027\u56E0\u5B50\u7A81\u7834";
   return [
     {
+      kind: "outlook",
       label: "\u672A\u6765 7 \u5929\u9A8C\u8BC1\u4EC0\u4E48",
       body: prediction.nearTermForecast?.trigger ?? "\u6309\u5F53\u524D\u4EF7\u683C\u7ED3\u6784\u6267\u884C\u57FA\u51C6\u5224\u65AD\uFF0C\u5E76\u6838\u5BF9\u4E0B\u4E00\u7EC4\u53EF\u89C2\u5BDF\u4FE1\u53F7\u3002"
     },
     {
+      kind: "invalidation",
       label: "\u54EA\u4E9B\u60C5\u51B5\u4F1A\u63A8\u7FFB\u7ED3\u8BBA",
       body: `${prediction.nearTermForecast?.invalidation ?? "\u4EF7\u683C\u7ED3\u6784\u4E0E\u6838\u5FC3\u7ECF\u8425\u56E0\u5B50\u540C\u6B65\u6076\u5316\u65F6\u6539\u5224\u3002"} \u56E0\u5B50\u53D8\u5316\uFF1A${factorSignal}\u3002`
     },
     {
+      kind: "watch",
       label: "\u4E0B\u4E00\u6279\u5173\u952E\u6570\u636E",
       body: snapshot.analysis.watch[0] ?? "\u6838\u5BF9\u4E0B\u4E00\u7EC4\u5B98\u65B9\u6570\u636E\u3002"
     }
@@ -18813,13 +18820,9 @@ function evaluateFrontendSurface(snapshot, prediction) {
     findings.push("bold forecast repeats its own label inside the thesis");
   }
   const researchJudgement = surfaces.find((surface) => surface.role === "research-judgement");
+  const professionalBriefs = buildResearchBriefs(snapshot, prediction);
   const professionalView = snapshot.analysis.targetViews?.[prediction.target];
-  const hasProfessionalConclusionShape = !!(professionalView?.historicalAnchor && professionalView.panoramicAnalysis && professionalView.guidance?.length && professionalView.claimLedger?.some((claim) => claim.basis === "bounded_inference" && claim.disconfirmingSignal)) && !!researchJudgement && [
-    "\u3010\u4E13\u5BB6\u65AD\u8A00\u3011",
-    "\u3010\u6DF1\u5EA6\u63A8\u6F14\u4E0E\u672C\u8D28\u6EAF\u6E90\u3011",
-    "\u3010\u5168\u7EF4\u666F\u5206\u6790\u3011",
-    "\u3010\u6307\u5BFC\u4E0E\u5EFA\u8BAE\u3011"
-  ].every((heading) => researchJudgement.text.includes(heading));
+  const hasProfessionalConclusionShape = !!(professionalView?.historicalAnchor && professionalView.panoramicAnalysis && professionalView.guidance?.length && professionalView.claimLedger?.some((claim) => claim.basis === "bounded_inference" && claim.disconfirmingSignal)) && ["assertion", "reasoning", "panorama", "guidance"].every((kind) => professionalBriefs.some((note) => note.kind === kind));
   const hasCurrentReviewShape = researchJudgement && /正向(?:条件|证据)/.test(researchJudgement.text) && /(?:反向条件|关键约束|主要约束)/.test(researchJudgement.text) && (/推翻结论/.test(researchJudgement.text) && /关键数据/.test(researchJudgement.text) || /失效/.test(researchJudgement.text) && /验证/.test(researchJudgement.text));
   if (researchJudgement && !hasCurrentReviewShape && !hasProfessionalConclusionShape) {
     findings.push("research judgement lacks dissent, falsification, or validation surfaces");
@@ -20081,7 +20084,7 @@ async function executeWorkflowStep(input) {
 }
 
 // src/research/runtime/version.ts
-var RESEARCH_RUNTIME_VERSION = "research-runtime-toolbox-first-touch-v1";
+var RESEARCH_RUNTIME_VERSION = "research-runtime-evidence-timeline-v2";
 
 // src/research/harness/runBekeHarness.ts
 var globalRunSequence = 0;
@@ -20232,7 +20235,7 @@ function summarizeStepOutput(step, output) {
     }
     case "publish": {
       const snapshot = output;
-      return `\u53D1\u5E03\u5FEB\u7167 ${snapshot.runId}\uFF0C\u5386\u53F2 ${snapshot.history.length} \u70B9`;
+      return `\u53D1\u5E03\u5FEB\u7167 ${snapshot.runId}\uFF0C\u5386\u53F2 ${snapshot.history.length} \u70B9\uFF0C\u516C\u5F00\u8BC1\u636E ${snapshot.news.length} \u6761`;
     }
     default:
       return `${step} \u5B8C\u6210`;
@@ -20558,17 +20561,27 @@ async function runBekeHarness(input, context) {
       }
     };
   });
+  const eventSourceLinks = events.flatMap((event) => event.sourceUrl ? [[
+    event.sourceUrl,
+    {
+      label: event.title,
+      publisher: event.source,
+      url: event.sourceUrl
+    }
+  ]] : []);
+  const rawSourceLinks = news.allItems.map((item) => [
+    item.url,
+    {
+      label: item.title,
+      publisher: item.source,
+      url: item.url
+    }
+  ]);
   const sourceLinks = Array.from(
     new Map(
       [
-        ...news.allItems.map((item) => [
-          item.url,
-          {
-            label: item.title,
-            publisher: item.source,
-            url: item.url
-          }
-        ]),
+        ...rawSourceLinks,
+        ...eventSourceLinks,
         [
           priceKnowledgeBase.metadata.sourceUrl,
           {
@@ -20623,7 +20636,7 @@ async function runBekeHarness(input, context) {
     predictions: publishedPredictions,
     analysis,
     factors,
-    news: events.slice().sort((a, b2) => new Date(b2.publishedAt ?? 0).getTime() - new Date(a.publishedAt ?? 0).getTime()).slice(0, 10).map((e) => ({
+    news: events.slice().sort((a, b2) => new Date(b2.publishedAt ?? 0).getTime() - new Date(a.publishedAt ?? 0).getTime()).map((e) => ({
       id: `news-${e.id}`,
       eventId: e.id,
       title: e.title,
