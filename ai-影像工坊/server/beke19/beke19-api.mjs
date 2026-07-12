@@ -20065,6 +20065,9 @@ async function executeWorkflowStep(input) {
   };
 }
 
+// src/research/runtime/version.ts
+var RESEARCH_RUNTIME_VERSION = "research-runtime-toolbox-first-touch-v1";
+
 // src/research/harness/runBekeHarness.ts
 var globalRunSequence = 0;
 var HarnessRecorder = class {
@@ -20591,6 +20594,7 @@ async function runBekeHarness(input, context) {
     modelVersion: analysis.generation?.modelId ?? "probability-rules-mvp-0.1",
     promptVersion: analysis.generation?.promptVersions.length ? analysis.generation.promptVersions.join("+") : PROMPTS.generate_analysis.version,
     dataVersion: [
+      RESEARCH_RUNTIME_VERSION,
       `market-${market.quote.provenance?.provider ?? context.marketProvider.name}`,
       `news-${context.newsProvider.name}`,
       `official-${context.officialProvider.name}`,
@@ -23741,9 +23745,15 @@ function runtimeInfo(provider, source, providers, cacheStatus, generatedAt, expi
     persistence
   };
 }
+function hasCurrentRuntimeContract(payload) {
+  return payload.state.snapshot.dataVersion.split("+").includes(RESEARCH_RUNTIME_VERSION);
+}
+function canReuseRuntimeCache(payload) {
+  return payload.runtime.source !== "server-harness" || hasCurrentRuntimeContract(payload);
+}
 async function createBeke19SnapshotState(env = getRuntimeEnv(), options = {}) {
   const now = options.now?.() ?? /* @__PURE__ */ new Date();
-  if (!options.forceRefresh && runtimeCache && runtimeCache.expiresAtMs > now.getTime()) {
+  if (!options.forceRefresh && runtimeCache && runtimeCache.expiresAtMs > now.getTime() && canReuseRuntimeCache(runtimeCache.payload)) {
     return {
       ...runtimeCache.payload,
       runtime: {
@@ -23775,7 +23785,7 @@ async function loadOrGenerateBeke19SnapshotState(env, options, now) {
         getRunRepository().save(persisted.payload.state.run);
         getMemoryRepository().saveMany(persisted.memories);
         runtimeCache = { payload: persisted.payload, expiresAtMs };
-        if (!options.forceRefresh && expiresAtMs > now.getTime()) {
+        if (!options.forceRefresh && expiresAtMs > now.getTime() && canReuseRuntimeCache(persisted.payload)) {
           return {
             ...persisted.payload,
             runtime: {
