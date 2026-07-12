@@ -17652,6 +17652,21 @@ function enforceMissingFactorBoundaries(text, context) {
   if (unresolved.length === 0) return normalized;
   return `${unresolved.map((factor) => factor.label).join("\u3001")}\u5F53\u524D\u8BC1\u636E\u8986\u76D6\u4E0D\u8DB3\uFF0C\u65B9\u5411\u672A\u77E5\uFF0C\u53EA\u4F5C\u4E3A\u98CE\u9669\u8FB9\u754C\uFF0C\u4E0D\u6309\u4E2D\u6027\u8BA1\u5165\u3002${normalized}`;
 }
+function completeFactorPanorama(text, context) {
+  const normalized = enforceMissingFactorBoundaries(text, context);
+  const uncovered = context.factors.filter((factor) => factorSegments(normalized, factor).length === 0);
+  if (uncovered.length === 0) return normalized;
+  const clauses = uncovered.map((factor) => {
+    if (factor.coverage === "missing") {
+      return `${factor.label}\u5F53\u524D\u8BC1\u636E\u8986\u76D6\u4E0D\u8DB3\u4E14\u65B9\u5411\u672A\u77E5\uFF0C\u53EA\u4F5C\u4E3A\u98CE\u9669\u8FB9\u754C`;
+    }
+    const direction = factor.deltaFromNeutral > 0 ? "\u504F\u6B63\u5411" : factor.deltaFromNeutral < 0 ? "\u504F\u8D1F\u5411" : "\u4E2D\u6027";
+    const mechanism = factor.reason.replace(/[。！？；].*$/u, "").trim();
+    return `${factor.label}${direction}${mechanism ? `\uFF0C${mechanism}` : ""}`;
+  });
+  const separator = /[。！？]$/u.test(normalized) ? "" : "\u3002";
+  return `${normalized}${separator}\u8865\u5145\u56E0\u5B50\u5224\u65AD\uFF1A${clauses.join("\uFF0C\u540C\u65F6")}\u3002`;
+}
 function factorEvidence(context, positive) {
   const candidates = context.factors.filter((factor) => factor.coverage !== "missing").filter((factor) => positive ? factor.deltaFromNeutral > 0 : factor.deltaFromNeutral < 0).sort((left, right) => Math.abs(right.deltaFromNeutral) - Math.abs(left.deltaFromNeutral));
   return candidates.slice(0, 3).map((factor) => {
@@ -17877,7 +17892,7 @@ function materializeDraft(draft, context, synthesis) {
         false
       ),
       historicalAnchor: precedent?.narrative ?? `${target} \u7F8E\u5143\u6309\u5F53\u524D\u70B9\u65F6\u4EF7\u683C\u5E8F\u5217\u4F5C\u4E3A\u7ED3\u6784\u5316\u9608\u503C\u8DDF\u8E2A\uFF1B\u5728\u6CA1\u6709\u540C\u671F\u5916\u90E8\u4E8B\u4EF6\u8BC1\u636E\u65F6\uFF0C\u53EA\u9648\u8FF0\u4EF7\u683C\u4E0E\u6210\u4EA4\u91CF\u5171\u73B0\u3002`,
-      panoramicAnalysis: enforceMissingFactorBoundaries(
+      panoramicAnalysis: completeFactorPanorama(
         sanitizeFactNarrative(
           targetDraft.panoramicAnalysis,
           context,
