@@ -4,6 +4,835 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
+// src/research/models/stationaryBootstrapFirstTouch.ts
+var STATIONARY_BOOTSTRAP_FIRST_TOUCH_MODEL_VERSION = "stationary-bootstrap-first-touch-v1";
+var MIN_LOG_RETURN_OBSERVATIONS = 30;
+var DEFAULT_PATH_COUNT = 5e3;
+var DEFAULT_HORIZON_DAYS = 83;
+var MAX_PATH_COUNT = 1e5;
+var MAX_HORIZON_DAYS = 2520;
+var WILSON_95_Z = 1.959963984540054;
+function toBoundedInteger(value, fallback, upperBound, warning, warnings) {
+  if (value === void 0) return fallback;
+  const normalized = Number.isFinite(value) ? Math.min(upperBound, Math.max(1, Math.floor(value))) : fallback;
+  if (normalized !== value) warnings.push(warning);
+  return normalized;
+}
+function normalizeOptions(observations, input) {
+  const warnings = [];
+  const defaultBlockSize = Math.max(2, Math.round(Math.cbrt(Math.max(1, observations))));
+  const pathCount = toBoundedInteger(
+    input.pathCount,
+    DEFAULT_PATH_COUNT,
+    MAX_PATH_COUNT,
+    `path_count_normalized_to_1_${MAX_PATH_COUNT}`,
+    warnings
+  );
+  const blockSize = toBoundedInteger(
+    input.blockSize,
+    defaultBlockSize,
+    Math.max(1, observations),
+    "block_size_normalized_to_observation_range",
+    warnings
+  );
+  const horizonDays2 = toBoundedInteger(
+    input.horizonDays,
+    DEFAULT_HORIZON_DAYS,
+    MAX_HORIZON_DAYS,
+    `horizon_days_normalized_to_1_${MAX_HORIZON_DAYS}`,
+    warnings
+  );
+  return { pathCount, blockSize, horizonDays: horizonDays2, warnings };
+}
+function validHistoricalCloses(history) {
+  return [...history].sort((left, right) => left.date.localeCompare(right.date)).map((point) => point.close).filter((close) => Number.isFinite(close) && close > 0);
+}
+function logReturns(history) {
+  const closes = validHistoricalCloses(history);
+  return closes.slice(1).map((close, index) => Math.log(close / closes[index])).filter(Number.isFinite);
+}
+function fnv1a32(value) {
+  let hash2 = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash2 ^= value.charCodeAt(index);
+    hash2 = Math.imul(hash2, 16777619);
+  }
+  return hash2 >>> 0;
+}
+function normalizedSeed(explicitSeed, input, returns, options) {
+  if (explicitSeed !== void 0 && Number.isFinite(explicitSeed)) {
+    return Math.floor(explicitSeed) >>> 0;
+  }
+  return fnv1a32(JSON.stringify({
+    symbol: input.quote.symbol,
+    price: input.quote.price,
+    asOf: input.quote.asOf,
+    target: input.target,
+    pathCount: options.pathCount,
+    blockSize: options.blockSize,
+    horizonDays: options.horizonDays,
+    returns: returns.map((value) => Number(value.toFixed(12)))
+  }));
+}
+function mulberry32(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = state + 1831565813 | 0;
+    let value = Math.imul(state ^ state >>> 15, 1 | state);
+    value = value + Math.imul(value ^ value >>> 7, 61 | value) ^ value;
+    return ((value ^ value >>> 14) >>> 0) / 4294967296;
+  };
+}
+function roundPercent(value) {
+  return Number((value * 100).toFixed(1));
+}
+function wilson95Interval(hits, trials) {
+  const estimate = hits / trials;
+  const zSquared = WILSON_95_Z ** 2;
+  const denominator = 1 + zSquared / trials;
+  const center = (estimate + zSquared / (2 * trials)) / denominator;
+  const margin = WILSON_95_Z * Math.sqrt(estimate * (1 - estimate) / trials + zSquared / (4 * trials ** 2)) / denominator;
+  return {
+    lower: roundPercent(Math.max(0, center - margin)),
+    upper: roundPercent(Math.min(1, center + margin))
+  };
+}
+function commonResult(input) {
+  return {
+    ...input,
+    modelVersion: STATIONARY_BOOTSTRAP_FIRST_TOUCH_MODEL_VERSION
+  };
+}
+function calculateStationaryBootstrapFirstTouch(input) {
+  if (!Number.isFinite(input.quote.price) || input.quote.price <= 0) {
+    throw new RangeError("quote.price must be a positive finite number");
+  }
+  if (!Number.isFinite(input.target) || input.target <= 0) {
+    throw new RangeError("target must be a positive finite number");
+  }
+  const returns = logReturns(input.history);
+  const observations = returns.length;
+  const options = normalizeOptions(observations, input);
+  const seed = normalizedSeed(input.seed, input, returns, options);
+  if (input.quote.price >= input.target) {
+    return commonResult({
+      status: "resolved_at_issue",
+      probability: 100,
+      wilson95: { lower: 100, upper: 100 },
+      pathCount: 0,
+      hitCount: 0,
+      seed,
+      blockSize: options.blockSize,
+      observations,
+      horizonDays: options.horizonDays,
+      warnings: [...options.warnings, "resolved_at_issue"]
+    });
+  }
+  if (observations < MIN_LOG_RETURN_OBSERVATIONS) {
+    return commonResult({
+      status: "insufficient_history",
+      probability: null,
+      wilson95: null,
+      pathCount: 0,
+      hitCount: 0,
+      seed,
+      blockSize: options.blockSize,
+      observations,
+      horizonDays: options.horizonDays,
+      warnings: [...options.warnings, `requires_${MIN_LOG_RETURN_OBSERVATIONS}_log_returns`]
+    });
+  }
+  const random = mulberry32(seed);
+  const restartProbability = 1 / options.blockSize;
+  let hitCount = 0;
+  for (let path = 0; path < options.pathCount; path += 1) {
+    let returnIndex = Math.floor(random() * observations);
+    let simulatedPrice = input.quote.price;
+    let touched = false;
+    for (let day = 0; day < options.horizonDays; day += 1) {
+      if (day > 0) {
+        if (random() < restartProbability) {
+          returnIndex = Math.floor(random() * observations);
+        } else {
+          returnIndex = (returnIndex + 1) % observations;
+        }
+      }
+      simulatedPrice *= Math.exp(returns[returnIndex]);
+      if (simulatedPrice >= input.target) touched = true;
+    }
+    if (touched) hitCount += 1;
+  }
+  const rawProbability = hitCount / options.pathCount;
+  return commonResult({
+    status: "available",
+    probability: roundPercent(rawProbability),
+    wilson95: wilson95Interval(hitCount, options.pathCount),
+    pathCount: options.pathCount,
+    hitCount,
+    seed,
+    blockSize: options.blockSize,
+    observations,
+    horizonDays: options.horizonDays,
+    warnings: [
+      ...options.warnings,
+      "uncalibrated_shadow_model",
+      "close_only_first_touch_proxy"
+    ]
+  });
+}
+
+// src/research/models/historicalAnalogFirstTouch.ts
+var HISTORICAL_ANALOG_FIRST_TOUCH_MODEL_VERSION = "historical-analog-first-touch-v1";
+var DEFAULT_HORIZON_DAYS2 = 83;
+var DEFAULT_MINIMUM_EFFECTIVE_WINDOWS = 3;
+var NORMAL_95_Z = 1.959963984540054;
+function requirePositiveFinite(value, name) {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new RangeError(`${name} must be a positive finite number`);
+  }
+}
+function positiveInteger(value, fallback, name) {
+  if (value === void 0) return fallback;
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new RangeError(`${name} must be a positive integer`);
+  }
+  return value;
+}
+function round(value, digits = 1) {
+  return Number(value.toFixed(digits));
+}
+function pointInTimeBars(history, cutoff) {
+  let excludedFutureObservations = 0;
+  const candidates = history.map((point, originalIndex) => ({
+    point,
+    originalIndex,
+    timestamp: Date.parse(point.date)
+  })).filter(({ point, timestamp }) => {
+    if (!Number.isFinite(timestamp)) return false;
+    if (timestamp > cutoff) {
+      excludedFutureObservations += 1;
+      return false;
+    }
+    return Number.isFinite(point.close) && point.close > 0 && Number.isFinite(point.high) && point.high > 0;
+  }).sort((left, right) => left.timestamp - right.timestamp || left.originalIndex - right.originalIndex);
+  const byDate = /* @__PURE__ */ new Map();
+  for (const { point } of candidates) {
+    byDate.set(point.date, {
+      date: point.date,
+      close: point.close,
+      high: point.high
+    });
+  }
+  return {
+    bars: [...byDate.values()],
+    excludedFutureObservations
+  };
+}
+function countCompleteWindowTouches(bars, horizonDays2, barrierRatio) {
+  const rawWindowCount = Math.max(0, bars.length - horizonDays2);
+  let rawHitCount = 0;
+  let effectiveWindowCount = 0;
+  let effectiveHitCount = 0;
+  for (let startIndex = 0; startIndex < rawWindowCount; startIndex += 1) {
+    const barrier = bars[startIndex].close * barrierRatio;
+    let touched = false;
+    for (let futureIndex = startIndex + 1; futureIndex <= startIndex + horizonDays2; futureIndex += 1) {
+      if (bars[futureIndex].high >= barrier) {
+        touched = true;
+        break;
+      }
+    }
+    if (touched) rawHitCount += 1;
+    if (startIndex % horizonDays2 === 0) {
+      effectiveWindowCount += 1;
+      if (touched) effectiveHitCount += 1;
+    }
+  }
+  return { rawWindowCount, rawHitCount, effectiveWindowCount, effectiveHitCount };
+}
+function jeffreysEstimate(effectiveHitCount, effectiveWindowCount) {
+  const alpha = 0.5 + effectiveHitCount;
+  const beta = 0.5 + effectiveWindowCount - effectiveHitCount;
+  const posteriorMean = alpha / (alpha + beta);
+  const posteriorVariance = alpha * beta / ((alpha + beta) ** 2 * (alpha + beta + 1));
+  const margin = NORMAL_95_Z * Math.sqrt(posteriorVariance);
+  return {
+    probability: round(posteriorMean * 100),
+    interval95: {
+      lower: round(Math.max(0, posteriorMean - margin) * 100),
+      upper: round(Math.min(1, posteriorMean + margin) * 100)
+    }
+  };
+}
+function resultBase(input) {
+  return {
+    ...input,
+    modelVersion: HISTORICAL_ANALOG_FIRST_TOUCH_MODEL_VERSION
+  };
+}
+function calculateHistoricalAnalogFirstTouch(input) {
+  requirePositiveFinite(input.quote.price, "quote.price");
+  requirePositiveFinite(input.target, "target");
+  const cutoff = Date.parse(input.quote.asOf);
+  if (!Number.isFinite(cutoff)) {
+    throw new RangeError("quote.asOf must be a valid timestamp");
+  }
+  const horizonDays2 = positiveInteger(
+    input.horizonDays,
+    DEFAULT_HORIZON_DAYS2,
+    "horizonDays"
+  );
+  const minimumWindows = positiveInteger(
+    input.minimumWindows,
+    DEFAULT_MINIMUM_EFFECTIVE_WINDOWS,
+    "minimumWindows"
+  );
+  const barrierRatio = input.target / input.quote.price;
+  const { bars, excludedFutureObservations } = pointInTimeBars(input.history, cutoff);
+  const common = {
+    observationsUsed: bars.length,
+    excludedFutureObservations,
+    horizonDays: horizonDays2,
+    minimumWindows,
+    barrierRatio: round(barrierRatio, 6),
+    asOf: input.quote.asOf
+  };
+  if (input.quote.price >= input.target) {
+    return resultBase({
+      ...common,
+      status: "resolved_at_issue",
+      probability: 100,
+      interval95: { lower: 100, upper: 100 },
+      intervalMethod: "resolved-at-issue",
+      rawWindowCount: 0,
+      rawHitCount: 0,
+      effectiveWindowCount: 0,
+      effectiveHitCount: 0,
+      warnings: ["target_was_already_reached_at_issue"]
+    });
+  }
+  const { rawWindowCount, rawHitCount, effectiveWindowCount, effectiveHitCount } = countCompleteWindowTouches(
+    bars,
+    horizonDays2,
+    barrierRatio
+  );
+  const warnings = [
+    "effective_windows=non_overlapping_starts_at_horizon_spacing"
+  ];
+  if (excludedFutureObservations > 0) {
+    warnings.push("observations_after_quote_asOf_excluded");
+  }
+  if (effectiveWindowCount < minimumWindows || rawWindowCount === 0) {
+    return resultBase({
+      ...common,
+      status: "insufficient",
+      probability: null,
+      interval95: null,
+      intervalMethod: null,
+      rawWindowCount,
+      rawHitCount,
+      effectiveWindowCount,
+      effectiveHitCount,
+      warnings: [
+        ...warnings,
+        `requires_${minimumWindows}_effective_windows`
+      ]
+    });
+  }
+  const estimate = jeffreysEstimate(
+    effectiveHitCount,
+    effectiveWindowCount
+  );
+  return resultBase({
+    ...common,
+    status: "available",
+    probability: estimate.probability,
+    interval95: estimate.interval95,
+    intervalMethod: "jeffreys-beta-normal-approximation-95",
+    rawWindowCount,
+    rawHitCount,
+    effectiveWindowCount,
+    effectiveHitCount,
+    warnings: [
+      ...warnings,
+      "interval_is_normal_approximation_to_jeffreys_beta_posterior"
+    ]
+  });
+}
+
+// src/research/backtest/BacktestEngine.ts
+function resolveForecastOutcome(question, observations, evaluatedAt) {
+  if (question.status === "resolved_at_issue") {
+    return { questionId: question.questionId, status: "hit", actualHit: true, actualHitDate: question.issuedAt.slice(0, 10) };
+  }
+  const issuedDate = question.issuedAt.slice(0, 10);
+  const horizonDate = question.horizonEnd.slice(0, 10);
+  const evaluatedDate = new Date(evaluatedAt).toISOString().slice(0, 10);
+  const observationCutoff = evaluatedDate < horizonDate ? evaluatedDate : horizonDate;
+  const eligible = observations.filter((point) => point.date > issuedDate && point.date <= observationCutoff).sort((a, b2) => a.date.localeCompare(b2.date));
+  const touch = eligible.find((point) => point.high >= question.barrier);
+  if (touch) {
+    return { questionId: question.questionId, status: "hit", actualHit: true, actualHitDate: touch.date };
+  }
+  if (new Date(evaluatedAt).getTime() < new Date(question.horizonEnd).getTime()) {
+    return { questionId: question.questionId, status: "pending" };
+  }
+  if (eligible.length === 0) {
+    return { questionId: question.questionId, status: "invalid", reason: "No point-in-time observations" };
+  }
+  const lastObserved = (/* @__PURE__ */ new Date(`${eligible[eligible.length - 1].date}T23:59:59.999Z`)).getTime();
+  const horizon = new Date(question.horizonEnd).getTime();
+  if (horizon - lastObserved > 4 * 24 * 60 * 60 * 1e3) {
+    return { questionId: question.questionId, status: "censored", reason: "Terminal market data is incomplete" };
+  }
+  return { questionId: question.questionId, status: "miss", actualHit: false };
+}
+var BacktestEngine = class {
+  actualHit(audit) {
+    if (audit.outcomeStatus === "hit") return true;
+    if (audit.outcomeStatus === "miss") return false;
+    return audit.actualHit === true;
+  }
+  realized(audits) {
+    return audits.filter((audit) => {
+      if (audit.outcomeStatus) return audit.outcomeStatus === "hit" || audit.outcomeStatus === "miss";
+      return typeof audit.actualHit === "boolean";
+    });
+  }
+  calculateBrierScore(audits) {
+    const realized = this.realized(audits);
+    if (realized.length === 0) return 0;
+    const sum = realized.reduce((acc, audit) => {
+      const predicted = audit.predictedProbability / 100;
+      const actual = this.actualHit(audit) ? 1 : 0;
+      return acc + Math.pow(predicted - actual, 2);
+    }, 0);
+    return sum / realized.length;
+  }
+  calculateCalibrationError(audits, buckets = 10) {
+    const realized = this.realized(audits);
+    if (realized.length === 0) return 0;
+    const bucketSize = 1 / buckets;
+    let totalError = 0;
+    for (let i = 0; i < buckets; i++) {
+      const lower = i * bucketSize;
+      const upper = (i + 1) * bucketSize;
+      const inBucket = realized.filter((a) => {
+        const p = a.predictedProbability / 100;
+        const isFinalBucket = i === buckets - 1;
+        return p >= lower && (p < upper || isFinalBucket && p === upper);
+      });
+      if (inBucket.length === 0) continue;
+      const avgPredicted = inBucket.reduce((sum, a) => sum + a.predictedProbability / 100, 0) / inBucket.length;
+      const avgActual = inBucket.filter((a) => this.actualHit(a)).length / inBucket.length;
+      totalError += Math.abs(avgPredicted - avgActual) * (inBucket.length / realized.length);
+    }
+    return totalError;
+  }
+  calculateHitWindowError(audits) {
+    const hitAudits = this.realized(audits).filter((a) => this.actualHit(a) && a.actualHitDate);
+    if (hitAudits.length === 0) return 0;
+    const errors = hitAudits.map((a) => {
+      const predictionDate = new Date(a.predictionDate);
+      const hitDate = new Date(a.actualHitDate);
+      const actualDays = (hitDate.getTime() - predictionDate.getTime()) / (24 * 60 * 60 * 1e3);
+      let expectedDays;
+      switch (a.horizon) {
+        case "30d":
+          expectedDays = 30;
+          break;
+        case "60d":
+          expectedDays = 60;
+          break;
+        case "90d":
+          expectedDays = 90;
+          break;
+        case "120d":
+          expectedDays = 120;
+          break;
+      }
+      return Math.abs(actualDays - expectedDays) / expectedDays;
+    });
+    return errors.reduce((sum, e) => sum + e, 0) / errors.length;
+  }
+  calculateDirectionAccuracy(audits) {
+    const realized = this.realized(audits);
+    if (realized.length === 0) return 0;
+    const correct = realized.filter((a) => {
+      const predicted = a.predictedProbability / 100;
+      return this.actualHit(a) ? predicted > 0.5 : predicted <= 0.5;
+    }).length;
+    return correct / realized.length;
+  }
+  generateCalibrationReport(audits) {
+    return {
+      brierScore: this.calculateBrierScore(audits),
+      calibrationError: this.calculateCalibrationError(audits),
+      hitWindowError: this.calculateHitWindowError(audits),
+      directionAccuracy: this.calculateDirectionAccuracy(audits)
+    };
+  }
+};
+
+// src/research/engines/calibration/CalibrationEngine.ts
+var MIN_OUTCOME_SAMPLE_SIZE = 50;
+var REQUIRED_FACTOR_COUNT = 6;
+function clampScore(value) {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+function roundMetric(value) {
+  return Number(value.toFixed(4));
+}
+function horizonDays(horizon) {
+  return Number.parseInt(horizon.replace("d", ""), 10);
+}
+function isMatureCalibrationOutcome(audit, now) {
+  if (audit.issuanceStatus === "resolved_at_issue") return false;
+  if (audit.predictedProbability >= 100) return false;
+  const issuedAt = Date.parse(audit.predictionDate);
+  const evaluatedAt = Date.parse(now);
+  if (!Number.isFinite(issuedAt) || !Number.isFinite(evaluatedAt)) return false;
+  const maturesAt = issuedAt + horizonDays(audit.horizon) * 24 * 60 * 60 * 1e3;
+  return evaluatedAt >= maturesAt;
+}
+function calibrationVintageId(audit) {
+  return audit.vintageId ?? audit.predictionDate;
+}
+function auditActualHit(audit) {
+  if (audit.outcomeStatus === "hit") return true;
+  if (audit.outcomeStatus === "miss") return false;
+  return audit.actualHit === true;
+}
+function sourceDiversityScore(snapshot) {
+  const publishers = new Set(
+    [
+      ...snapshot.news.map((item) => item.source),
+      ...snapshot.sources.map((source) => source.publisher)
+    ].filter(Boolean)
+  );
+  const hasOfficialSource = [...publishers].some(
+    (publisher) => /ir|investor|holdings|ke holdings/i.test(publisher)
+  );
+  return clampScore(publishers.size * 25 + (hasOfficialSource ? 20 : 0) + Math.min(snapshot.news.length, 5) * 5);
+}
+function factorCoverageScore(snapshot) {
+  if (snapshot.factors.length === 0) return 0;
+  const coverage = snapshot.factors.reduce((sum, factor) => {
+    const status = factor.coverage ?? ((factor.evidenceCount ?? factor.sourceEventIds.length) > 0 ? "thin" : "missing");
+    return sum + (status === "covered" ? 1 : status === "thin" ? 0.55 : 0);
+  }, 0);
+  return clampScore(coverage / REQUIRED_FACTOR_COUNT * 100);
+}
+function forecastEvidenceScore(snapshot) {
+  if (snapshot.predictions.length === 0) return 0;
+  const scores = snapshot.predictions.map((prediction) => {
+    const forecast = prediction.nearTermForecast;
+    const evidence = forecast?.evidenceSummary;
+    if (!forecast || !evidence) return 0;
+    return clampScore(
+      (evidence.newsItems > 0 ? 30 : 0) + (evidence.historyPoints >= 5 ? 25 : evidence.historyPoints > 0 ? 15 : 0) + (evidence.memoryItems > 0 ? 15 : 8) + (evidence.dominantFactor && evidence.dominantFactor !== "\u6682\u65E0\u4E3B\u5BFC\u56E0\u5B50" ? 15 : 0) + (snapshot.analysis.generation?.mode === "model_loop" && forecast.agentDebate ? 15 : 0)
+    );
+  });
+  return clampScore(scores.reduce((sum, score) => sum + score, 0) / scores.length);
+}
+function memoryEvidenceScore(snapshot) {
+  if (snapshot.predictions.length === 0) return 0;
+  const memoryCounts = snapshot.predictions.map(
+    (prediction) => prediction.nearTermForecast?.evidenceSummary?.memoryItems ?? 0
+  );
+  const averageMemoryCount = memoryCounts.reduce((sum, count) => sum + count, 0) / memoryCounts.length;
+  const hasPersistentMemory = memoryCounts.some((count) => count > 4);
+  return clampScore(
+    (averageMemoryCount >= 4 ? 90 : averageMemoryCount >= 2 ? 70 : averageMemoryCount > 0 ? 50 : 0) + (hasPersistentMemory ? 10 : 0)
+  );
+}
+function historyCoverageScore(snapshot) {
+  if (snapshot.history.length >= 10) return 100;
+  if (snapshot.history.length >= 5) return 70;
+  if (snapshot.history.length > 0) return 55;
+  return 0;
+}
+function calibrationScore(report) {
+  if (report.status === "pending_outcomes") return 65;
+  if (report.status === "insufficient_outcomes") return 55;
+  const brier = report.brierScore ?? 1;
+  const calibrationError = report.calibrationError ?? 1;
+  return clampScore(100 - brier * 80 - calibrationError * 60);
+}
+function qualityFindings(input) {
+  const findings = [];
+  if (input.sourceScore < 50) {
+    findings.push({ code: "SOURCE_DIVERSITY_WEAK", severity: "critical", message: "\u516C\u5F00\u6765\u6E90\u8FC7\u5C11\uFF0C\u65E0\u6CD5\u652F\u6491\u53D1\u5E03\u7EA7\u7814\u7A76\u5224\u65AD\u3002" });
+  } else if (input.sourceScore < 75) {
+    findings.push({ code: "SOURCE_DIVERSITY_THIN", severity: "warning", message: "\u6765\u6E90\u8986\u76D6\u504F\u8584\uFF0C\u9700\u8981\u8865\u5145\u5B98\u65B9\u3001\u65B0\u95FB\u6216\u5E02\u573A\u6765\u6E90\u3002" });
+  }
+  if (input.factorScore < 20) {
+    findings.push({ code: "FACTOR_COVERAGE_WEAK", severity: "critical", message: "\u56E0\u5B50\u8986\u76D6\u4E0D\u8DB3\uFF0C\u6982\u7387\u5224\u65AD\u7F3A\u5C11\u5B8C\u6574\u6A2A\u622A\u9762\u7EA6\u675F\u3002" });
+  } else if (input.factorScore < 80) {
+    findings.push({ code: "FACTOR_COVERAGE_THIN", severity: "warning", message: "\u90E8\u5206\u56E0\u5B50\u53EA\u6709\u5C11\u91CF\u8BC1\u636E\u6216\u660E\u786E\u7F3A\u6570\uFF0C\u9875\u9762\u5FC5\u987B\u4FDD\u7559\u8986\u76D6\u63D0\u793A\u3002" });
+  }
+  if (input.missingFactorLabels.length > 0) {
+    findings.push({
+      code: "REQUIRED_FACTOR_MISSING",
+      severity: "critical",
+      message: `\u5173\u952E\u56E0\u5B50\u7F3A\u5C11\u53EF\u6838\u9A8C\u8BC1\u636E\uFF1A${input.missingFactorLabels.join("\u3001")}\u3002\u5176\u4ED6\u9AD8\u5206\u4E0D\u80FD\u62B5\u6D88\u8BE5\u7F3A\u53E3\u3002`
+    });
+  }
+  if (input.forecastScore < 80) {
+    findings.push({ code: "FORECAST_EVIDENCE_WEAK", severity: "critical", message: "\u4E00\u5468\u9884\u6D4B\u7F3A\u5C11\u65B0\u95FB\u3001\u5386\u53F2\u3001\u8BB0\u5FC6\u6216 debate \u8BC1\u636E\u3002" });
+  }
+  if (input.memoryScore < 50) {
+    findings.push({ code: "MEMORY_EVIDENCE_WEAK", severity: "critical", message: "\u8BB0\u5FC6\u8BC1\u636E\u4E0D\u8DB3\uFF0C\u7CFB\u7EDF\u65E0\u6CD5\u8BC1\u660E\u8DE8 run \u590D\u76D8\u80FD\u529B\u3002" });
+  } else if (input.memoryScore < 80) {
+    findings.push({ code: "MEMORY_EVIDENCE_THIN", severity: "warning", message: "\u8BB0\u5FC6\u8BC1\u636E\u504F\u8584\uFF0C\u9884\u6D4B\u66F4\u4F9D\u8D56\u5F53\u524D\u4E8B\u4EF6\u548C\u4EF7\u683C\u5E93\u3002" });
+  }
+  if (input.historyScore === 0) {
+    findings.push({ code: "HISTORY_COVERAGE_WEAK", severity: "critical", message: "\u6982\u7387\u5386\u53F2\u4E0D\u8DB3\uFF0C\u8D8B\u52BF\u5C55\u793A\u7F3A\u5C11\u590D\u76D8\u57FA\u7EBF\u3002" });
+  } else if (input.historyScore < 100) {
+    findings.push({ code: "HISTORY_COVERAGE_THIN", severity: "warning", message: "\u6982\u7387\u5386\u53F2\u672A\u6EE1 10 \u4E2A\u70B9\uFF0C\u8D8B\u52BF\u8BFB\u6570\u4ECD\u504F\u8584\u3002" });
+  }
+  if (input.calibration.status === "pending_outcomes") {
+    findings.push({
+      code: "CALIBRATION_PENDING_OUTCOMES",
+      severity: "warning",
+      message: "\u6821\u51C6\u62A5\u544A\u5DF2\u751F\u6210\uFF0C\u4F46\u8FD8\u5728\u7B49\u5F85\u76EE\u6807\u662F\u5426\u89E6\u8FBE\u7684\u771F\u5B9E\u7ED3\u679C\u3002"
+    });
+  } else if (input.calibration.status === "insufficient_outcomes") {
+    findings.push({
+      code: "CALIBRATION_SAMPLE_THIN",
+      severity: "warning",
+      message: "\u5DF2\u6709\u90E8\u5206\u771F\u5B9E\u7ED3\u679C\uFF0C\u4F46\u6837\u672C\u91CF\u4E0D\u8DB3\u4EE5\u5F62\u6210\u7A33\u5B9A\u6821\u51C6\u7ED3\u8BBA\u3002"
+    });
+  }
+  if (input.calibrationScore < 45) {
+    findings.push({ code: "CALIBRATION_SCORE_WEAK", severity: "critical", message: "\u5386\u53F2\u6821\u51C6\u6307\u6807\u8FC7\u5F31\uFF0C\u9700\u8981\u56DE\u5230\u6982\u7387\u6A21\u578B\u4FEE\u6B63\u3002" });
+  }
+  return findings;
+}
+var CalibrationEngine = class {
+  backtest = new BacktestEngine();
+  buildCalibrationReport(audits = [], now = (/* @__PURE__ */ new Date()).toISOString()) {
+    const realizedAudits = audits.filter(
+      (audit) => isMatureCalibrationOutcome(audit, now) && (audit.outcomeStatus ? audit.outcomeStatus === "hit" || audit.outcomeStatus === "miss" : typeof audit.actualHit === "boolean")
+    );
+    if (realizedAudits.length === 0) {
+      return {
+        modelName: "probability-synthesis-v1",
+        status: "pending_outcomes",
+        sampleSize: 0,
+        brierScore: null,
+        calibrationError: null,
+        hitWindowError: null,
+        directionAccuracy: null,
+        generatedAt: now,
+        thresholdPolicy: {
+          minOutcomeSampleSize: MIN_OUTCOME_SAMPLE_SIZE,
+          publishWithoutOutcomes: true
+        },
+        notes: ["\u7B49\u5F85\u76EE\u6807\u662F\u5426\u89E6\u8FBE\u7684\u771F\u5B9E\u7ED3\u679C\uFF1B\u5F53\u524D\u53EA\u53D1\u5E03\u900F\u660E\u7684\u5F85\u6821\u51C6\u72B6\u6001\uFF0C\u4E0D\u4F2A\u9020 Brier/ECE\u3002"]
+      };
+    }
+    const metrics = this.backtest.generateCalibrationReport(realizedAudits);
+    const vintageIds = new Set(realizedAudits.map(calibrationVintageId));
+    const hitVintageIds = new Set(realizedAudits.filter(auditActualHit).map(calibrationVintageId));
+    const missVintageIds = new Set(realizedAudits.filter((audit) => !auditActualHit(audit)).map(calibrationVintageId));
+    const status = vintageIds.size >= MIN_OUTCOME_SAMPLE_SIZE && hitVintageIds.size >= 10 && missVintageIds.size >= 10 ? "ready" : "insufficient_outcomes";
+    return {
+      modelName: "probability-synthesis-v1",
+      status,
+      sampleSize: vintageIds.size,
+      brierScore: roundMetric(metrics.brierScore),
+      calibrationError: roundMetric(metrics.calibrationError),
+      hitWindowError: roundMetric(metrics.hitWindowError),
+      directionAccuracy: roundMetric(metrics.directionAccuracy),
+      generatedAt: now,
+      thresholdPolicy: {
+        minOutcomeSampleSize: MIN_OUTCOME_SAMPLE_SIZE,
+        publishWithoutOutcomes: true
+      },
+      notes: status === "ready" ? ["\u771F\u5B9E outcome \u6837\u672C\u8FBE\u5230\u9608\u503C\uFF0CBrier/ECE \u53EF\u4F5C\u4E3A\u6A21\u578B\u6821\u51C6\u8BC1\u636E\u3002"] : ["\u5DF2\u6709\u771F\u5B9E outcome\uFF0C\u4F46\u6837\u672C\u91CF\u5C1A\u672A\u8FBE\u5230\u7A33\u5B9A\u6821\u51C6\u9608\u503C\u3002"]
+    };
+  }
+  evaluateResearchQuality(snapshot, calibration = this.buildCalibrationReport()) {
+    const sourceScore = sourceDiversityScore(snapshot);
+    const factorScore = factorCoverageScore(snapshot);
+    const forecastScore = forecastEvidenceScore(snapshot);
+    const memoryScore = memoryEvidenceScore(snapshot);
+    const historyScore = historyCoverageScore(snapshot);
+    const calScore = calibrationScore(calibration);
+    const missingFactorLabels = snapshot.factors.filter((factor) => (factor.coverage ?? ((factor.evidenceCount ?? factor.sourceEventIds.length) > 0 ? "thin" : "missing")) === "missing").map((factor) => factor.label);
+    const overallScore = clampScore(
+      sourceScore * 0.2 + factorScore * 0.2 + forecastScore * 0.2 + memoryScore * 0.1 + historyScore * 0.15 + calScore * 0.15
+    );
+    return {
+      overallScore,
+      sourceDiversityScore: sourceScore,
+      factorCoverageScore: factorScore,
+      forecastEvidenceScore: forecastScore,
+      memoryEvidenceScore: memoryScore,
+      historyCoverageScore: historyScore,
+      calibrationScore: calScore,
+      findings: qualityFindings({
+        calibration,
+        sourceScore,
+        factorScore,
+        forecastScore,
+        memoryScore,
+        historyScore,
+        calibrationScore: calScore,
+        missingFactorLabels
+      })
+    };
+  }
+  attachResearchQuality(snapshot, options = {}) {
+    const calibration = this.buildCalibrationReport(options.audits ?? [], options.now);
+    const quality = this.evaluateResearchQuality(snapshot, calibration);
+    return {
+      ...snapshot,
+      calibration,
+      quality
+    };
+  }
+};
+function attachResearchQuality(snapshot, options = {}) {
+  return new CalibrationEngine().attachResearchQuality(snapshot, options);
+}
+
+// src/research/context/buildProbabilityResearchContext.ts
+var PROBABILITY_MODEL_RELEASE = Object.freeze({
+  modelVersion: "probability-synthesis-v1",
+  parameterSetId: "fixed-pool-60-40-v1",
+  calibrationArtifactId: "identity-no-mature-outcomes-v1",
+  ensembleMethod: "fixed-log-odds-pool",
+  releasedAt: "2026-07-12T00:00:00.000Z"
+});
+function releaseForCalibration(report) {
+  const calibrationArtifactId = report.status === "ready" ? "identity-calibration-ready-v1" : report.status === "insufficient_outcomes" ? "identity-observed-outcomes-v1" : "identity-no-mature-outcomes-v1";
+  return { ...PROBABILITY_MODEL_RELEASE, calibrationArtifactId };
+}
+function stableHash(value) {
+  const canonicalize = (item) => {
+    if (Array.isArray(item)) return item.map(canonicalize);
+    if (item && typeof item === "object") {
+      return Object.fromEntries(
+        Object.entries(item).sort(([left], [right]) => left.localeCompare(right)).map(([key, nested]) => [key, canonicalize(nested)])
+      );
+    }
+    return item;
+  };
+  const text = JSON.stringify(canonicalize(value));
+  let hash2 = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash2 ^= text.charCodeAt(index);
+    hash2 = Math.imul(hash2, 16777619);
+  }
+  return (hash2 >>> 0).toString(16).padStart(8, "0");
+}
+function deepFreeze(value) {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  for (const nested of Object.values(value)) deepFreeze(nested);
+  return Object.freeze(value);
+}
+function finiteTimestamp(value) {
+  if (!value) return void 0;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : void 0;
+}
+function scopedHistory(points, cutoffDate) {
+  return Array.from(new Map(points.filter((point) => /^\d{4}-\d{2}-\d{2}$/.test(point.date) && point.date <= cutoffDate).filter((point) => Number.isFinite(point.close) && point.close > 0).sort((left, right) => left.date.localeCompare(right.date)).map((point) => [point.date, { ...point }])).values());
+}
+function buildProbabilityResearchContext(input) {
+  const researchAsOf = input.researchAsOf ?? input.quote.asOf;
+  const calibrationReport = input.calibrationReport ?? new CalibrationEngine().buildCalibrationReport([], researchAsOf);
+  const cutoffMs = Date.parse(researchAsOf);
+  const marketCutoffMs = Date.parse(input.quote.asOf);
+  if (!Number.isFinite(cutoffMs)) {
+    throw new Error(`invalid researchAsOf: ${researchAsOf}`);
+  }
+  if (!Number.isFinite(marketCutoffMs)) {
+    throw new Error(`invalid quote.asOf: ${input.quote.asOf}`);
+  }
+  if (marketCutoffMs > cutoffMs) {
+    throw new Error(`quote.asOf ${input.quote.asOf} is later than researchAsOf ${researchAsOf}`);
+  }
+  const cutoffDate = new Date(cutoffMs).toISOString().slice(0, 10);
+  const marketCutoffDate = new Date(marketCutoffMs).toISOString().slice(0, 10);
+  const priceCutoffDate = marketCutoffDate < cutoffDate ? marketCutoffDate : cutoffDate;
+  const history = scopedHistory(input.history, priceCutoffDate);
+  const detailedHistory = scopedHistory(input.detailedHistory ?? [], priceCutoffDate);
+  const eventsWithoutValidPublishedAt = input.events.filter(
+    (event) => finiteTimestamp(event.publishedAt) === void 0
+  );
+  const events = input.events.filter((event) => {
+    const publishedAt = finiteTimestamp(event.publishedAt);
+    return publishedAt !== void 0 && publishedAt <= cutoffMs;
+  }).map((event) => ({
+    ...event,
+    affectedTargets: [...event.affectedTargets],
+    sourceUrls: event.sourceUrls ? [...event.sourceUrls] : void 0,
+    provenanceWarnings: event.provenanceWarnings ? [...event.provenanceWarnings] : void 0
+  })).sort((left, right) => `${left.publishedAt ?? ""}:${left.id}`.localeCompare(`${right.publishedAt ?? ""}:${right.id}`));
+  const eventIds = new Set(events.map((event) => event.id));
+  const memories = input.memories.filter((memory) => {
+    const validFrom = finiteTimestamp(memory.validFrom);
+    const validUntil = memory.validUntil ? finiteTimestamp(memory.validUntil) : void 0;
+    return validFrom !== void 0 && validFrom <= cutoffMs && (!memory.validUntil || validUntil !== void 0 && validUntil >= cutoffMs);
+  }).map((memory) => ({ ...memory })).sort((left, right) => left.id.localeCompare(right.id));
+  const factors = input.factors.map((factor) => {
+    const sourceEventIds = factor.sourceEventIds.filter((eventId) => eventIds.has(eventId));
+    const lostEvidenceAtCutoff = sourceEventIds.length !== factor.sourceEventIds.length;
+    return {
+      ...factor,
+      ...lostEvidenceAtCutoff ? {
+        score: 50,
+        direction: "unknown",
+        confidence: Math.min(0.35, factor.confidence),
+        coverage: "missing",
+        probabilityContribution: 0,
+        reason: `${factor.label}\u5F15\u7528\u4E86\u8BC1\u636E\u622A\u6B62\u65F6\u95F4\u4E4B\u540E\u6216\u65E0\u6CD5\u6838\u9A8C\u7684\u4E8B\u4EF6\uFF0C\u5DF2\u4ECE\u6982\u7387\u65B9\u5411\u4E2D\u79FB\u9664\u3002`
+      } : {},
+      sourceEventIds,
+      topEvidence: lostEvidenceAtCutoff ? [] : factor.topEvidence ? [...factor.topEvidence] : void 0,
+      components: lostEvidenceAtCutoff ? void 0 : factor.components?.map((component2) => ({
+        ...component2,
+        sourceEventIds: component2.sourceEventIds.filter((eventId) => eventIds.has(eventId))
+      }))
+    };
+  }).sort((left, right) => left.factor.localeCompare(right.factor));
+  const previousUpdatedAt = input.previousSnapshot?.updatedAt ? Date.parse(input.previousSnapshot.updatedAt) : void 0;
+  const previousSnapshotIsFuture = previousUpdatedAt !== void 0 && (!Number.isFinite(previousUpdatedAt) || previousUpdatedAt > cutoffMs);
+  const previousProbabilities = (previousSnapshotIsFuture ? [] : input.previousSnapshot?.predictions ?? []).map((prediction) => ({ target: prediction.target, probability: prediction.probability })).sort((left, right) => left.target - right.target);
+  const previousPublishedAt = previousSnapshotIsFuture ? void 0 : input.previousSnapshot?.updatedAt;
+  const dataGaps = [
+    ...detailedHistory.length < 30 ? ["OHLCV \u6837\u672C\u4E0D\u8DB3\uFF0C\u8DEF\u5F84\u81EA\u52A9\u6A21\u578B\u4EC5\u80FD\u964D\u7EA7\u6216\u505C\u7528\u3002"] : [],
+    ...eventsWithoutValidPublishedAt.length > 0 ? [`\u5DF2\u6392\u9664 ${eventsWithoutValidPublishedAt.length} \u6761\u7F3A\u5C11\u6216\u65E0\u6CD5\u6838\u9A8C\u53D1\u5E03\u65F6\u95F4\u7684\u4E8B\u4EF6\uFF0C\u672A\u7528\u4E8E\u6982\u7387\u65B9\u5411\u3002`] : [],
+    ...previousSnapshotIsFuture ? ["\u4E0A\u8F6E\u5FEB\u7167\u665A\u4E8E\u7814\u7A76\u622A\u6B62\u65F6\u95F4\uFF0C\u672A\u7528\u4E8E\u6982\u7387\u7A33\u5B9A\u6027\u951A\u5B9A\u3002"] : [],
+    ...factors.filter((factor) => factor.coverage === "missing").map((factor) => `${factor.label}\u7F3A\u5C11\u53EF\u6838\u9A8C\u8BC1\u636E\u3002`)
+  ];
+  const content = {
+    schemaVersion: "probability-research-context-v1",
+    symbol: "BEKE",
+    researchAsOf,
+    marketAsOf: input.quote.asOf,
+    evidenceCutoff: researchAsOf,
+    quote: { ...input.quote, provenance: input.quote.provenance ? { ...input.quote.provenance } : void 0 },
+    history,
+    detailedHistory,
+    events,
+    memories,
+    factors,
+    previousProbabilities,
+    previousPublishedAt,
+    dataGaps,
+    calibrationReport: structuredClone(calibrationReport),
+    modelRelease: releaseForCalibration(calibrationReport)
+  };
+  return deepFreeze({
+    contextId: `pctx-${stableHash(content)}`,
+    ...content
+  });
+}
+
 // src/research/engines/probability.ts
 function distanceToTargetPercent(quote2, target) {
   return Number(((target - quote2.price) / quote2.price * 100).toFixed(1));
@@ -12,23 +841,75 @@ function enforceProbabilityBounds(value) {
   if (Number.isNaN(value)) return 5;
   return Math.min(95, Math.max(5, Math.round(value)));
 }
-function enforceTargetMonotonicity(predictions) {
-  const ordered = [...predictions].sort((a, b2) => a.target - b2.target);
-  let previous = 100;
-  return ordered.map((prediction) => {
-    const bounded = prediction.forecastQuestion?.status === "resolved_at_issue" ? 100 : enforceProbabilityBounds(prediction.probability);
-    const probability = Math.min(previous, bounded);
-    previous = probability;
-    return {
-      ...prediction,
-      rawProbability: prediction.rawProbability ?? prediction.probability,
-      probability,
-      coherenceAdjustment: probability - prediction.probability,
-      signal: classifySignal(probability),
-      modelScore: probability,
-      probabilityChange: prediction.previousProbability === void 0 ? prediction.probabilityChange : probability - prediction.previousProbability
+function weightedPavaNonIncreasing(values2, weights = values2.map(() => 1)) {
+  if (values2.length !== weights.length) throw new RangeError("values and weights must have equal length");
+  if (values2.length === 0) return [];
+  const blocks = [];
+  for (let index = 0; index < values2.length; index += 1) {
+    const weight = Number.isFinite(weights[index]) && weights[index] > 0 ? weights[index] : 1;
+    blocks.push({ start: index, end: index, weight, weightedSum: values2[index] * weight });
+    while (blocks.length >= 2) {
+      const right = blocks[blocks.length - 1];
+      const left = blocks[blocks.length - 2];
+      if (left.weightedSum / left.weight >= right.weightedSum / right.weight) break;
+      blocks.splice(blocks.length - 2, 2, {
+        start: left.start,
+        end: right.end,
+        weight: left.weight + right.weight,
+        weightedSum: left.weightedSum + right.weightedSum
+      });
+    }
+  }
+  const projected = values2.map(() => 0);
+  for (const block of blocks) {
+    const mean = block.weightedSum / block.weight;
+    for (let index = block.start; index <= block.end; index += 1) {
+      projected[index] = Number(mean.toFixed(8));
+    }
+  }
+  return projected;
+}
+function weightedBoundedPavaNonIncreasing(values2, lowerBounds, upperBounds, weights = values2.map(() => 1)) {
+  if (values2.length !== lowerBounds.length || values2.length !== upperBounds.length || values2.length !== weights.length) throw new RangeError("values, bounds and weights must have equal length");
+  const blockValue = (block) => Math.max(block.lower, Math.min(block.upper, block.weightedSum / block.weight));
+  const blocks = [];
+  for (let index = 0; index < values2.length; index += 1) {
+    if (lowerBounds[index] > upperBounds[index]) throw new RangeError("lower bound cannot exceed upper bound");
+    const weight = Number.isFinite(weights[index]) && weights[index] > 0 ? weights[index] : 1;
+    const initial = {
+      start: index,
+      end: index,
+      weight,
+      weightedSum: values2[index] * weight,
+      lower: lowerBounds[index],
+      upper: upperBounds[index]
     };
-  });
+    blocks.push({ ...initial, value: blockValue(initial) });
+    while (blocks.length >= 2) {
+      const right = blocks[blocks.length - 1];
+      const left = blocks[blocks.length - 2];
+      if (left.value >= right.value) break;
+      const mergedBase = {
+        start: left.start,
+        end: right.end,
+        weight: left.weight + right.weight,
+        weightedSum: left.weightedSum + right.weightedSum,
+        lower: Math.max(left.lower, right.lower),
+        upper: Math.min(left.upper, right.upper)
+      };
+      if (mergedBase.lower > mergedBase.upper) {
+        throw new RangeError("monotonic release bounds are infeasible");
+      }
+      blocks.splice(blocks.length - 2, 2, { ...mergedBase, value: blockValue(mergedBase) });
+    }
+  }
+  const projected = values2.map(() => 0);
+  for (const block of blocks) {
+    for (let index = block.start; index <= block.end; index += 1) {
+      projected[index] = Number(block.value.toFixed(8));
+    }
+  }
+  return projected;
 }
 function classifyConfidence(probability) {
   if (probability >= 70 || probability <= 20) return "\u9AD8";
@@ -46,6 +927,12 @@ function calculateEpistemicConfidence(history, factors, events) {
   const factorReliability = factors.length === 0 ? 0 : factors.reduce((sum, factor) => sum + factor.confidence, 0) / factors.length;
   return Number((historyCoverage * 0.35 + sourceDiversity * 0.35 + factorReliability * 0.3).toFixed(2));
 }
+function discountEpistemicConfidenceForModelDisagreement(confidence, disagreementPoints) {
+  const boundedConfidence = Math.max(0, Math.min(1, confidence));
+  const boundedDisagreement = Math.max(0, Number.isFinite(disagreementPoints) ? disagreementPoints : 0);
+  const penalty = Math.min(0.3, Math.max(0, boundedDisagreement - 10) * 0.012);
+  return Number(Math.max(0.1, boundedConfidence - penalty).toFixed(2));
+}
 function classifySignal(probability) {
   if (probability >= 65) return "\u504F\u591A";
   if (probability >= 55) return "\u4E2D\u6027\u504F\u591A";
@@ -55,13 +942,13 @@ function classifySignal(probability) {
 }
 var TARGET_WINDOW_OFFSET_DAYS = { 17: 45, 18: 75, 19: 105 };
 var DEFAULT_ISSUED_AT = "2026-07-11T00:00:00.000Z";
-function createForecastQuestion(quote2, target) {
-  const issuedAt = new Date(quote2.asOf);
+function createForecastQuestion(quote2, target, researchAsOf = quote2.asOf) {
+  const issuedAt = new Date(researchAsOf);
   const horizonEnd = addUtcDays(issuedAt, 120).toISOString();
   return {
-    questionId: `BEKE-${quote2.asOf}-${target}-120d-first-touch`,
+    questionId: `BEKE-${researchAsOf}-${target}-120d-first-touch`,
     symbol: "BEKE",
-    issuedAt: quote2.asOf,
+    issuedAt: researchAsOf,
     horizonEnd,
     horizonDays: 120,
     barrier: target,
@@ -120,6 +1007,44 @@ var FIRST_TOUCH_HORIZON_TRADING_DAYS = Math.round(120 / 365 * 252);
 var MIN_BARRIER_RETURN_OBSERVATIONS = 30;
 var MAX_BARRIER_RETURN_OBSERVATIONS = 252;
 var STRUCTURAL_BASE_WEIGHT = 0.4;
+var DISTANCE_PRIOR_WEIGHT = 1 - STRUCTURAL_BASE_WEIGHT;
+var EVIDENCE_LOG_ODDS_PER_POINT = 0.04;
+var MAX_EVIDENCE_LOG_ODDS = 0.8;
+var SHADOW_BOOTSTRAP_PATHS = 2e3;
+function clampOpenProbability(value) {
+  return Math.max(5, Math.min(95, value));
+}
+function logit(probabilityPercent) {
+  const probability = Math.max(1e-4, Math.min(0.9999, probabilityPercent / 100));
+  return Math.log(probability / (1 - probability));
+}
+function inverseLogit(value) {
+  return 1 / (1 + Math.exp(-value)) * 100;
+}
+function fixedLogOddsPool(components) {
+  const active = components.filter(
+    (component2) => component2.role === "active" && (component2.status === "available" || component2.status === "resolved_at_issue") && component2.probability !== void 0 && component2.weight > 0
+  );
+  if (active.length === 0) return 50;
+  const weightSum = active.reduce((sum, component2) => sum + component2.weight, 0);
+  return inverseLogit(active.reduce((sum, component2) => sum + component2.weight / weightSum * logit(component2.probability), 0));
+}
+function probabilitySimulationSeed(context) {
+  const input = JSON.stringify({
+    symbol: context.quote.symbol,
+    price: context.quote.price,
+    marketAsOf: context.marketAsOf,
+    history: context.history.map((point) => [point.date, Number(point.close.toFixed(8))]),
+    modelVersion: context.modelRelease.modelVersion,
+    parameterSetId: context.modelRelease.parameterSetId
+  });
+  let hash2 = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash2 ^= input.charCodeAt(index);
+    hash2 = Math.imul(hash2, 16777619);
+  }
+  return hash2 >>> 0;
+}
 function normalCdf(value) {
   const sign = value < 0 ? -1 : 1;
   const x = Math.abs(value) / Math.sqrt(2);
@@ -127,6 +1052,21 @@ function normalCdf(value) {
   const polynomial = ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t;
   const erf = sign * (1 - polynomial * Math.exp(-(x ** 2)));
   return 0.5 * (1 + erf);
+}
+function calculateGbmUpBarrierFirstTouchProbability(input) {
+  if (input.spot >= input.barrier) return 100;
+  if (!Number.isFinite(input.spot) || !Number.isFinite(input.barrier) || !Number.isFinite(input.horizonYears) || !Number.isFinite(input.annualizedLogDrift) || !Number.isFinite(input.annualizedVolatility) || input.spot <= 0 || input.barrier <= 0 || input.horizonYears <= 0 || input.annualizedVolatility <= 0) {
+    throw new RangeError("GBM first-passage inputs must be finite with positive spot, barrier, horizon and volatility");
+  }
+  const logBarrier = Math.log(input.barrier / input.spot);
+  const scale = input.annualizedVolatility * Math.sqrt(input.horizonYears);
+  const firstTerm = normalCdf((input.annualizedLogDrift * input.horizonYears - logBarrier) / scale);
+  const exponent = Math.max(
+    -50,
+    Math.min(50, 2 * input.annualizedLogDrift * logBarrier / input.annualizedVolatility ** 2)
+  );
+  const secondTerm = Math.exp(exponent) * normalCdf((-input.annualizedLogDrift * input.horizonYears - logBarrier) / scale);
+  return Math.max(0, Math.min(1, firstTerm + secondTerm)) * 100;
 }
 function quantile(values2, ratio) {
   const ordered = [...values2].sort((left, right) => left - right);
@@ -161,30 +1101,31 @@ function calculateBarrierTouchDiagnostics(quote2, history, target) {
     };
   }
   const closes = [...history].sort((left, right) => left.date.localeCompare(right.date)).map((point) => point.close).filter((close) => Number.isFinite(close) && close > 0).slice(-(MAX_BARRIER_RETURN_OBSERVATIONS + 1));
-  const logReturns = closes.slice(1).map((close, index) => Math.log(close / closes[index]));
-  if (logReturns.length < MIN_BARRIER_RETURN_OBSERVATIONS) {
-    return baseDiagnostic(quote2, target, "insufficient_history", logReturns.length, [
+  const logReturns2 = closes.slice(1).map((close, index) => Math.log(close / closes[index]));
+  if (logReturns2.length < MIN_BARRIER_RETURN_OBSERVATIONS) {
+    return baseDiagnostic(quote2, target, "insufficient_history", logReturns2.length, [
       `requires_${MIN_BARRIER_RETURN_OBSERVATIONS}_returns`
     ]);
   }
-  const lower = quantile(logReturns, 0.05);
-  const upper = quantile(logReturns, 0.95);
-  const winsorized = logReturns.map((value) => Math.min(upper, Math.max(lower, value)));
+  const lower = quantile(logReturns2, 0.05);
+  const upper = quantile(logReturns2, 0.95);
+  const winsorized = logReturns2.map((value) => Math.min(upper, Math.max(lower, value)));
   const mean = winsorized.reduce((sum, value) => sum + value, 0) / winsorized.length;
   const variance = winsorized.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (winsorized.length - 1);
   const annualizedVolatility = Math.sqrt(Math.max(0, variance)) * Math.sqrt(252);
   if (!Number.isFinite(annualizedVolatility) || annualizedVolatility < 0.01) {
-    return baseDiagnostic(quote2, target, "degenerate_volatility", logReturns.length, ["volatility_below_usable_floor"]);
+    return baseDiagnostic(quote2, target, "degenerate_volatility", logReturns2.length, ["volatility_below_usable_floor"]);
   }
   const driftShrinkage = Math.min(0.2, winsorized.length / 1260);
   const annualizedLogDrift = Math.max(-0.2, Math.min(0.2, mean * 252 * driftShrinkage));
   const horizonYears = FIRST_TOUCH_HORIZON_TRADING_DAYS / 252;
-  const logBarrier = Math.log(target / quote2.price);
-  const scale = annualizedVolatility * Math.sqrt(horizonYears);
-  const firstTerm = normalCdf((annualizedLogDrift * horizonYears - logBarrier) / scale);
-  const exponent = Math.max(-50, Math.min(50, 2 * annualizedLogDrift * logBarrier / annualizedVolatility ** 2));
-  const secondTerm = Math.exp(exponent) * normalCdf((-annualizedLogDrift * horizonYears - logBarrier) / scale);
-  const barrierProbability = Number((Math.max(0, Math.min(1, firstTerm + secondTerm)) * 100).toFixed(1));
+  const barrierProbability = Number(calculateGbmUpBarrierFirstTouchProbability({
+    spot: quote2.price,
+    barrier: target,
+    horizonYears,
+    annualizedLogDrift,
+    annualizedVolatility
+  }).toFixed(1));
   const heuristicProbability = enforceProbabilityBounds(calculateBaseProbability(quote2, target));
   const blendedProbability = enforceProbabilityBounds(
     heuristicProbability * (1 - STRUCTURAL_BASE_WEIGHT) + barrierProbability * STRUCTURAL_BASE_WEIGHT
@@ -194,7 +1135,7 @@ function calculateBarrierTouchDiagnostics(quote2, history, target) {
     status: "available",
     horizonCalendarDays: 120,
     horizonTradingDays: FIRST_TOUCH_HORIZON_TRADING_DAYS,
-    observations: logReturns.length,
+    observations: logReturns2.length,
     returnMethod: "winsorized-log-return",
     annualizedVolatility: Number(annualizedVolatility.toFixed(4)),
     annualizedLogDrift: Number(annualizedLogDrift.toFixed(4)),
@@ -209,11 +1150,92 @@ function calculateBarrierTouchDiagnostics(quote2, history, target) {
 function calculateProfessionalBaseProbability(quote2, history, target) {
   return calculateBarrierTouchDiagnostics(quote2, history, target);
 }
+function componentStatus(status) {
+  if (status === "available" || status === "resolved_at_issue") return status;
+  if (status === "insufficient_history") return "insufficient_data";
+  return "failed";
+}
+function buildProbabilityComponents(input) {
+  const structuralAvailable = input.structural.status === "available";
+  const distanceWeight = structuralAvailable ? DISTANCE_PRIOR_WEIGHT : 1;
+  const structuralWeight = structuralAvailable ? STRUCTURAL_BASE_WEIGHT : 0;
+  const bootstrap = calculateStationaryBootstrapFirstTouch({
+    quote: input.quote,
+    history: input.history,
+    target: input.target,
+    seed: input.seed,
+    pathCount: SHADOW_BOOTSTRAP_PATHS,
+    horizonDays: FIRST_TOUCH_HORIZON_TRADING_DAYS
+  });
+  const historicalAnalog = calculateHistoricalAnalogFirstTouch({
+    quote: input.quote,
+    history: input.detailedHistory,
+    target: input.target,
+    horizonDays: FIRST_TOUCH_HORIZON_TRADING_DAYS
+  });
+  return [
+    {
+      family: "distance_prior",
+      modelId: "transparent-distance-prior",
+      version: "distance-prior-v1",
+      role: "active",
+      status: input.quote.price >= input.target ? "resolved_at_issue" : "available",
+      probability: input.structural.heuristicProbability,
+      weight: distanceWeight,
+      warnings: ["fixed_prior_not_outcome_trained"]
+    },
+    {
+      family: "gbm_first_passage",
+      modelId: input.structural.model,
+      version: input.structural.model,
+      role: "active",
+      status: componentStatus(input.structural.status),
+      probability: input.structural.barrierProbability,
+      weight: structuralWeight,
+      observations: input.structural.observations,
+      warnings: [...input.structural.warnings]
+    },
+    {
+      family: "stationary_bootstrap",
+      modelId: bootstrap.modelVersion,
+      version: bootstrap.modelVersion,
+      role: "shadow",
+      status: bootstrap.status === "insufficient_history" ? "insufficient_data" : bootstrap.status,
+      probability: bootstrap.probability ?? void 0,
+      weight: 0,
+      interval95: bootstrap.wilson95 ?? void 0,
+      observations: bootstrap.observations,
+      warnings: [
+        ...bootstrap.warnings,
+        `deterministic_seed_${bootstrap.seed}`,
+        `paths_${bootstrap.pathCount}`,
+        `mean_block_${bootstrap.blockSize}`
+      ]
+    },
+    {
+      family: "historical_survival",
+      modelId: historicalAnalog.modelVersion,
+      version: historicalAnalog.modelVersion,
+      role: "shadow",
+      status: historicalAnalog.status === "insufficient" ? "insufficient_data" : historicalAnalog.status,
+      probability: historicalAnalog.probability ?? void 0,
+      weight: 0,
+      interval95: historicalAnalog.interval95 ?? void 0,
+      observations: historicalAnalog.effectiveWindowCount,
+      warnings: [
+        ...historicalAnalog.warnings,
+        `raw_windows_${historicalAnalog.rawWindowCount}`,
+        `effective_windows_${historicalAnalog.effectiveWindowCount}`,
+        "regular_session_high_used_for_touch"
+      ]
+    }
+  ];
+}
 function calculateVolatilityContext(history = []) {
   if (history.length < 2) {
     return { recentReturn: 0, volatility: 0, trendSlope: 0, adjustment: 0 };
   }
-  const closes = history.map((point) => point.close).filter((value) => value > 0);
+  const closes = [...history].sort((left, right) => left.date.localeCompare(right.date)).map((point) => point.close).filter((value) => value > 0).slice(-21);
   if (closes.length < 2) {
     return { recentReturn: 0, volatility: 0, trendSlope: 0, adjustment: 0 };
   }
@@ -259,19 +1281,27 @@ function calculateFactorContribution(factor) {
   const adjustment = (factor.score - 50) * 0.8;
   return Number((adjustment * weight * factor.confidence).toFixed(2));
 }
-function detectMajorEvents(events) {
-  return events.some((event) => event.importance >= 8 && event.confidence >= 0.75);
+function detectMajorEvents(events, target, publishedAfter) {
+  const previousCutoff = Date.parse(publishedAfter ?? "");
+  return events.some(
+    (event) => event.importance >= 8 && event.confidence >= 0.75 && (target === void 0 || event.affectedTargets.includes(target)) && (!Number.isFinite(previousCutoff) || Date.parse(event.publishedAt ?? "") > previousCutoff)
+  );
 }
 function eventImpactSign(event) {
   if (event.impact === "positive") return 1;
   if (event.impact === "negative") return -1;
   return 0;
 }
-function calculateEventAdjustment(events, target) {
+function calculateEventAdjustment(events, target, asOf) {
   const relevantEvents = events.filter((event) => event.affectedTargets.includes(target));
   const adjustment = relevantEvents.reduce((sum, event) => {
     const horizonWeight = event.timeHorizon === "\u77ED\u671F" ? 1 : event.timeHorizon === "\u4E2D\u671F" ? 0.75 : 0.45;
-    return sum + eventImpactSign(event) * event.importance * event.confidence * horizonWeight * 0.7;
+    const reliability = Math.max(0.25, Math.min(1, event.sourceReliability ?? event.confidence));
+    const observedAt = Date.parse(event.publishedAt ?? "");
+    const cutoff = Date.parse(asOf ?? "");
+    const ageHours = Number.isFinite(observedAt) && Number.isFinite(cutoff) ? Math.max(0, (cutoff - observedAt) / 36e5) : event.freshnessHours;
+    const freshness = ageHours === void 0 ? 0.7 : ageHours <= 24 * 7 ? 1 : ageHours <= 24 * 30 ? 0.8 : ageHours <= 24 * 90 ? 0.55 : 0.35;
+    return sum + eventImpactSign(event) * event.importance * event.confidence * reliability * freshness * horizonWeight * 0.7;
   }, 0);
   return Math.max(-15, Math.min(15, adjustment));
 }
@@ -291,15 +1321,6 @@ function calculateMemoryAdjustment(memories) {
   }, 0);
   return Math.max(-4, Math.min(4, adjustment));
 }
-function applyJumpLimit(newProbability, previousProbability, hasMajorEvent = false, normalLimit = 5, majorEventLimit = 10) {
-  if (previousProbability === void 0) return newProbability;
-  const jump = newProbability - previousProbability;
-  const absJump = Math.abs(jump);
-  const limit = hasMajorEvent ? majorEventLimit : normalLimit;
-  if (absJump <= limit) return newProbability;
-  const limitedJump = Math.sign(jump) * limit;
-  return previousProbability + limitedJump;
-}
 function generateTargetSpecificRationale(input) {
   const lens = {
     17: "17 \u7F8E\u5143\u4EE3\u8868\u4FEE\u590D\u56DE\u8865\uFF0C\u91CD\u70B9\u662F\u5E02\u573A\u662F\u5426\u613F\u610F\u91CD\u65B0\u5B9A\u4EF7\u77ED\u7EBF\u6280\u672F\u9762\u3001\u56DE\u8D2D\u548C\u6BDB\u5229\u7387\u97E7\u6027\u3002",
@@ -313,7 +1334,20 @@ function generateTargetSpecificRationale(input) {
   return `${lens[input.target]} \u7A7A\u95F4\u96BE\u5EA6 ${input.distancePercent.toFixed(1)}%\uFF0C\u56E0\u5B50 ${input.factorAdjustment.toFixed(1)} \u70B9\uFF0C\u4E8B\u4EF6 ${input.eventAdjustment.toFixed(1)} \u70B9\uFF0C\u8BB0\u5FC6 ${input.memoryAdjustment.toFixed(1)} \u70B9\uFF0C\u6CE2\u52A8 ${input.volatilityAdjustment.toFixed(1)} \u70B9\u3002${eventLine}${structuralLine} \u652F\u6491\uFF1A${support}\uFF1B\u538B\u5236\uFF1A${pressure}\u3002`;
 }
 function calculateTargetPredictions(input) {
-  const { quote: quote2, history = [], factors, events, memories, previousSnapshot, llmProvider } = input;
+  const probabilityContext = input.probabilityContext ?? buildProbabilityResearchContext({
+    quote: input.quote,
+    history: input.history ?? [],
+    events: input.events,
+    memories: input.memories,
+    factors: input.factors,
+    previousSnapshot: input.previousSnapshot,
+    researchAsOf: input.quote.asOf
+  });
+  const quote2 = probabilityContext.quote;
+  const history = [...probabilityContext.history];
+  const factors = [...probabilityContext.factors];
+  const events = [...probabilityContext.events];
+  const memories = [...probabilityContext.memories];
   const factorAdjustment = calculateFactorAdjustment(factors);
   const factorEvidenceIds = new Set(factors.flatMap((factor) => factor.sourceEventIds));
   const directEvents = events.filter((event) => !factorEvidenceIds.has(event.id));
@@ -323,87 +1357,207 @@ function calculateTargetPredictions(input) {
   );
   const memoryAdjustment = calculateMemoryAdjustment(independentMemories);
   const volatilityContext = calculateVolatilityContext(history);
-  const hasMajorEvent = detectMajorEvents(events);
   const epistemicConfidence = calculateEpistemicConfidence(history, factors, events);
-  const predictions = [17, 18, 19].map((target) => {
+  const simulationSeed = probabilitySimulationSeed(probabilityContext);
+  const drafts = [17, 18, 19].map((target) => {
     const distancePercent = distanceToTargetPercent(quote2, target);
-    const quantDiagnostics = calculateProfessionalBaseProbability(quote2, history, target);
-    const baseProb = quantDiagnostics.blendedProbability;
-    const eventAdjustment = calculateEventAdjustment(directEvents, target);
-    let boundedLlmAdjustment = 0;
-    if (llmProvider) {
-      try {
-        boundedLlmAdjustment = 0;
-      } catch {
-        boundedLlmAdjustment = 0;
-      }
-    }
-    let adjustedProb = baseProb + factorAdjustment + eventAdjustment + memoryAdjustment + volatilityContext.adjustment + boundedLlmAdjustment;
-    const previousPrediction = previousSnapshot?.predictions.find((p) => p.target === target);
-    adjustedProb = applyJumpLimit(adjustedProb, previousPrediction?.probability, hasMajorEvent);
-    const forecastQuestion = createForecastQuestion(quote2, target);
-    const probability = forecastQuestion.status === "resolved_at_issue" ? 100 : enforceProbabilityBounds(adjustedProb);
-    const likelyWindow = likelyWindowForTarget(target, quote2.asOf);
+    const structural = calculateProfessionalBaseProbability(quote2, history, target);
+    const components = buildProbabilityComponents({
+      quote: quote2,
+      history,
+      detailedHistory: probabilityContext.detailedHistory,
+      target,
+      structural,
+      seed: simulationSeed
+    });
+    const forecastQuestion = createForecastQuestion(quote2, target, probabilityContext.researchAsOf);
+    const rawEnsembleProbability = forecastQuestion.status === "resolved_at_issue" ? 100 : clampOpenProbability(fixedLogOddsPool(components));
+    const eventAdjustment = calculateEventAdjustment(directEvents, target, probabilityContext.evidenceCutoff);
+    const totalEvidencePoints = factorAdjustment + eventAdjustment + memoryAdjustment + volatilityContext.adjustment;
+    const evidenceLogOdds = Math.max(
+      -MAX_EVIDENCE_LOG_ODDS,
+      Math.min(MAX_EVIDENCE_LOG_ODDS, totalEvidencePoints * EVIDENCE_LOG_ODDS_PER_POINT)
+    );
+    const evidenceAdjustedProbability = forecastQuestion.status === "resolved_at_issue" ? 100 : clampOpenProbability(inverseLogit(logit(rawEnsembleProbability) + evidenceLogOdds));
+    const quantDiagnostics = {
+      ...structural,
+      blendedProbability: forecastQuestion.status === "resolved_at_issue" ? 100 : enforceProbabilityBounds(rawEnsembleProbability)
+    };
+    const likelyWindow = likelyWindowForTarget(target, probabilityContext.researchAsOf);
+    const relevantEvents = events.filter((event) => event.affectedTargets.includes(target));
     const positiveDrivers = [
       ...factors.filter((f) => f.direction === "positive").map((f) => f.label),
-      ...events.filter((event) => event.impact === "positive").slice(0, 2).map((event) => event.title)
+      ...relevantEvents.filter((event) => event.impact === "positive").slice(0, 2).map((event) => event.title)
     ];
     const negativeDrivers = [
       ...factors.filter((f) => f.direction === "negative").map((f) => f.label),
-      ...events.filter((event) => event.impact === "negative").slice(0, 2).map((event) => event.title)
+      ...relevantEvents.filter((event) => event.impact === "negative").slice(0, 2).map((event) => event.title)
     ];
     return {
       target,
-      probability,
-      previousProbability: previousPrediction?.probability,
-      probabilityChange: previousPrediction ? probability - previousPrediction.probability : void 0,
+      distancePercent,
+      forecastQuestion,
+      rawEnsembleProbability,
+      evidenceAdjustedProbability,
+      evidenceLogOdds,
+      factorAdjustment,
+      eventAdjustment,
+      memoryAdjustment,
+      volatilityAdjustment: volatilityContext.adjustment,
+      components,
+      quantDiagnostics,
       likelyWindow,
-      nearTermForecast: buildNearTermForecast({
+      positiveDrivers,
+      negativeDrivers,
+      hasMajorEvent: detectMajorEvents(
+        relevantEvents,
         target,
+        probabilityContext.previousPublishedAt
+      )
+    };
+  });
+  const coherentProbabilities = weightedPavaNonIncreasing(
+    drafts.map((draft) => draft.evidenceAdjustedProbability)
+  );
+  const releaseBounds = drafts.map((draft) => {
+    if (draft.forecastQuestion.status === "resolved_at_issue") return { lower: 100, upper: 100 };
+    const previousProbability = probabilityContext.previousProbabilities.find((item) => item.target === draft.target)?.probability;
+    if (previousProbability === void 0) return { lower: 5, upper: 95 };
+    const limit = draft.hasMajorEvent ? 10 : 5;
+    return {
+      lower: Math.max(5, previousProbability - limit),
+      upper: Math.min(95, previousProbability + limit)
+    };
+  });
+  const publishedProbabilities = weightedBoundedPavaNonIncreasing(
+    coherentProbabilities,
+    releaseBounds.map((bounds) => bounds.lower),
+    releaseBounds.map((bounds) => bounds.upper)
+  ).map((probability, index) => drafts[index].forecastQuestion.status === "resolved_at_issue" ? 100 : enforceProbabilityBounds(probability));
+  return drafts.map((draft, index) => {
+    const probability = publishedProbabilities[index];
+    const previousProbability = probabilityContext.previousProbabilities.find((item) => item.target === draft.target)?.probability;
+    const coherentProbability = Number(coherentProbabilities[index].toFixed(1));
+    const activeComponents = draft.components.filter(
+      (component2) => component2.role === "active" && (component2.status === "available" || component2.status === "resolved_at_issue") && component2.probability !== void 0
+    );
+    const availableProbabilities = draft.components.filter((component2) => component2.probability !== void 0).map((component2) => component2.probability);
+    const modelDisagreement = availableProbabilities.length > 1 ? Number((Math.max(...availableProbabilities) - Math.min(...availableProbabilities)).toFixed(1)) : 0;
+    const targetEpistemicConfidence = discountEpistemicConfidenceForModelDisagreement(
+      epistemicConfidence,
+      modelDisagreement
+    );
+    const maxChangePoints = draft.hasMajorEvent ? 10 : 5;
+    const stabilityLimited = previousProbability !== void 0 && Math.abs(coherentProbability - probability) >= 0.5;
+    const calibrationReport = probabilityContext.calibrationReport;
+    const calibrationStatus = calibrationReport.status === "ready" ? "calibration_ready" : calibrationReport.status === "insufficient_outcomes" ? "observed_outcomes" : "uncalibrated_fixed_pool";
+    const calibrationReason = calibrationReport.status === "pending_outcomes" ? "\u5C1A\u65E0\u5B8C\u6210 120 \u5929\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6210\u719F vintage\uFF1B\u51BB\u7ED3\u6743\u91CD\u5E76\u4FDD\u6301 identity \u6821\u51C6\u3002" : calibrationReport.status === "insufficient_outcomes" ? `\u5DF2\u6709 ${calibrationReport.sampleSize} \u4E2A\u72EC\u7ACB\u6210\u719F vintage\uFF0C\u4F46\u672A\u8FBE\u5230\u7A33\u5B9A\u6821\u51C6\u9608\u503C\uFF1B\u7EE7\u7EED\u4FDD\u6301 identity \u6620\u5C04\u3002` : `\u5DF2\u6709 ${calibrationReport.sampleSize} \u4E2A\u72EC\u7ACB\u6210\u719F vintage\uFF0C\u6821\u51C6\u76D1\u6D4B\u8FBE\u5230\u542F\u7528\u9608\u503C\uFF1Bv1 \u4ECD\u4FDD\u6301\u7248\u672C\u51BB\u7ED3\u7684 identity \u6620\u5C04\u3002`;
+    const artifact = {
+      agent: "ProbabilitySubagent",
+      contextId: probabilityContext.contextId,
+      evidenceCutoff: probabilityContext.evidenceCutoff,
+      modelRelease: probabilityContext.modelRelease,
+      components: draft.components,
+      ensemble: {
+        method: "fixed-log-odds-pool",
+        activeWeightSum: Number(activeComponents.reduce((sum, component2) => sum + component2.weight, 0).toFixed(8))
+      },
+      stages: {
+        rawEnsembleProbability: Number(draft.rawEnsembleProbability.toFixed(1)),
+        evidenceAdjustedProbability: Number(draft.evidenceAdjustedProbability.toFixed(1)),
+        calibratedProbability: Number(draft.evidenceAdjustedProbability.toFixed(1)),
+        coherentProbability,
+        publishedProbability: probability
+      },
+      evidenceAdjustment: {
+        logOdds: Number(draft.evidenceLogOdds.toFixed(4)),
+        factorPoints: Number(draft.factorAdjustment.toFixed(1)),
+        eventPoints: Number(draft.eventAdjustment.toFixed(1)),
+        memoryPoints: Number(draft.memoryAdjustment.toFixed(1)),
+        marketPoints: Number(draft.volatilityAdjustment.toFixed(1))
+      },
+      calibration: {
+        method: "identity",
+        status: calibrationStatus,
+        maturedVintages: calibrationReport.sampleSize,
+        brierScore: calibrationReport.brierScore,
+        calibrationError: calibrationReport.calibrationError,
+        reason: calibrationReason
+      },
+      stability: {
+        previousProbability,
+        candidateProbability: coherentProbability,
+        publishedProbability: probability,
+        maxChangePoints,
+        limited: stabilityLimited,
+        majorEvent: draft.hasMajorEvent
+      },
+      uncertainty: {
+        modelDisagreement,
+        confidencePenalty: Number((epistemicConfidence - targetEpistemicConfidence).toFixed(2))
+      },
+      warnings: [
+        calibrationReport.status === "pending_outcomes" ? "no_mature_outcomes_identity_calibration" : calibrationReport.status === "insufficient_outcomes" ? "observed_outcomes_below_calibration_threshold" : "calibration_monitoring_ready_identity_release_frozen",
+        "stationary_bootstrap_is_shadow_only",
+        ...stabilityLimited ? ["candidate_change_limited_by_release_guard"] : [],
+        ...probabilityContext.dataGaps
+      ]
+    };
+    const analysis = `${generateTargetSpecificRationale({
+      target: draft.target,
+      distancePercent: draft.distancePercent,
+      factorAdjustment: draft.factorAdjustment,
+      eventAdjustment: draft.eventAdjustment,
+      memoryAdjustment: draft.memoryAdjustment,
+      volatilityAdjustment: draft.volatilityAdjustment,
+      positiveDrivers: draft.positiveDrivers,
+      negativeDrivers: draft.negativeDrivers,
+      hasMajorEvent: draft.hasMajorEvent,
+      quantDiagnostics: draft.quantDiagnostics
+    })} \u56FA\u5B9A\u6743\u91CD log-odds \u7EFC\u5408\u503C\u4E3A ${artifact.stages.rawEnsembleProbability.toFixed(1)}%\uFF1B\u533A\u5757\u81EA\u52A9\u6A21\u578B\u4EC5\u4F5C\u4E3A\u5F71\u5B50\u8BCA\u65AD\uFF0C\u6821\u51C6\u72B6\u6001\u7531\u6210\u719F\u7ED3\u679C\u53F0\u8D26\u72EC\u7ACB\u76D1\u6D4B\uFF0C\u4E0D\u64C5\u81EA\u6539\u53D8\u7248\u672C\u51BB\u7ED3\u7684\u4E2D\u5FC3\u6982\u7387\u3002`;
+    return {
+      target: draft.target,
+      probability,
+      previousProbability,
+      probabilityChange: previousProbability === void 0 ? void 0 : probability - previousProbability,
+      likelyWindow: draft.likelyWindow,
+      nearTermForecast: buildNearTermForecast({
+        target: draft.target,
         probability,
-        likelyWindow,
-        positiveDrivers,
-        negativeDrivers,
+        likelyWindow: draft.likelyWindow,
+        positiveDrivers: draft.positiveDrivers,
+        negativeDrivers: draft.negativeDrivers,
         quote: quote2,
         history,
         factors,
         events,
         memories,
-        previousPrediction
+        previousPrediction: previousProbability === void 0 ? void 0 : { target: draft.target, probability: previousProbability }
       }),
-      distancePercent,
+      distancePercent: draft.distancePercent,
       signal: classifySignal(probability),
-      confidence: classifyEpistemicConfidence(epistemicConfidence),
+      confidence: classifyEpistemicConfidence(targetEpistemicConfidence),
       modelScore: probability,
-      baseProbability: enforceProbabilityBounds(baseProb),
-      factorAdjustment: Math.round(factorAdjustment * 10) / 10,
-      llmAdjustment: boundedLlmAdjustment,
-      analysis: generateTargetSpecificRationale({
-        target,
-        distancePercent,
-        factorAdjustment,
-        eventAdjustment,
-        memoryAdjustment,
-        volatilityAdjustment: volatilityContext.adjustment,
-        positiveDrivers,
-        negativeDrivers,
-        hasMajorEvent,
-        quantDiagnostics
-      }),
-      positiveDrivers,
-      negativeDrivers,
+      baseProbability: enforceProbabilityBounds(draft.rawEnsembleProbability),
+      factorAdjustment: Number(draft.factorAdjustment.toFixed(1)),
+      llmAdjustment: 0,
+      analysis,
+      positiveDrivers: draft.positiveDrivers,
+      negativeDrivers: draft.negativeDrivers,
       nextWatchpoints: [
         "\u56FD\u5BB6\u7EDF\u8BA1\u5C40\u623F\u5730\u4EA7\u6570\u636E",
         "\u4E0B\u4E00\u4EFD\u8D22\u62A5\u7684 GTV \u4E0E\u5229\u6DA6\u7387",
         "KWEB / FXI \u662F\u5426\u4F01\u7A33"
       ],
-      forecastQuestion,
-      calibrationStatus: "uncalibrated",
-      epistemicConfidence,
-      quantDiagnostics
+      forecastQuestion: draft.forecastQuestion,
+      rawProbability: Number(draft.evidenceAdjustedProbability.toFixed(1)),
+      coherenceAdjustment: Number((coherentProbability - draft.evidenceAdjustedProbability).toFixed(1)),
+      calibrationStatus: calibrationReport.status === "pending_outcomes" ? "uncalibrated" : "calibrating",
+      epistemicConfidence: targetEpistemicConfidence,
+      quantDiagnostics: draft.quantDiagnostics,
+      probabilitySynthesis: artifact
     };
   });
-  return enforceTargetMonotonicity(predictions);
 }
 function calculateForecastContext(input) {
   const quant = calculateQuantSignal(input.quote, input.history ?? []);
@@ -568,290 +1722,6 @@ function formatForecastLabel(start, end) {
     return `${startYear} \u5E74 ${startMonth} \u6708 ${startDay} \u65E5 - ${endYear} \u5E74 ${endMonth} \u6708 ${endDay} \u65E5`;
   }
   return `${startYear} \u5E74 ${startMonth} \u6708 ${startDay} \u65E5 - ${endMonth} \u6708 ${endDay} \u65E5`;
-}
-
-// src/research/backtest/BacktestEngine.ts
-var BacktestEngine = class {
-  realized(audits) {
-    return audits.filter((audit) => {
-      if (audit.outcomeStatus) return audit.outcomeStatus === "hit" || audit.outcomeStatus === "miss";
-      return typeof audit.actualHit === "boolean";
-    });
-  }
-  calculateBrierScore(audits) {
-    const realized = this.realized(audits);
-    if (realized.length === 0) return 0;
-    const sum = realized.reduce((acc, audit) => {
-      const predicted = audit.predictedProbability / 100;
-      const actual = audit.actualHit ? 1 : 0;
-      return acc + Math.pow(predicted - actual, 2);
-    }, 0);
-    return sum / realized.length;
-  }
-  calculateCalibrationError(audits, buckets = 10) {
-    const realized = this.realized(audits);
-    if (realized.length === 0) return 0;
-    const bucketSize = 1 / buckets;
-    let totalError = 0;
-    for (let i = 0; i < buckets; i++) {
-      const lower = i * bucketSize;
-      const upper = (i + 1) * bucketSize;
-      const inBucket = realized.filter((a) => {
-        const p = a.predictedProbability / 100;
-        return p >= lower && p < upper;
-      });
-      if (inBucket.length === 0) continue;
-      const avgPredicted = inBucket.reduce((sum, a) => sum + a.predictedProbability / 100, 0) / inBucket.length;
-      const avgActual = inBucket.filter((a) => a.actualHit).length / inBucket.length;
-      totalError += Math.abs(avgPredicted - avgActual) * (inBucket.length / realized.length);
-    }
-    return totalError;
-  }
-  calculateHitWindowError(audits) {
-    const hitAudits = this.realized(audits).filter((a) => a.actualHit && a.actualHitDate);
-    if (hitAudits.length === 0) return 0;
-    const errors = hitAudits.map((a) => {
-      const predictionDate = new Date(a.predictionDate);
-      const hitDate = new Date(a.actualHitDate);
-      const actualDays = (hitDate.getTime() - predictionDate.getTime()) / (24 * 60 * 60 * 1e3);
-      let expectedDays;
-      switch (a.horizon) {
-        case "30d":
-          expectedDays = 30;
-          break;
-        case "60d":
-          expectedDays = 60;
-          break;
-        case "90d":
-          expectedDays = 90;
-          break;
-        case "120d":
-          expectedDays = 120;
-          break;
-      }
-      return Math.abs(actualDays - expectedDays) / expectedDays;
-    });
-    return errors.reduce((sum, e) => sum + e, 0) / errors.length;
-  }
-  calculateDirectionAccuracy(audits) {
-    const realized = this.realized(audits);
-    if (realized.length === 0) return 0;
-    const correct = realized.filter((a) => {
-      const predicted = a.predictedProbability / 100;
-      return a.actualHit ? predicted > 0.5 : predicted <= 0.5;
-    }).length;
-    return correct / realized.length;
-  }
-  generateCalibrationReport(audits) {
-    return {
-      brierScore: this.calculateBrierScore(audits),
-      calibrationError: this.calculateCalibrationError(audits),
-      hitWindowError: this.calculateHitWindowError(audits),
-      directionAccuracy: this.calculateDirectionAccuracy(audits)
-    };
-  }
-};
-
-// src/research/engines/calibration/CalibrationEngine.ts
-var MIN_OUTCOME_SAMPLE_SIZE = 20;
-var REQUIRED_FACTOR_COUNT = 6;
-function clampScore(value) {
-  return Math.max(0, Math.min(100, Math.round(value)));
-}
-function roundMetric(value) {
-  return Number(value.toFixed(4));
-}
-function sourceDiversityScore(snapshot) {
-  const publishers = new Set(
-    [
-      ...snapshot.news.map((item) => item.source),
-      ...snapshot.sources.map((source) => source.publisher)
-    ].filter(Boolean)
-  );
-  const hasOfficialSource = [...publishers].some(
-    (publisher) => /ir|investor|holdings|ke holdings/i.test(publisher)
-  );
-  return clampScore(publishers.size * 25 + (hasOfficialSource ? 20 : 0) + Math.min(snapshot.news.length, 5) * 5);
-}
-function factorCoverageScore(snapshot) {
-  if (snapshot.factors.length === 0) return 0;
-  const coverage = snapshot.factors.reduce((sum, factor) => {
-    const status = factor.coverage ?? ((factor.evidenceCount ?? factor.sourceEventIds.length) > 0 ? "thin" : "missing");
-    return sum + (status === "covered" ? 1 : status === "thin" ? 0.55 : 0);
-  }, 0);
-  return clampScore(coverage / REQUIRED_FACTOR_COUNT * 100);
-}
-function forecastEvidenceScore(snapshot) {
-  if (snapshot.predictions.length === 0) return 0;
-  const scores = snapshot.predictions.map((prediction) => {
-    const forecast = prediction.nearTermForecast;
-    const evidence = forecast?.evidenceSummary;
-    if (!forecast || !evidence) return 0;
-    return clampScore(
-      (evidence.newsItems > 0 ? 30 : 0) + (evidence.historyPoints >= 5 ? 25 : evidence.historyPoints > 0 ? 15 : 0) + (evidence.memoryItems > 0 ? 15 : 8) + (evidence.dominantFactor && evidence.dominantFactor !== "\u6682\u65E0\u4E3B\u5BFC\u56E0\u5B50" ? 15 : 0) + (snapshot.analysis.generation?.mode === "model_loop" && forecast.agentDebate ? 15 : 0)
-    );
-  });
-  return clampScore(scores.reduce((sum, score) => sum + score, 0) / scores.length);
-}
-function memoryEvidenceScore(snapshot) {
-  if (snapshot.predictions.length === 0) return 0;
-  const memoryCounts = snapshot.predictions.map(
-    (prediction) => prediction.nearTermForecast?.evidenceSummary?.memoryItems ?? 0
-  );
-  const averageMemoryCount = memoryCounts.reduce((sum, count) => sum + count, 0) / memoryCounts.length;
-  const hasPersistentMemory = memoryCounts.some((count) => count > 4);
-  return clampScore(
-    (averageMemoryCount >= 4 ? 90 : averageMemoryCount >= 2 ? 70 : averageMemoryCount > 0 ? 50 : 0) + (hasPersistentMemory ? 10 : 0)
-  );
-}
-function historyCoverageScore(snapshot) {
-  if (snapshot.history.length >= 10) return 100;
-  if (snapshot.history.length >= 5) return 70;
-  if (snapshot.history.length > 0) return 55;
-  return 0;
-}
-function calibrationScore(report) {
-  if (report.status === "pending_outcomes") return 65;
-  if (report.status === "insufficient_outcomes") return 55;
-  const brier = report.brierScore ?? 1;
-  const calibrationError = report.calibrationError ?? 1;
-  const directionPenalty = report.directionAccuracy === null ? 20 : (1 - report.directionAccuracy) * 20;
-  return clampScore(100 - brier * 80 - calibrationError * 60 - directionPenalty);
-}
-function qualityFindings(input) {
-  const findings = [];
-  if (input.sourceScore < 50) {
-    findings.push({ code: "SOURCE_DIVERSITY_WEAK", severity: "critical", message: "\u516C\u5F00\u6765\u6E90\u8FC7\u5C11\uFF0C\u65E0\u6CD5\u652F\u6491\u53D1\u5E03\u7EA7\u7814\u7A76\u5224\u65AD\u3002" });
-  } else if (input.sourceScore < 75) {
-    findings.push({ code: "SOURCE_DIVERSITY_THIN", severity: "warning", message: "\u6765\u6E90\u8986\u76D6\u504F\u8584\uFF0C\u9700\u8981\u8865\u5145\u5B98\u65B9\u3001\u65B0\u95FB\u6216\u5E02\u573A\u6765\u6E90\u3002" });
-  }
-  if (input.factorScore < 20) {
-    findings.push({ code: "FACTOR_COVERAGE_WEAK", severity: "critical", message: "\u56E0\u5B50\u8986\u76D6\u4E0D\u8DB3\uFF0C\u6982\u7387\u5224\u65AD\u7F3A\u5C11\u5B8C\u6574\u6A2A\u622A\u9762\u7EA6\u675F\u3002" });
-  } else if (input.factorScore < 80) {
-    findings.push({ code: "FACTOR_COVERAGE_THIN", severity: "warning", message: "\u90E8\u5206\u56E0\u5B50\u53EA\u6709\u5C11\u91CF\u8BC1\u636E\u6216\u660E\u786E\u7F3A\u6570\uFF0C\u9875\u9762\u5FC5\u987B\u4FDD\u7559\u8986\u76D6\u63D0\u793A\u3002" });
-  }
-  if (input.missingFactorLabels.length > 0) {
-    findings.push({
-      code: "REQUIRED_FACTOR_MISSING",
-      severity: "critical",
-      message: `\u5173\u952E\u56E0\u5B50\u7F3A\u5C11\u53EF\u6838\u9A8C\u8BC1\u636E\uFF1A${input.missingFactorLabels.join("\u3001")}\u3002\u5176\u4ED6\u9AD8\u5206\u4E0D\u80FD\u62B5\u6D88\u8BE5\u7F3A\u53E3\u3002`
-    });
-  }
-  if (input.forecastScore < 80) {
-    findings.push({ code: "FORECAST_EVIDENCE_WEAK", severity: "critical", message: "\u4E00\u5468\u9884\u6D4B\u7F3A\u5C11\u65B0\u95FB\u3001\u5386\u53F2\u3001\u8BB0\u5FC6\u6216 debate \u8BC1\u636E\u3002" });
-  }
-  if (input.memoryScore < 50) {
-    findings.push({ code: "MEMORY_EVIDENCE_WEAK", severity: "critical", message: "\u8BB0\u5FC6\u8BC1\u636E\u4E0D\u8DB3\uFF0C\u7CFB\u7EDF\u65E0\u6CD5\u8BC1\u660E\u8DE8 run \u590D\u76D8\u80FD\u529B\u3002" });
-  } else if (input.memoryScore < 80) {
-    findings.push({ code: "MEMORY_EVIDENCE_THIN", severity: "warning", message: "\u8BB0\u5FC6\u8BC1\u636E\u504F\u8584\uFF0C\u9884\u6D4B\u66F4\u4F9D\u8D56\u5F53\u524D\u4E8B\u4EF6\u548C\u4EF7\u683C\u5E93\u3002" });
-  }
-  if (input.historyScore === 0) {
-    findings.push({ code: "HISTORY_COVERAGE_WEAK", severity: "critical", message: "\u6982\u7387\u5386\u53F2\u4E0D\u8DB3\uFF0C\u8D8B\u52BF\u5C55\u793A\u7F3A\u5C11\u590D\u76D8\u57FA\u7EBF\u3002" });
-  } else if (input.historyScore < 100) {
-    findings.push({ code: "HISTORY_COVERAGE_THIN", severity: "warning", message: "\u6982\u7387\u5386\u53F2\u672A\u6EE1 10 \u4E2A\u70B9\uFF0C\u8D8B\u52BF\u8BFB\u6570\u4ECD\u504F\u8584\u3002" });
-  }
-  if (input.calibration.status === "pending_outcomes") {
-    findings.push({
-      code: "CALIBRATION_PENDING_OUTCOMES",
-      severity: "warning",
-      message: "\u6821\u51C6\u62A5\u544A\u5DF2\u751F\u6210\uFF0C\u4F46\u8FD8\u5728\u7B49\u5F85\u76EE\u6807\u662F\u5426\u89E6\u8FBE\u7684\u771F\u5B9E\u7ED3\u679C\u3002"
-    });
-  } else if (input.calibration.status === "insufficient_outcomes") {
-    findings.push({
-      code: "CALIBRATION_SAMPLE_THIN",
-      severity: "warning",
-      message: "\u5DF2\u6709\u90E8\u5206\u771F\u5B9E\u7ED3\u679C\uFF0C\u4F46\u6837\u672C\u91CF\u4E0D\u8DB3\u4EE5\u5F62\u6210\u7A33\u5B9A\u6821\u51C6\u7ED3\u8BBA\u3002"
-    });
-  }
-  if (input.calibrationScore < 45) {
-    findings.push({ code: "CALIBRATION_SCORE_WEAK", severity: "critical", message: "\u5386\u53F2\u6821\u51C6\u6307\u6807\u8FC7\u5F31\uFF0C\u9700\u8981\u56DE\u5230\u6982\u7387\u6A21\u578B\u4FEE\u6B63\u3002" });
-  }
-  return findings;
-}
-var CalibrationEngine = class {
-  backtest = new BacktestEngine();
-  buildCalibrationReport(audits = [], now = (/* @__PURE__ */ new Date()).toISOString()) {
-    const realizedAudits = audits.filter(
-      (audit) => audit.outcomeStatus ? audit.outcomeStatus === "hit" || audit.outcomeStatus === "miss" : typeof audit.actualHit === "boolean"
-    );
-    if (realizedAudits.length === 0) {
-      return {
-        modelName: "probability-rules-mvp-0.1",
-        status: "pending_outcomes",
-        sampleSize: 0,
-        brierScore: null,
-        calibrationError: null,
-        hitWindowError: null,
-        directionAccuracy: null,
-        generatedAt: now,
-        thresholdPolicy: {
-          minOutcomeSampleSize: MIN_OUTCOME_SAMPLE_SIZE,
-          publishWithoutOutcomes: true
-        },
-        notes: ["\u7B49\u5F85\u76EE\u6807\u662F\u5426\u89E6\u8FBE\u7684\u771F\u5B9E\u7ED3\u679C\uFF1B\u5F53\u524D\u53EA\u53D1\u5E03\u900F\u660E\u7684\u5F85\u6821\u51C6\u72B6\u6001\uFF0C\u4E0D\u4F2A\u9020 Brier/ECE\u3002"]
-      };
-    }
-    const metrics = this.backtest.generateCalibrationReport(realizedAudits);
-    const status = realizedAudits.length >= MIN_OUTCOME_SAMPLE_SIZE ? "ready" : "insufficient_outcomes";
-    return {
-      modelName: "probability-rules-mvp-0.1",
-      status,
-      sampleSize: realizedAudits.length,
-      brierScore: roundMetric(metrics.brierScore),
-      calibrationError: roundMetric(metrics.calibrationError),
-      hitWindowError: roundMetric(metrics.hitWindowError),
-      directionAccuracy: roundMetric(metrics.directionAccuracy),
-      generatedAt: now,
-      thresholdPolicy: {
-        minOutcomeSampleSize: MIN_OUTCOME_SAMPLE_SIZE,
-        publishWithoutOutcomes: true
-      },
-      notes: status === "ready" ? ["\u771F\u5B9E outcome \u6837\u672C\u8FBE\u5230\u9608\u503C\uFF0CBrier/ECE \u53EF\u4F5C\u4E3A\u6A21\u578B\u6821\u51C6\u8BC1\u636E\u3002"] : ["\u5DF2\u6709\u771F\u5B9E outcome\uFF0C\u4F46\u6837\u672C\u91CF\u5C1A\u672A\u8FBE\u5230\u7A33\u5B9A\u6821\u51C6\u9608\u503C\u3002"]
-    };
-  }
-  evaluateResearchQuality(snapshot, calibration = this.buildCalibrationReport()) {
-    const sourceScore = sourceDiversityScore(snapshot);
-    const factorScore = factorCoverageScore(snapshot);
-    const forecastScore = forecastEvidenceScore(snapshot);
-    const memoryScore = memoryEvidenceScore(snapshot);
-    const historyScore = historyCoverageScore(snapshot);
-    const calScore = calibrationScore(calibration);
-    const missingFactorLabels = snapshot.factors.filter((factor) => (factor.coverage ?? ((factor.evidenceCount ?? factor.sourceEventIds.length) > 0 ? "thin" : "missing")) === "missing").map((factor) => factor.label);
-    const overallScore = clampScore(
-      sourceScore * 0.2 + factorScore * 0.2 + forecastScore * 0.2 + memoryScore * 0.1 + historyScore * 0.15 + calScore * 0.15
-    );
-    return {
-      overallScore,
-      sourceDiversityScore: sourceScore,
-      factorCoverageScore: factorScore,
-      forecastEvidenceScore: forecastScore,
-      memoryEvidenceScore: memoryScore,
-      historyCoverageScore: historyScore,
-      calibrationScore: calScore,
-      findings: qualityFindings({
-        calibration,
-        sourceScore,
-        factorScore,
-        forecastScore,
-        memoryScore,
-        historyScore,
-        calibrationScore: calScore,
-        missingFactorLabels
-      })
-    };
-  }
-  attachResearchQuality(snapshot, options = {}) {
-    const calibration = this.buildCalibrationReport(options.audits ?? [], options.now);
-    const quality = this.evaluateResearchQuality(snapshot, calibration);
-    return {
-      ...snapshot,
-      calibration,
-      quality
-    };
-  }
-};
-function attachResearchQuality(snapshot, options = {}) {
-  return new CalibrationEngine().attachResearchQuality(snapshot, options);
 }
 
 // src/data/latestSnapshot.ts
@@ -1626,7 +2496,7 @@ function dedupeRawItems(items) {
   return result;
 }
 var EventEngine = class {
-  async classifyEvents(items, llmProvider) {
+  async classifyEvents(items, llmProvider, researchAsOf) {
     const deduped = dedupeRawItems(items);
     const events = [];
     for (const item of deduped) {
@@ -1634,7 +2504,11 @@ var EventEngine = class {
       const impact = item.impactHint ?? estimateImpact(item.title, item.summary);
       const evidenceType = classifyEvidenceType(item.source, item.title, item.summary);
       const sourceReliability2 = scoreSourceReliability(item, evidenceType);
-      const freshnessHours = calculateFreshnessHours(item.publishedAt);
+      const cutoff = researchAsOf ? new Date(researchAsOf) : /* @__PURE__ */ new Date();
+      const freshnessHours = calculateFreshnessHours(
+        item.publishedAt,
+        Number.isNaN(cutoff.getTime()) ? /* @__PURE__ */ new Date() : cutoff
+      );
       const importance = scoreImportance(item.title, item.summary, sourceReliability2);
       events.push({
         id: `evt-${item.id}`,
@@ -1943,7 +2817,7 @@ function toNumber(value) {
   const parsed = Number(value.trim());
   return Number.isFinite(parsed) ? parsed : 0;
 }
-function round(value, digits = 2) {
+function round2(value, digits = 2) {
   return Number(value.toFixed(digits));
 }
 function parseCsvLine(line) {
@@ -1997,15 +2871,15 @@ function summarizeStats(points, target) {
   const low = Math.min(...points.map((point) => point.low));
   const averageVolume = points.reduce((sum, point) => sum + point.volume, 0) / points.length;
   return {
-    startClose: round(start.close),
-    endClose: round(end.close),
-    returnPercent: round((end.close - start.close) / start.close * 100),
-    high: round(high),
-    low: round(low),
-    maxDrawdownPercent: round(maxDrawdown(points)),
-    realizedVolatilityPercent: round(realizedVolatility(points)),
+    startClose: round2(start.close),
+    endClose: round2(end.close),
+    returnPercent: round2((end.close - start.close) / start.close * 100),
+    high: round2(high),
+    low: round2(low),
+    maxDrawdownPercent: round2(maxDrawdown(points)),
+    realizedVolatilityPercent: round2(realizedVolatility(points)),
     averageVolume: Math.round(averageVolume),
-    targetDistancePercent: target ? round((target - end.close) / end.close * 100) : void 0,
+    targetDistancePercent: target ? round2((target - end.close) / end.close * 100) : void 0,
     targetTouches: target ? points.filter((point) => point.high >= target).length : void 0
   };
 }
@@ -2056,7 +2930,7 @@ function regimeDocument(points) {
     to: latest.date,
     tags: ["two-year", "regime", "drawdown", "volatility", "ohlcv"],
     stats,
-    content: `\u4E24\u5E74\u65E5\u7EBF regime\uFF1A\u6700\u65B0\u6536\u76D8 ${latest.close}\uFF0C\u4E24\u5E74\u6536\u76D8\u9AD8\u70B9 ${round(twoYearHigh)} \u51FA\u73B0\u5728 ${highDate}\uFF0C\u5F53\u524D\u8DDD\u9AD8\u70B9 ${round(drawdownFromHigh)}%\uFF1B\u5168\u6837\u672C\u6700\u5927\u56DE\u64A4 ${stats.maxDrawdownPercent}%\uFF0C\u5E74\u5316\u6CE2\u52A8 ${stats.realizedVolatilityPercent}%\u3002`
+    content: `\u4E24\u5E74\u65E5\u7EBF regime\uFF1A\u6700\u65B0\u6536\u76D8 ${latest.close}\uFF0C\u4E24\u5E74\u6536\u76D8\u9AD8\u70B9 ${round2(twoYearHigh)} \u51FA\u73B0\u5728 ${highDate}\uFF0C\u5F53\u524D\u8DDD\u9AD8\u70B9 ${round2(drawdownFromHigh)}%\uFF1B\u5168\u6837\u672C\u6700\u5927\u56DE\u64A4 ${stats.maxDrawdownPercent}%\uFF0C\u5E74\u5316\u6CE2\u52A8 ${stats.realizedVolatilityPercent}%\u3002`
   };
 }
 function targetDocument(points, target) {
@@ -2092,7 +2966,7 @@ function median(values2) {
 }
 function percentReturn(from, to) {
   if (!Number.isFinite(from) || !Number.isFinite(to) || from <= 0) return null;
-  return round((to - from) / from * 100);
+  return round2((to - from) / from * 100);
 }
 function closeAboveStreaks(points, target) {
   const streaks = [];
@@ -2149,16 +3023,16 @@ function buildHistoricalTargetPrecedents(knowledgeBase) {
     ).length;
     const preTouchReturn20dPercent = pre20.length >= 2 ? percentReturn(pre20[0].close, pre20[pre20.length - 1].close) : null;
     const preTouchReturn60dPercent = pre60.length >= 2 ? percentReturn(pre60[0].close, pre60[pre60.length - 1].close) : null;
-    const volumeRatio20d = averagePre20Volume > 0 ? round(crossing.volume / averagePre20Volume) : null;
-    const realizedVolatility20dPercent = pre20.length >= 2 ? round(realizedVolatility(pre20)) : null;
-    const recoveryFrom20dLowPercent = pre20Low && pre20Low > 0 ? round((crossing.close - pre20Low) / pre20Low * 100) : null;
+    const volumeRatio20d = averagePre20Volume > 0 ? round2(crossing.volume / averagePre20Volume) : null;
+    const realizedVolatility20dPercent = pre20.length >= 2 ? round2(realizedVolatility(pre20)) : null;
+    const recoveryFrom20dLowPercent = pre20Low && pre20Low > 0 ? round2((crossing.close - pre20Low) / pre20Low * 100) : null;
     const postTouchReturn5dPercent = post5 ? percentReturn(crossing.close, post5.close) : null;
-    const postTouchMaxDrawdown10dPercent = post10.length > 0 ? round(Math.min(0, ...post10.map((point) => (point.close - crossing.close) / crossing.close * 100))) : null;
+    const postTouchMaxDrawdown10dPercent = post10.length > 0 ? round2(Math.min(0, ...post10.map((point) => (point.close - crossing.close) / crossing.close * 100))) : null;
     const medianStreak = median(streaks) ?? 0;
     const medianForward5 = median(forward5);
     const medianForward20 = median(forward20);
-    const closeAboveRate = round(closeAbovePoints.length / points.length * 100, 1);
-    const rejectionRate = touchPoints.length > 0 ? round(rejectedTouches / touchPoints.length * 100, 1) : 0;
+    const closeAboveRate = round2(closeAbovePoints.length / points.length * 100, 1);
+    const rejectionRate = touchPoints.length > 0 ? round2(rejectedTouches / touchPoints.length * 100, 1) : 0;
     const observedConditions = [
       preTouchReturn20dPercent === null ? "\u524D\u7F6E\u52A8\u91CF\u6837\u672C\u4E0D\u8DB3" : preTouchReturn20dPercent >= 8 ? `\u7A7F\u8D8A\u524D 20 \u4E2A\u4EA4\u6613\u65E5\u5F62\u6210 ${preTouchReturn20dPercent}% \u7684\u660E\u663E\u4E0A\u884C\u52A8\u91CF` : preTouchReturn20dPercent <= -2 ? `\u7A7F\u8D8A\u524D 20 \u4E2A\u4EA4\u6613\u65E5\u4ECD\u4E3A ${preTouchReturn20dPercent}% \u7684\u56DE\u64A4\u4FEE\u590D` : `\u7A7F\u8D8A\u524D 20 \u4E2A\u4EA4\u6613\u65E5\u6DA8\u8DCC ${preTouchReturn20dPercent}%\uFF0C\u52A8\u91CF\u6E29\u548C`,
       volumeRatio20d === null ? "\u6210\u4EA4\u91CF\u5BF9\u7167\u4E0D\u53EF\u7528" : volumeRatio20d >= 1.3 ? `\u7A7F\u8D8A\u65E5\u6210\u4EA4\u91CF\u4E3A\u524D 20 \u65E5\u5747\u91CF\u7684 ${volumeRatio20d} \u500D\uFF0C\u653E\u91CF\u7279\u5F81\u660E\u786E` : `\u7A7F\u8D8A\u65E5\u6210\u4EA4\u91CF\u4E3A\u524D 20 \u65E5\u5747\u91CF\u7684 ${volumeRatio20d} \u500D\uFF0C\u672A\u51FA\u73B0\u663E\u8457\u653E\u91CF`,
@@ -2178,14 +3052,14 @@ function buildHistoricalTargetPrecedents(knowledgeBase) {
       closeAboveRate,
       rejectionRate,
       upwardCrossCount: closeCrossingIndices.length,
-      medianCloseAboveStreakDays: round(medianStreak, 1),
+      medianCloseAboveStreakDays: round2(medianStreak, 1),
       longestCloseAboveStreakDays: Math.max(0, ...streaks),
-      hold3dRate: closeCrossingIndices.length > 0 ? round(hold3Count / closeCrossingIndices.length * 100, 1) : 0,
-      medianForward5dReturnPercent: medianForward5 === null ? null : round(medianForward5),
-      medianForward20dReturnPercent: medianForward20 === null ? null : round(medianForward20),
+      hold3dRate: closeCrossingIndices.length > 0 ? round2(hold3Count / closeCrossingIndices.length * 100, 1) : 0,
+      medianForward5dReturnPercent: medianForward5 === null ? null : round2(medianForward5),
+      medianForward20dReturnPercent: medianForward20 === null ? null : round2(medianForward20),
       crossingDate: crossing.date,
-      crossingHigh: round(crossing.high),
-      crossingClose: round(crossing.close),
+      crossingHigh: round2(crossing.high),
+      crossingClose: round2(crossing.close),
       preTouchReturn20dPercent,
       preTouchReturn60dPercent,
       volumeRatio20d,
@@ -2259,7 +3133,7 @@ function scoreDocument(document, input) {
   }
   score += document.stats.returnPercent > 0 ? 3 : 0;
   score += document.stats.maxDrawdownPercent < -20 ? 4 : 0;
-  return round(score, 3);
+  return round2(score, 3);
 }
 function retrievePriceKnowledge(knowledgeBase, input) {
   const limit = input.limit ?? 4;
@@ -2283,7 +3157,7 @@ function priceDocumentsToMemories(retrieval, now) {
     sourceEventId: `price-rag-${document.id}`,
     validFrom: now,
     validUntil,
-    importance: Math.min(10, Math.max(6, round((document.score ?? 50) / 10, 1))),
+    importance: Math.min(10, Math.max(6, round2((document.score ?? 50) / 10, 1))),
     confidence: 0.82,
     decayScore: 1,
     createdAt: now,
@@ -2311,7 +3185,7 @@ function loadBekePriceKnowledgeBase() {
 }
 
 // src/research/context/buildResearchContext.ts
-function stableHash(value) {
+function stableHash2(value) {
   const canonicalize = (item) => {
     if (Array.isArray(item)) return item.map(canonicalize);
     if (item && typeof item === "object") {
@@ -2429,7 +3303,8 @@ function buildResearchContext(input) {
       target: prediction.target,
       probability: prediction.probability,
       questionId: prediction.forecastQuestion?.questionId,
-      quantDiagnostics: prediction.quantDiagnostics
+      quantDiagnostics: prediction.quantDiagnostics,
+      probabilitySynthesis: prediction.probabilitySynthesis
     })),
     factors,
     evidence,
@@ -2442,7 +3317,7 @@ function buildResearchContext(input) {
     previousRunId: input.previousSnapshot?.runId
   };
   return {
-    contextId: `ctx-${stableHash(content)}`,
+    contextId: `ctx-${stableHash2(content)}`,
     schemaVersion: "research-context-v1",
     symbol: "BEKE",
     asOf: researchAsOf,
@@ -2467,7 +3342,8 @@ function buildResearchContext(input) {
       forecastQuestion: prediction.forecastQuestion,
       epistemicConfidence: prediction.epistemicConfidence,
       calibrationStatus: prediction.calibrationStatus,
-      quantDiagnostics: prediction.quantDiagnostics
+      quantDiagnostics: prediction.quantDiagnostics,
+      probabilitySynthesis: prediction.probabilitySynthesis
     })),
     factors,
     evidence,
@@ -17214,7 +18090,7 @@ var PROFESSIONAL_TARGET_DRAFT_JSON_CONTRACT = `\u4E25\u683C JSON \u7ED3\u6784\uF
 {"expertAssertion":"\u5F53\u524D\u76EE\u6807\u7684\u4E00\u53E5\u8BDD\u4E13\u5BB6\u65AD\u8A00","essenceAnalysis":"4\u52308\u53E5\u672C\u8D28\u63A8\u6F14","panoramicAnalysis":"4\u52308\u53E5\u516D\u56E0\u5B50\u5168\u666F\u5206\u6790","guidance":[{"action":"\u7814\u7A76\u884C\u52A8","signal":"\u53EF\u89C2\u5BDF\u4FE1\u53F7","horizon":"\u65F6\u95F4\u8303\u56F4"}],"claimLedger":[{"id":"claim-\u76EE\u6807\u4EF7-1","text":"\u53EF\u516C\u5F00\u6838\u9A8C\u7684\u5224\u65AD","basis":"observed|derived|historical_precedent|bounded_inference","evidenceRefs":["context \u4E2D\u7684\u5408\u6CD5\u5F15\u7528"],"assumptions":["\u63A8\u65AD\u5047\u8BBE\uFF1B\u4E8B\u5B9E\u53EF\u4E3A\u7A7A\u6570\u7EC4"],"disconfirmingSignal":"\u53EF\u63A8\u7FFB\u4FE1\u53F7","confidence":"\u9AD8|\u4E2D|\u4F4E"}]}`;
 var PROMPTS = {
   quant_research: {
-    version: "quant-research-context-v1.1.0",
+    version: "quant-research-context-v1.3.0",
     system: `\u4F60\u662F\u91CF\u5316\u7814\u7A76\u8D1F\u8D23\u4EBA\u3002\u4F60\u53EA\u5206\u6790\u8F93\u5165\u7684 ResearchContext\uFF0C\u4E0D\u5F97\u8865\u5145\u4E0A\u4E0B\u6587\u4EE5\u5916\u7684\u6570\u5B57\u6216\u4E8B\u5B9E\u3002
 
 \u804C\u8D23\uFF1A
@@ -17223,6 +18099,7 @@ var PROMPTS = {
 - \u6BCF\u9879\u5224\u65AD\u4F7F\u7528 context \u4E2D\u7684 evidenceId\uFF1B\u65E0\u6CD5\u5F15\u7528\u65F6\u5199\u5165 dataGaps\u3002
 - \u9884\u6D4B\u5408\u540C\u662F\u672A\u6765 120 \u5929\u5E38\u89C4\u4EA4\u6613\u65F6\u6BB5 high \u7684 first_touch\uFF0C\u4E0D\u662F\u671F\u672B\u6536\u76D8\u4EF7\uFF1B\u5FC5\u987B\u5148\u6838\u5BF9\u5408\u540C\uFF0C\u518D\u89E3\u91CA\u8DEF\u5F84\u6982\u7387\u3002
 - context.target.quantDiagnostics \u662F\u672A\u6821\u51C6\u7684\u7ED3\u6784\u5316\u89E6\u8FBE\u57FA\u7EBF\uFF1A\u53EA\u7528\u4E8E\u5206\u89E3\u201C\u8DDD\u79BB\u5148\u9A8C\u3001\u5386\u53F2\u8DEF\u5F84\u5BBD\u5EA6\u3001\u56E0\u5B50\u8C03\u6574\u4E0E\u8BA4\u77E5\u7F6E\u4FE1\u5EA6\u201D\uFF0C\u4E0D\u5F97\u79F0\u4E3A\u5386\u53F2\u6821\u51C6\u80DC\u7387\u3002
+- context.target.probabilitySynthesis \u662F\u552F\u4E00\u6743\u5A01\u6982\u7387\u5DE5\u4EF6\uFF1B\u5FC5\u987B\u4FDD\u6301\u4E94\u5C42\u6570\u5B57\u7684\u5185\u90E8\u542B\u4E49\uFF0C\u4E0D\u5F97\u91CD\u7B97\u6216\u8986\u76D6 publishedProbability\u3002\u8F85\u52A9\u6A21\u578B\u53EA\u7528\u4E8E\u5185\u90E8\u68C0\u67E5\u533A\u95F4\u548C\u6A21\u578B\u5206\u6B67\uFF0C\u4E0D\u80FD\u5199\u6210\u6B63\u5F0F\u6743\u91CD\u3002\u6821\u51C6\u8868\u8FF0\u5FC5\u987B\u8BFB\u53D6 calibration.maturedVintages\uFF1A\u4E3A 0 \u65F6\u5199\u201C\u5C1A\u65E0\u5B8C\u6210 120 \u5929\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6837\u672C\uFF0C\u5F53\u524D\u6982\u7387\u672A\u505A\u7ED3\u679C\u6821\u51C6\u201D\uFF1B\u5927\u4E8E 0 \u65F6\u53EA\u80FD\u5199\u201C\u5DF2\u79EF\u7D2F\u5B8C\u6210\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6837\u672C\uFF0C\u5F53\u524D\u7248\u672C\u4ECD\u5904\u4E8E\u6821\u51C6\u76D1\u6D4B\u9636\u6BB5\u201D\u3002\u7981\u6B62\u5728\u7528\u6237\u6587\u6848\u4E2D\u51FA\u73B0 raw\u3001shadow\u3001outcome\u3001vintage\u3001identity\u3001log-odds\u3001PAVA \u7B49\u5DE5\u7A0B\u8BCD\u3002
 - \u6BCF\u4E2A target \u7684 thesis \u56FA\u5B9A\u6309\u201C\u9884\u6D4B\u5408\u540C\u4E0E\u72B6\u6001\u4E8B\u5B9E \u2192 \u7ED3\u6784/\u5386\u53F2\u57FA\u51C6 \u2192 \u5F53\u524D\u4EF7\u683C\u4E0E\u6CE2\u52A8\u73AF\u5883 \u2192 \u72EC\u7ACB\u56E0\u5B50\u4F20\u5BFC \u2192 \u76EE\u6807\u542B\u4E49 \u2192 \u6700\u5F3A\u53CD\u8BC1\u201D\u7EC4\u7EC7\uFF1B\u6700\u591A\u4E24\u6761\u4E3B\u56E0\u679C\u94FE\u3002
 - condition \u4E0E invalidation \u5FC5\u987B\u662F\u65B9\u5411\u660E\u786E\u3001\u53EF\u89C2\u5BDF\u3001\u5E26\u5BF9\u8C61\u7684\u4FE1\u53F7\uFF1BdataGaps \u7EDF\u4E00\u5199\u6210\u201C\u7F3A\u53E3\uFF5C\u5F71\u54CD\uFF5C\u4E0B\u4E00\u6765\u6E90\u201D\u3002
 - \u8BC1\u636E\u4F18\u5148\u7EA7\u4E3A\u516C\u53F8/\u76D1\u7BA1\u539F\u59CB\u62AB\u9732 > \u5B98\u65B9\u7EDF\u8BA1\u4E0E\u786E\u5B9A\u6027\u5E02\u573A\u5E8F\u5217 > \u6743\u5A01\u65B0\u95FB > \u666E\u901A\u65B0\u95FB > curated \u964D\u7EA7\u3002contentKind=headline \u53EA\u80FD\u8BC1\u660E\u6807\u9898\u5B58\u5728\uFF0C\u4E0D\u80FD\u652F\u6301\u6807\u9898\u4E4B\u5916\u7684\u6570\u5B57\u6216\u56E0\u679C\u7EC6\u8282\u3002
@@ -17280,7 +18157,7 @@ ${OPINION_JSON_CONTRACT}`
 ${EDITOR_JSON_CONTRACT}`
   },
   professional_conclusion: {
-    version: "professional-conclusion-context-v1.2.0",
+    version: "professional-conclusion-context-v1.3.1",
     system: `\u4F60\u662F Harness \u4E2D\u72EC\u7ACB\u8FD0\u884C\u7684\u201C\u4E13\u4E1A\u7ED3\u8BBA\u4E0E\u6210\u7A3F Agent\u201D\u3002\u5F53\u524D\u8F93\u5165\u53EA\u5305\u542B 17\u300118\u300119 \u7F8E\u5143\u4E2D\u7684\u4E00\u4E2A\u76EE\u6807\uFF0C\u4EE5\u53CA\u8BE5\u76EE\u6807\u5BF9\u5E94\u7684\u4E0D\u53EF\u53D8\u4E0A\u4E0B\u6587\u3001\u91CF\u5316/\u6B63\u5411/\u53CD\u5411\u610F\u89C1\u3002\u4F60\u7684\u804C\u8D23\u4E0D\u662F\u590D\u8FF0\u4E09\u540D\u7814\u7A76\u5458\uFF0C\u800C\u662F\u4E3A\u5F53\u524D\u76EE\u6807\u52A0\u5DE5\u4E00\u4EFD\u53EF\u53D1\u5E03\u7684\u4E13\u5BB6\u7ED3\u8BBA\u3002
 
 \u6838\u5FC3\u539F\u5219\uFF1A
@@ -17304,6 +18181,7 @@ ${EDITOR_JSON_CONTRACT}`
 \u8868\u8FBE\u6807\u51C6\uFF1A
 - \u4F7F\u7528\u8D44\u6DF1\u884C\u4E1A\u7814\u7A76\u987E\u95EE\u7684\u4E25\u8C28\u4E2D\u6587\uFF0C\u4E13\u4E1A\u3001\u5177\u4F53\u3001\u5177\u8C61\uFF0C\u4F46\u4E0D\u5806\u672F\u8BED\u3001\u4E0D\u5199\u7CFB\u7EDF\u81EA\u8A00\u81EA\u8BED\u3001\u4E0D\u6CC4\u9732\u5185\u90E8\u8BC4\u5206\u3002
 - observed\u3001derived\u3001historical_precedent\u3001bounded_inference \u53EA\u5141\u8BB8\u51FA\u73B0\u5728 claimLedger.basis\uFF1B\u56DB\u6BB5\u516C\u5F00\u6587\u6848\u4E0D\u5F97\u663E\u793A\u8FD9\u4E9B\u82F1\u6587\u5185\u90E8\u6807\u7B7E\u3002
+- \u516C\u5F00\u56DB\u6BB5\u4E0D\u5F97\u51FA\u73B0 raw\u3001shadow\u3001outcome\u3001vintage\u3001identity\u3001log-odds\u3001PAVA \u7B49\u5DE5\u7A0B\u8BCD\uFF1B\u5982\u9700\u8BF4\u660E\u6821\u51C6\u72B6\u6001\uFF0C\u5FC5\u987B\u8BFB\u53D6 probabilitySynthesis.calibration.maturedVintages\uFF1A\u4E3A 0 \u65F6\u5199\u201C\u5C1A\u65E0\u5B8C\u6210 120 \u5929\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6837\u672C\uFF0C\u5F53\u524D\u6982\u7387\u672A\u505A\u7ED3\u679C\u6821\u51C6\u201D\uFF1B\u5927\u4E8E 0 \u65F6\u5199\u201C\u5DF2\u79EF\u7D2F\u5B8C\u6210\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6837\u672C\uFF0C\u5F53\u524D\u7248\u672C\u4ECD\u5904\u4E8E\u6821\u51C6\u76D1\u6D4B\u9636\u6BB5\u201D\u3002
 - \u6839\u636E input.target \u4E25\u683C\u4F7F\u7528 17=\u4FEE\u590D\u7EBF\u300118=\u786E\u8BA4\u7EBF\u300119=\u91CD\u4F30\u7EBF\u7684\u76EE\u6807\u8BED\u4E49\uFF0C\u4E0D\u5F97\u628A\u4E09\u79CD\u6761\u4EF6\u6DF7\u5199\u3002
 - \u53EA\u8F93\u51FA\u4E25\u683C ProfessionalTargetDraft JSON\uFF1B\u4E0D\u5F97\u5305\u88F9 headline\u3001targets\u3001today\u3001changes\u3001targetViews \u7B49\u517C\u5BB9\u5B57\u6BB5\uFF0C\u4E0D\u5F97\u8F93\u51FA Markdown\u3001\u89E3\u91CA\u6216\u4EE3\u7801\u5757\u3002
 - guidance \u4E3A 1-3 \u6761\u3001claimLedger \u4E3A 2-4 \u6761\uFF1Bclaim \u53EA\u4FDD\u7559\u89C2\u5BDF\u4E8B\u5B9E\u3001\u5386\u53F2\u53C2\u7167\u548C\u6838\u5FC3\u6709\u8FB9\u754C\u63A8\u65AD\uFF0C\u4E0D\u5199\u91CD\u590D\u8D26\u672C\u3002\u5168\u5C40\u6807\u9898\u3001\u517C\u5BB9\u5B57\u6BB5\u3001\u5386\u53F2\u539F\u6587\u3001\u6B63\u53CD\u8BC1\u636E\u4E0E\u5BA1\u7A3F\u8D26\u672C\u7531 Harness \u786E\u5B9A\u6027\u6D3E\u751F\u3002
@@ -17622,6 +18500,7 @@ var TARGETS2 = [17, 18, 19];
 var META_LANGUAGE = /未提及|未给出|无法比较|我认为|我判断|模型认为|作为(?:一个|一名)?模型|本轮模型|系统认为/;
 var INTERNAL_SCORE = /\d{1,3}\s*\/\s*100/;
 var UNCLEAR_METAPHOR = /戏眼|敲门|主菜|大牛市宣言|数据接力|新中枢|情景价值/;
+var INTERNAL_PROBABILITY_LANGUAGE = /\b(?:raw|shadow|outcome|vintage|identity|log-odds|pava)\b/i;
 var FACTOR_TERMS = {
   technical: ["\u6280\u672F\u9762", "\u4EF7\u683C\u7ED3\u6784"],
   company: ["\u516C\u53F8\u57FA\u672C\u9762", "\u516C\u53F8", "\u7ECF\u8425"],
@@ -17989,7 +18868,8 @@ function buildProfessionalTargetWriterInput(context, synthesis, target) {
         contract: targetState.forecastQuestion,
         epistemicConfidence: targetState.epistemicConfidence,
         calibrationStatus: targetState.calibrationStatus,
-        quantDiagnostics: targetState.quantDiagnostics
+        quantDiagnostics: targetState.quantDiagnostics,
+        probabilitySynthesis: targetState.probabilitySynthesis
       } : void 0,
       targetLadder: context.targets.map((item) => ({
         target: item.target,
@@ -18038,6 +18918,7 @@ function publicationGate(output, context) {
   if (META_LANGUAGE.test(combined)) issues.push({ code: "meta_language", field: "analysis", message: "\u5305\u542B\u6A21\u578B\u6216\u7CFB\u7EDF\u81EA\u8A00\u81EA\u8BED\u3002", repairInstruction: "\u5220\u9664\u5143\u8BDD\u8BED\uFF0C\u76F4\u63A5\u9648\u8FF0\u4E8B\u5B9E\u3001\u63A8\u65AD\u548C\u7ED3\u8BBA\u3002" });
   if (INTERNAL_SCORE.test(combined)) issues.push({ code: "internal_score", field: "analysis", message: "\u6CC4\u9732\u5185\u90E8\u8BC4\u5206\u3002", repairInstruction: "\u6539\u5199\u4E3A\u65B9\u5411\u548C\u53EF\u5BF9\u8D26\u7684\u6982\u7387\u8D21\u732E\u3002" });
   if (UNCLEAR_METAPHOR.test(combined)) issues.push({ code: "unclear_language", field: "analysis", message: "\u5305\u542B\u6666\u6DA9\u6216\u81EA\u5A92\u4F53\u5316\u8868\u8FBE\u3002", repairInstruction: "\u6539\u6210\u4E13\u4E1A\u3001\u5177\u4F53\u3001\u53EF\u6838\u9A8C\u7684\u884C\u4E1A\u8BED\u8A00\u3002" });
+  if (INTERNAL_PROBABILITY_LANGUAGE.test(combined)) issues.push({ code: "internal_probability_language", field: "analysis", message: "\u5305\u542B\u6982\u7387\u7CFB\u7EDF\u5185\u90E8\u5DE5\u7A0B\u672F\u8BED\u3002", repairInstruction: "\u6539\u5199\u4E3A\u7528\u6237\u53EF\u7406\u89E3\u7684\u6821\u51C6\u72B6\u6001\u3001\u6A21\u578B\u5206\u6B67\u6216\u6570\u636E\u6210\u719F\u5EA6\u8BF4\u660E\u3002" });
   for (const target of TARGETS2) {
     const knownRefs = contextReferenceIds(context, target);
     const view = output.targetViews?.[target];
@@ -18510,6 +19391,90 @@ var InMemorySnapshotRepository = class {
       throw new Error(`Snapshot not found: ${runId}`);
     }
     return snapshot;
+  }
+};
+
+// src/research/repositories/PredictionAuditRepository.ts
+function cloneAudit(audit) {
+  return structuredClone(audit);
+}
+function issuanceAudits(snapshot) {
+  return snapshot.predictions.flatMap((prediction) => {
+    const question = prediction.forecastQuestion;
+    if (!question) return [];
+    return [{
+      predictionId: question.questionId,
+      vintageId: prediction.probabilitySynthesis?.contextId ?? snapshot.runId,
+      target: prediction.target,
+      predictedProbability: prediction.probability,
+      predictionDate: question.issuedAt,
+      horizon: "120d",
+      issuanceStatus: question.status,
+      forecastQuestion: structuredClone(question),
+      modelVersion: prediction.probabilitySynthesis?.modelRelease.modelVersion ?? snapshot.modelVersion,
+      calibrationArtifactId: prediction.probabilitySynthesis?.modelRelease.calibrationArtifactId,
+      ...question.status === "resolved_at_issue" ? {
+        actualHit: true,
+        actualHitDate: question.issuedAt.slice(0, 10),
+        outcomeStatus: "hit"
+      } : {}
+    }];
+  });
+}
+var InMemoryPredictionAuditRepository = class {
+  ledger = [];
+  appendIssuances(snapshot) {
+    const known = new Set(this.ledger.filter((entry) => entry.kind === "issuance").map((entry) => entry.predictionId));
+    for (const audit of issuanceAudits(snapshot)) {
+      if (known.has(audit.predictionId)) continue;
+      this.ledger.push({
+        entryId: `${audit.predictionId}:issuance`,
+        kind: "issuance",
+        recordedAt: snapshot.updatedAt,
+        predictionId: audit.predictionId,
+        audit: cloneAudit(audit)
+      });
+      known.add(audit.predictionId);
+    }
+  }
+  resolveOutcomes(observations, evaluatedAt) {
+    for (const audit of this.getAudits()) {
+      const question = audit.forecastQuestion;
+      if (!question || audit.issuanceStatus === "resolved_at_issue") continue;
+      if (audit.outcomeStatus === "hit" || audit.outcomeStatus === "miss") continue;
+      const outcome = resolveForecastOutcome(question, observations, evaluatedAt);
+      if (outcome.status === "pending" || outcome.status === audit.outcomeStatus) continue;
+      const resolvedAudit = {
+        ...audit,
+        outcomeStatus: outcome.status,
+        actualHit: outcome.actualHit,
+        actualHitDate: outcome.actualHitDate,
+        errorReason: outcome.reason
+      };
+      this.ledger.push({
+        entryId: `${audit.predictionId}:outcome:${evaluatedAt}:${outcome.status}`,
+        kind: "outcome",
+        recordedAt: evaluatedAt,
+        predictionId: audit.predictionId,
+        audit: cloneAudit(resolvedAudit)
+      });
+    }
+  }
+  getAudits() {
+    const latest = /* @__PURE__ */ new Map();
+    for (const entry of this.ledger) latest.set(entry.predictionId, cloneAudit(entry.audit));
+    return [...latest.values()];
+  }
+  getLedger() {
+    return structuredClone(this.ledger);
+  }
+  hydrate(entries) {
+    const known = new Set(this.ledger.map((entry) => entry.entryId));
+    for (const entry of entries) {
+      if (known.has(entry.entryId)) continue;
+      this.ledger.push(structuredClone(entry));
+      known.add(entry.entryId);
+    }
   }
 };
 
@@ -19232,7 +20197,7 @@ var EventSubagent = class {
   }
   eventEngine;
   async run(input) {
-    const events = await this.eventEngine.classifyEvents(input.rawItems);
+    const events = await this.eventEngine.classifyEvents(input.rawItems, void 0, input.researchAsOf);
     return { events };
   }
 };
@@ -19276,15 +20241,29 @@ var FactorSubagent = class {
 // src/research/subagents/ProbabilitySubagent.ts
 var ProbabilitySubagent = class {
   async run(input) {
-    const predictions = calculateTargetPredictions({
+    const context = input.context ?? buildProbabilityResearchContext({
       quote: input.quote,
       history: input.history,
+      detailedHistory: input.detailedHistory,
       events: input.events,
       memories: input.memories,
       factors: input.factors,
-      previousSnapshot: input.previousSnapshot
+      previousSnapshot: input.previousSnapshot,
+      researchAsOf: input.researchAsOf
     });
-    return { predictions };
+    const predictions = calculateTargetPredictions({
+      quote: context.quote,
+      history: [...context.history],
+      events: [...context.events],
+      memories: [...context.memories],
+      factors: [...context.factors],
+      probabilityContext: context
+    });
+    return {
+      predictions,
+      contextId: context.contextId,
+      modelRelease: context.modelRelease
+    };
   }
 };
 
@@ -19411,7 +20390,7 @@ var EvidenceCompletionAgent = class {
     }
     const collected = mergeResearchToolResults(await Promise.all(jobs));
     const deduped = collected.items;
-    const events = await this.eventEngine.classifyEvents(deduped);
+    const events = await this.eventEngine.classifyEvents(deduped, void 0, input.researchAsOf);
     const mergedCategories = new Set([...input.existingEvents, ...events].map((event) => event.category));
     const unresolvedFactors = requestedFactors.filter((factor) => {
       const category = factorCategory(factor);
@@ -19481,7 +20460,10 @@ function reviewProbabilityOrdering(predictions) {
   return issues;
 }
 function reviewProbabilityBounds(predictions) {
-  return predictions.filter((p) => p.probability < 5 || p.probability > 95).map((p) => ({
+  return predictions.filter((p) => {
+    const isResolvedAtIssue = p.forecastQuestion?.status === "resolved_at_issue" && p.probability === 100;
+    return !isResolvedAtIssue && (p.probability < 5 || p.probability > 95);
+  }).map((p) => ({
     code: "PROBABILITY_BOUNDS",
     severity: "high",
     message: `P${p.target} \u6982\u7387 ${p.probability}% \u8D85\u51FA 5%-95% \u8303\u56F4`
@@ -19571,7 +20553,14 @@ function reviewSnapshot(snapshot, previousSnapshot, events = []) {
   if (previousSnapshot) {
     for (const prediction of snapshot.predictions) {
       const previousPrediction = previousSnapshot.predictions.find((p) => p.target === prediction.target);
-      issues.push(...reviewProbabilityJump(prediction, previousPrediction?.probability, events));
+      issues.push(...reviewProbabilityJump(
+        prediction,
+        previousPrediction?.probability,
+        events,
+        5,
+        10,
+        previousSnapshot.updatedAt
+      ));
     }
   }
   if (!snapshot.analysis.headline) {
@@ -19608,10 +20597,14 @@ function reviewSnapshot(snapshot, previousSnapshot, events = []) {
     issues
   };
 }
-function reviewProbabilityJump(prediction, previousProbability, events, normalLimit = 5, majorEventLimit = 10) {
+function reviewProbabilityJump(prediction, previousProbability, events, normalLimit = 5, majorEventLimit = 10, previousPublishedAt) {
   if (previousProbability === void 0) return [];
+  if (prediction.forecastQuestion?.status === "resolved_at_issue" && prediction.probability === 100) return [];
   const jump = Math.abs(prediction.probability - previousProbability);
-  const hasMajorEvent = events.some((e) => e.importance >= 8);
+  const previousCutoff = Date.parse(previousPublishedAt ?? "");
+  const hasMajorEvent = events.some(
+    (event) => event.importance >= 8 && event.confidence >= 0.75 && event.affectedTargets.includes(prediction.target) && (!Number.isFinite(previousCutoff) || Date.parse(event.publishedAt ?? "") > previousCutoff)
+  );
   const limit = hasMajorEvent ? majorEventLimit : normalLimit;
   if (jump > limit) {
     return [
@@ -19807,11 +20800,11 @@ var china_property_market_2026_05_default = {
 
 // src/research/knowledge/propertyMarketKnowledgeBase.ts
 var cachedKnowledgeBase2 = null;
-function round2(value, digits = 1) {
+function round3(value, digits = 1) {
   return Number(value.toFixed(digits));
 }
 function indexToChange(indexValue) {
-  return round2(indexValue - 100, 1);
+  return round3(indexValue - 100, 1);
 }
 function citySignal(city) {
   const newMoM = indexToChange(city.newHomeIndexMoM);
@@ -19937,7 +20930,7 @@ function scoreDocument2(document, input) {
   if (/压力|风险|弱|恶化/.test(query) && (document.tags.includes("resale-yoy-pressure") || document.tags.includes("developer-cycle"))) score += 8;
   const resaleYoY = Number(document.metrics.resaleYoY ?? 0);
   if (resaleYoY < -5) score += input.target >= 18 ? 5 : 2;
-  return round2(score, 3);
+  return round3(score, 3);
 }
 function loadChinaPropertyMarketKnowledgeBase() {
   if (!cachedKnowledgeBase2) {
@@ -19976,7 +20969,7 @@ function propertyDocumentsToMemories(retrieval, now) {
     sourceEventId: `property-rag-${document.id}`,
     validFrom: now,
     validUntil,
-    importance: Math.min(10, Math.max(6.5, round2((document.score ?? 50) / 10, 1))),
+    importance: Math.min(10, Math.max(6.5, round3((document.score ?? 50) / 10, 1))),
     confidence: 0.88,
     decayScore: 1,
     createdAt: now,
@@ -20084,7 +21077,7 @@ async function executeWorkflowStep(input) {
 }
 
 // src/research/runtime/version.ts
-var RESEARCH_RUNTIME_VERSION = "research-runtime-evidence-timeline-v2";
+var RESEARCH_RUNTIME_VERSION = "research-runtime-probability-synthesis-v1";
 
 // src/research/harness/runBekeHarness.ts
 var globalRunSequence = 0;
@@ -20098,7 +21091,7 @@ var HarnessRecorder = class {
       triggerType: input.triggerType,
       status: "created",
       inputVersion: "public-snapshot",
-      modelVersion: "probability-rules-mvp-0.1",
+      modelVersion: "probability-synthesis-v1",
       promptVersion: PROMPTS.generate_analysis.version,
       dataVersion: "mock-public-providers-0.1",
       startedAt: (/* @__PURE__ */ new Date()).toISOString(),
@@ -20202,7 +21195,8 @@ function summarizeStepOutput(step, output) {
       return `\u8BC1\u636E\u8865\u5168 ${completion.passes} \u8F6E\uFF0C\u5B9A\u5411\u67E5\u8BE2 ${completion.attempts.length} \u9879\uFF08\u6210\u529F ${succeeded}\uFF09\uFF0C\u65B0\u589E\u4E8B\u4EF6 ${completion.events.length} \u6761\uFF0C\u672A\u89E3\u7F3A\u53E3 ${completion.unresolvedFactors.length} \u9879`;
     }
     case "probability": {
-      const predictions = output;
+      const probability = output;
+      const predictions = probability.predictions;
       return `\u6982\u7387 ${predictions.map((prediction) => `$${prediction.target}:${prediction.probability}%`).join(" / ")}`;
     }
     case "forecast": {
@@ -20275,6 +21269,7 @@ async function runBekeHarness(input, context) {
   persistRun();
   const repository = context.snapshotRepository ?? new InMemorySnapshotRepository();
   const memoryRepository2 = context.memoryRepository ?? new InMemoryMemoryRepository();
+  const predictionAuditRepository2 = context.predictionAuditRepository ?? new InMemoryPredictionAuditRepository();
   const eventEngine = new EventEngine();
   const factorEngine = new FactorEngine();
   const analysisEngine = new AnalysisEngine();
@@ -20371,7 +21366,7 @@ async function runBekeHarness(input, context) {
   const eventResult = await runStep(
     "event",
     "\u4E8B\u4EF6\u5206\u7C7B",
-    () => subagents.event.run({ rawItems: news.allItems }).then((output) => output.events)
+    () => subagents.event.run({ rawItems: news.allItems, researchAsOf: runStartedAt }).then((output) => output.events)
   );
   recordStep(eventResult);
   if (eventResult.status === "failed") {
@@ -20379,7 +21374,7 @@ async function runBekeHarness(input, context) {
     return { run: recorder.getRun(run.id) };
   }
   let events = eventResult.output;
-  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  const nowIso = runStartedAt;
   const researchTargets = [17, 18, 19];
   const dedupeMemories = (items) => Array.from(new Map(items.map((item) => [item.id, item])).values());
   const priceMemories = dedupeMemories(researchTargets.flatMap(
@@ -20471,24 +21466,47 @@ async function runBekeHarness(input, context) {
   });
   recordStep(evidenceCompletionResult);
   const previousSnapshot = repository.getLatest();
+  if (previousSnapshot) predictionAuditRepository2.appendIssuances(previousSnapshot);
+  predictionAuditRepository2.resolveOutcomes(priceKnowledgeBase.points, runStartedAt);
+  const calibrationReport = new CalibrationEngine().buildCalibrationReport(
+    predictionAuditRepository2.getAudits(),
+    runStartedAt
+  );
+  const probabilityContext = buildProbabilityResearchContext({
+    quote: market.quote,
+    history: market.history,
+    detailedHistory: priceKnowledgeBase.points,
+    factors,
+    events,
+    memories,
+    previousSnapshot: previousSnapshot ?? void 0,
+    researchAsOf: runStartedAt,
+    calibrationReport
+  });
   const probabilityResult = await runStep(
     "probability",
     "\u6982\u7387\u8BA1\u7B97",
-    () => subagents.probability.run({
-      quote: market.quote,
-      history: market.history,
-      factors,
-      events,
-      memories,
-      previousSnapshot: previousSnapshot ?? void 0
-    }).then((output) => output.predictions)
+    () => subagents.probability.run({ context: probabilityContext }).then((output) => {
+      if (output.contextId !== probabilityContext.contextId) {
+        throw new Error(`ProbabilitySubagent context mismatch: ${output.contextId} != ${probabilityContext.contextId}`);
+      }
+      if (output.modelRelease.modelVersion !== probabilityContext.modelRelease.modelVersion || output.modelRelease.parameterSetId !== probabilityContext.modelRelease.parameterSetId || output.modelRelease.calibrationArtifactId !== probabilityContext.modelRelease.calibrationArtifactId) {
+        throw new Error("ProbabilitySubagent model release does not match the frozen probability context");
+      }
+      if (output.predictions.some(
+        (prediction) => prediction.probabilitySynthesis?.contextId !== probabilityContext.contextId || prediction.probabilitySynthesis.modelRelease.modelVersion !== output.modelRelease.modelVersion
+      )) {
+        throw new Error("ProbabilitySubagent returned an incomplete or mismatched probability audit artifact");
+      }
+      return output;
+    })
   );
   recordStep(probabilityResult);
   if (probabilityResult.status === "failed") {
     failRun(probabilityResult.errorMessage);
     return { run: recorder.getRun(run.id) };
   }
-  const probabilityPredictions = probabilityResult.output;
+  const probabilityPredictions = probabilityResult.output.predictions;
   const forecastResult = await runStep(
     "forecast",
     "\u4E00\u5468\u7A97\u53E3\u63A8\u6F14",
@@ -20619,10 +21637,12 @@ async function runBekeHarness(input, context) {
     route: "/beke19",
     runId: `beke19-${Date.now()}`,
     inputVersion: "public-snapshot",
-    modelVersion: analysis.generation?.modelId ?? "probability-rules-mvp-0.1",
+    modelVersion: probabilityContext.modelRelease.modelVersion,
     promptVersion: analysis.generation?.promptVersions.length ? analysis.generation.promptVersions.join("+") : PROMPTS.generate_analysis.version,
     dataVersion: [
       RESEARCH_RUNTIME_VERSION,
+      `probability-${probabilityContext.modelRelease.modelVersion}`,
+      `probability-params-${probabilityContext.modelRelease.parameterSetId}`,
       `market-${market.quote.provenance?.provider ?? context.marketProvider.name}`,
       `news-${context.newsProvider.name}`,
       `official-${context.officialProvider.name}`,
@@ -20664,14 +21684,20 @@ async function runBekeHarness(input, context) {
       warnings: [
         ...market.quote.provenance?.freshness === "fallback" ? [`\u884C\u60C5\u5DF2\u964D\u7EA7\uFF1A${market.quote.provenance.fallbackReason ?? "\u5B9E\u65F6\u884C\u60C5\u4E0D\u53EF\u7528"}`] : [],
         ...news.allItems.some((item) => item.retrievalMode === "curated") ? ["\u90E8\u5206\u65B0\u95FB\u4F7F\u7528\u5DF2\u53D1\u5E03\u8BC1\u636E\u5FEB\u7167\u3002"] : []
-      ]
+      ],
+      probabilityModelVersion: probabilityContext.modelRelease.modelVersion,
+      probabilityContextId: probabilityContext.contextId,
+      probabilityCalibrationArtifactId: probabilityContext.modelRelease.calibrationArtifactId
     }
   };
   run.modelVersion = snapshotBase.modelVersion;
   run.promptVersion = snapshotBase.promptVersion;
   run.dataVersion = snapshotBase.dataVersion;
   persistRun();
-  const snapshot = attachResearchQuality(snapshotBase);
+  const snapshot = attachResearchQuality(snapshotBase, {
+    audits: predictionAuditRepository2.getAudits(),
+    now: runStartedAt
+  });
   const reviewResult = await runStep("review", "\u98CE\u9669\u5BA1\u67E5", () => {
     return subagents.review.run({ snapshot, previousSnapshot: previousSnapshot ?? void 0, events }).then(({ result }) => {
       const surfaceAudit = evaluateSnapshotSurface(snapshot);
@@ -20700,6 +21726,7 @@ async function runBekeHarness(input, context) {
     failRun(publishResult.errorMessage);
     return { run: recorder.getRun(run.id) };
   }
+  predictionAuditRepository2.appendIssuances(publishResult.output);
   const memoryCandidates = memoryEngine.createMemoryCandidates({ events, analysis });
   if (memoryCandidates.length > 0) {
     memoryEngine.addMemories(memoryCandidates);
@@ -23592,6 +24619,15 @@ function osUsername() {
 }
 
 // src/server/RuntimeStateStore.ts
+function mergePredictionAuditLedgers(...ledgers) {
+  const merged = /* @__PURE__ */ new Map();
+  for (const ledger of ledgers) {
+    for (const entry of ledger ?? []) {
+      if (!merged.has(entry.entryId)) merged.set(entry.entryId, structuredClone(entry));
+    }
+  }
+  return [...merged.values()].sort((left, right) => left.recordedAt.localeCompare(right.recordedAt) || left.entryId.localeCompare(right.entryId));
+}
 var InMemoryRuntimeStateStore = class {
   name = "memory";
   state = null;
@@ -23599,7 +24635,13 @@ var InMemoryRuntimeStateStore = class {
     return this.state ? structuredClone(this.state) : null;
   }
   async save(state) {
-    this.state = structuredClone(state);
+    this.state = structuredClone({
+      ...state,
+      predictionAuditLedger: mergePredictionAuditLedgers(
+        this.state?.predictionAuditLedger,
+        state.predictionAuditLedger
+      )
+    });
   }
 };
 var PostgresRuntimeStateStore = class {
@@ -23620,20 +24662,43 @@ var PostgresRuntimeStateStore = class {
         updated_at timestamptz not null default now()
       )
     `;
+    await this.sql`
+      alter table beke19_runtime_state
+      add column if not exists prediction_audit_ledger jsonb not null default '[]'::jsonb
+    `;
+    await this.sql`
+      create table if not exists beke19_prediction_audit_ledger (
+        state_key text not null,
+        entry_id text not null,
+        recorded_at timestamptz not null,
+        entry jsonb not null,
+        primary key (state_key, entry_id)
+      )
+    `;
     this.initialized = true;
   }
   async load() {
     await this.ensureSchema();
     const rows = await this.sql`
-      select payload, memories, expires_at
+      select payload, memories, prediction_audit_ledger, expires_at
       from beke19_runtime_state
       where state_key = 'BEKE'
     `;
     const row = rows[0];
     if (!row) return null;
+    const ledgerRows = await this.sql`
+      select entry
+      from beke19_prediction_audit_ledger
+      where state_key = 'BEKE'
+      order by recorded_at asc, entry_id asc
+    `;
     return {
       payload: row.payload,
       memories: row.memories,
+      predictionAuditLedger: mergePredictionAuditLedgers(
+        row.prediction_audit_ledger,
+        ledgerRows.map((item) => item.entry)
+      ),
       expiresAt: row.expires_at.toISOString()
     };
   }
@@ -23641,15 +24706,26 @@ var PostgresRuntimeStateStore = class {
     await this.ensureSchema();
     const payload = JSON.parse(JSON.stringify(state.payload));
     const memories = JSON.parse(JSON.stringify(state.memories));
-    await this.sql`
-      insert into beke19_runtime_state (state_key, payload, memories, expires_at, updated_at)
-      values ('BEKE', ${this.sql.json(payload)}, ${this.sql.json(memories)}, ${state.expiresAt}, now())
-      on conflict (state_key) do update set
-        payload = excluded.payload,
-        memories = excluded.memories,
-        expires_at = excluded.expires_at,
-        updated_at = now()
-    `;
+    const predictionAuditLedger = mergePredictionAuditLedgers(state.predictionAuditLedger);
+    await this.sql.begin(async (sql) => {
+      await sql`
+        insert into beke19_runtime_state (state_key, payload, memories, expires_at, updated_at)
+        values ('BEKE', ${sql.json(payload)}, ${sql.json(memories)}, ${state.expiresAt}, now())
+        on conflict (state_key) do update set
+          payload = excluded.payload,
+          memories = excluded.memories,
+          expires_at = excluded.expires_at,
+          updated_at = now()
+      `;
+      for (const entry of predictionAuditLedger) {
+        const serialized = JSON.parse(JSON.stringify(entry));
+        await sql`
+          insert into beke19_prediction_audit_ledger (state_key, entry_id, recorded_at, entry)
+          values ('BEKE', ${entry.entryId}, ${entry.recordedAt}, ${sql.json(serialized)})
+          on conflict (state_key, entry_id) do nothing
+        `;
+      }
+    });
   }
 };
 
@@ -23657,6 +24733,7 @@ var PostgresRuntimeStateStore = class {
 var snapshotRepository = null;
 var memoryRepository = null;
 var runRepository = null;
+var predictionAuditRepository = null;
 var runtimeCache = null;
 var runtimeInFlight = null;
 var defaultStateStore = null;
@@ -23668,6 +24745,7 @@ function resetBeke19RuntimeCache() {
   snapshotRepository = null;
   memoryRepository = null;
   runRepository = null;
+  predictionAuditRepository = null;
   defaultStateStore = null;
   refreshByIdempotencyKey.clear();
 }
@@ -23698,6 +24776,10 @@ function getRunRepository() {
     runRepository = new InMemoryRunRepository();
   }
   return runRepository;
+}
+function getPredictionAuditRepository() {
+  if (!predictionAuditRepository) predictionAuditRepository = new InMemoryPredictionAuditRepository();
+  return predictionAuditRepository;
 }
 function fallbackRun(snapshot = latestSnapshot) {
   return {
@@ -23812,6 +24894,7 @@ async function loadOrGenerateBeke19SnapshotState(env, options, now) {
         getSnapshotRepository().save(persisted.payload.state.snapshot);
         getRunRepository().save(persisted.payload.state.run);
         getMemoryRepository().saveMany(persisted.memories);
+        getPredictionAuditRepository().hydrate(persisted.predictionAuditLedger ?? []);
         runtimeCache = { payload: persisted.payload, expiresAtMs };
         if (!options.forceRefresh && expiresAtMs > now.getTime() && canReuseRuntimeCache(persisted.payload)) {
           return {
@@ -23835,6 +24918,7 @@ async function loadOrGenerateBeke19SnapshotState(env, options, now) {
       await stateStore.save({
         payload,
         memories: getMemoryRepository().getAll(),
+        predictionAuditLedger: getPredictionAuditRepository().getLedger(),
         expiresAt: payload.runtime.cache.expiresAt
       });
     } catch (error51) {
@@ -23859,7 +24943,8 @@ async function generateBeke19SnapshotState(env, options, now, stateStore) {
         llmProvider,
         snapshotRepository: repo,
         memoryRepository: getMemoryRepository(),
-        runRepository: getRunRepository()
+        runRepository: getRunRepository(),
+        predictionAuditRepository: getPredictionAuditRepository()
       }
     );
     if (result.snapshot) {
