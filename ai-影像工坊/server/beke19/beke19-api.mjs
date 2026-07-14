@@ -19476,6 +19476,9 @@ var InMemoryPredictionAuditRepository = class {
       known.add(entry.entryId);
     }
   }
+  replaceLedger(entries) {
+    this.ledger = structuredClone(entries);
+  }
 };
 
 // src/research/repositories/MemoryRepository.ts
@@ -19488,6 +19491,10 @@ var InMemoryMemoryRepository = class {
     for (const memory of memories) {
       this.memories.set(memory.id, memory);
     }
+  }
+  replaceAll(memories) {
+    this.memories.clear();
+    this.saveMany(memories);
   }
   getById(id) {
     return this.memories.get(id) ?? null;
@@ -24628,6 +24635,16 @@ function mergePredictionAuditLedgers(...ledgers) {
   }
   return [...merged.values()].sort((left, right) => left.recordedAt.localeCompare(right.recordedAt) || left.entryId.localeCompare(right.entryId));
 }
+function publicationIsAtLeastAsRecent(candidate, current) {
+  const candidateSnapshot = candidate.payload.state.snapshot;
+  const currentSnapshot = current.payload.state.snapshot;
+  if (candidateSnapshot.runId === currentSnapshot.runId) return true;
+  const candidateTime = Date.parse(candidateSnapshot.updatedAt);
+  const currentTime = Date.parse(currentSnapshot.updatedAt);
+  if (!Number.isFinite(candidateTime)) return !Number.isFinite(currentTime);
+  if (!Number.isFinite(currentTime)) return true;
+  return candidateTime >= currentTime;
+}
 var InMemoryRuntimeStateStore = class {
   name = "memory";
   state = null;
@@ -24635,12 +24652,17 @@ var InMemoryRuntimeStateStore = class {
     return this.state ? structuredClone(this.state) : null;
   }
   async save(state) {
+    const predictionAuditLedger = mergePredictionAuditLedgers(
+      this.state?.predictionAuditLedger,
+      state.predictionAuditLedger
+    );
+    if (this.state && !publicationIsAtLeastAsRecent(state, this.state)) {
+      this.state = structuredClone({ ...this.state, predictionAuditLedger });
+      return;
+    }
     this.state = structuredClone({
       ...state,
-      predictionAuditLedger: mergePredictionAuditLedgers(
-        this.state?.predictionAuditLedger,
-        state.predictionAuditLedger
-      )
+      predictionAuditLedger
     });
   }
 };
@@ -24649,7 +24671,15 @@ var PostgresRuntimeStateStore = class {
   sql;
   initialized = false;
   constructor(connectionString) {
-    this.sql = src_default(connectionString, { max: 1, idle_timeout: 20, connect_timeout: 10 });
+    this.sql = src_default(connectionString, {
+      max: 1,
+      idle_timeout: 20,
+      connect_timeout: 5,
+      connection: {
+        statement_timeout: 5e3,
+        lock_timeout: 2e3
+      }
+    });
   }
   async ensureSchema() {
     if (this.initialized) return;
@@ -24716,6 +24746,9 @@ var PostgresRuntimeStateStore = class {
           memories = excluded.memories,
           expires_at = excluded.expires_at,
           updated_at = now()
+        where
+          (beke19_runtime_state.payload #>> '{state,snapshot,updatedAt}')::timestamptz
+          <= (excluded.payload #>> '{state,snapshot,updatedAt}')::timestamptz
       `;
       for (const entry of predictionAuditLedger) {
         const serialized = JSON.parse(JSON.stringify(entry));
@@ -24737,8 +24770,10 @@ var predictionAuditRepository = null;
 var runtimeCache = null;
 var runtimeInFlight = null;
 var defaultStateStore = null;
+var publishedReadInFlight = /* @__PURE__ */ new WeakMap();
 var refreshByIdempotencyKey = /* @__PURE__ */ new Map();
 var SNAPSHOT_CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
+var PUBLIC_READ_RETRY_MS = 6e4;
 function resetBeke19RuntimeCache() {
   runtimeCache = null;
   runtimeInFlight = null;
@@ -24747,6 +24782,7 @@ function resetBeke19RuntimeCache() {
   runRepository = null;
   predictionAuditRepository = null;
   defaultStateStore = null;
+  publishedReadInFlight = /* @__PURE__ */ new WeakMap();
   refreshByIdempotencyKey.clear();
 }
 function getRuntimeEnv() {
@@ -24858,8 +24894,31 @@ function runtimeInfo(provider, source, providers, cacheStatus, generatedAt, expi
 function hasCurrentRuntimeContract(payload) {
   return payload.state.snapshot.dataVersion.split("+").includes(RESEARCH_RUNTIME_VERSION);
 }
+function isPublicPayloadCompatible(payload) {
+  return payload.runtime.source === "static-fallback" && payload.state.snapshot.runId === latestSnapshot.runId || hasCurrentRuntimeContract(payload);
+}
 function canReuseRuntimeCache(payload) {
   return payload.runtime.source !== "server-harness" || hasCurrentRuntimeContract(payload);
+}
+function isSnapshotAtLeastAsRecent(candidate, baseline) {
+  if (candidate.runId === baseline.runId) return true;
+  const candidateTime = Date.parse(candidate.updatedAt);
+  const baselineTime = Date.parse(baseline.updatedAt);
+  if (!Number.isFinite(candidateTime)) return !Number.isFinite(baselineTime);
+  if (!Number.isFinite(baselineTime)) return true;
+  return candidateTime >= baselineTime;
+}
+function hydratePersistedState(persisted) {
+  const repo = getSnapshotRepository();
+  const existing = repo.getLatest();
+  if (existing && !isSnapshotAtLeastAsRecent(persisted.payload.state.snapshot, existing)) {
+    return false;
+  }
+  getMemoryRepository().saveMany(persisted.memories);
+  getPredictionAuditRepository().hydrate(persisted.predictionAuditLedger ?? []);
+  repo.save(persisted.payload.state.snapshot);
+  getRunRepository().save(persisted.payload.state.run);
+  return true;
 }
 async function createBeke19SnapshotState(env = getRuntimeEnv(), options = {}) {
   const now = options.now?.() ?? /* @__PURE__ */ new Date();
@@ -24884,19 +24943,136 @@ async function createBeke19SnapshotState(env = getRuntimeEnv(), options = {}) {
     runtimeInFlight = null;
   }
 }
+function publicReadPayload(payload, now, persistence, expiresAt = payload.runtime.cache.expiresAt) {
+  return {
+    ...payload,
+    runtime: {
+      ...payload.runtime,
+      generatedAt: now.toISOString(),
+      persistence,
+      cache: {
+        status: "hit",
+        expiresAt
+      }
+    }
+  };
+}
+async function loadPublishedStateWithDeadline(stateStore, timeoutMs) {
+  let pending = publishedReadInFlight.get(stateStore);
+  if (!pending) {
+    pending = stateStore.load().finally(() => {
+      if (publishedReadInFlight.get(stateStore) === pending) {
+        publishedReadInFlight.delete(stateStore);
+      }
+    });
+    publishedReadInFlight.set(stateStore, pending);
+  }
+  let timer2;
+  try {
+    return await Promise.race([
+      pending,
+      new Promise((_resolve, reject) => {
+        timer2 = setTimeout(
+          () => reject(new Error(`Published state read timed out after ${timeoutMs}ms`)),
+          timeoutMs
+        );
+      })
+    ]);
+  } finally {
+    if (timer2) clearTimeout(timer2);
+  }
+}
+async function readPublishedBeke19SnapshotState(env = getRuntimeEnv(), options = {}) {
+  const now = options.now?.() ?? /* @__PURE__ */ new Date();
+  const stateStore = getStateStore(env, options.stateStore);
+  const currentCache = runtimeCache && isSnapshotAtLeastAsRecent(runtimeCache.payload.state.snapshot, latestSnapshot) && isPublicPayloadCompatible(runtimeCache.payload) ? runtimeCache : null;
+  if (currentCache && currentCache.expiresAtMs > now.getTime()) {
+    return publicReadPayload(
+      currentCache.payload,
+      now,
+      stateStore.name,
+      new Date(currentCache.expiresAtMs).toISOString()
+    );
+  }
+  const staleCache = currentCache;
+  if (runtimeCache && !currentCache) runtimeCache = null;
+  let degradedReason = "No persisted publication is available";
+  try {
+    const persisted = await loadPublishedStateWithDeadline(stateStore, options.readTimeoutMs ?? 1500);
+    if (persisted && isSnapshotAtLeastAsRecent(persisted.payload.state.snapshot, latestSnapshot) && hasCurrentRuntimeContract(persisted.payload) && hydratePersistedState(persisted)) {
+      const persistedExpiresAtMs = new Date(persisted.expiresAt).getTime();
+      const expiresAtMs2 = Number.isFinite(persistedExpiresAtMs) ? Math.max(persistedExpiresAtMs, now.getTime() + PUBLIC_READ_RETRY_MS) : now.getTime() + PUBLIC_READ_RETRY_MS;
+      runtimeCache = { payload: persisted.payload, expiresAtMs: expiresAtMs2 };
+      return publicReadPayload(
+        persisted.payload,
+        now,
+        stateStore.name,
+        new Date(expiresAtMs2).toISOString()
+      );
+    }
+    if (persisted) {
+      degradedReason = hasCurrentRuntimeContract(persisted.payload) ? "Persisted publication predates the current publication" : "Persisted publication uses an obsolete runtime contract";
+    }
+  } catch (error51) {
+    degradedReason = error51 instanceof Error ? error51.message : String(error51);
+    console.warn("beke19 published state unavailable; serving bundled publication", error51);
+  }
+  if (staleCache) {
+    const expiresAtMs2 = now.getTime() + PUBLIC_READ_RETRY_MS;
+    const payload2 = {
+      ...staleCache.payload,
+      runtime: {
+        ...staleCache.payload.runtime,
+        degraded: { reason: degradedReason }
+      }
+    };
+    runtimeCache = { payload: payload2, expiresAtMs: expiresAtMs2 };
+    return publicReadPayload(payload2, now, stateStore.name, new Date(expiresAtMs2).toISOString());
+  }
+  const providers = options.providers ?? createProductionProviders();
+  const llmProvider = resolveServerLLMProvider(env);
+  const expiresAtMs = now.getTime() + Math.min(
+    options.cacheTtlMs ?? SNAPSHOT_CACHE_TTL_MS,
+    PUBLIC_READ_RETRY_MS
+  );
+  const payload = {
+    ok: true,
+    state: {
+      snapshot: latestSnapshot,
+      run: fallbackRun(latestSnapshot)
+    },
+    runtime: {
+      ...runtimeInfo(
+        llmProvider,
+        "static-fallback",
+        providers,
+        "miss",
+        now,
+        expiresAtMs,
+        stateStore.name
+      ),
+      degraded: { reason: degradedReason }
+    }
+  };
+  getSnapshotRepository().save(latestSnapshot);
+  getRunRepository().save(payload.state.run);
+  runtimeCache = { payload, expiresAtMs };
+  return payload;
+}
 async function loadOrGenerateBeke19SnapshotState(env, options, now) {
   const stateStore = getStateStore(env, options.stateStore);
-  if (!runtimeCache) {
+  const repo = getSnapshotRepository();
+  if (!repo.getLatest()) {
+    repo.save(latestSnapshot);
+    getRunRepository().save(fallbackRun(latestSnapshot));
+  }
+  if (!runtimeCache || runtimeCache.payload.runtime.source === "static-fallback") {
     try {
       const persisted = await stateStore.load();
-      if (persisted) {
-        const expiresAtMs = new Date(persisted.expiresAt).getTime();
-        getSnapshotRepository().save(persisted.payload.state.snapshot);
-        getRunRepository().save(persisted.payload.state.run);
-        getMemoryRepository().saveMany(persisted.memories);
-        getPredictionAuditRepository().hydrate(persisted.predictionAuditLedger ?? []);
-        runtimeCache = { payload: persisted.payload, expiresAtMs };
-        if (!options.forceRefresh && expiresAtMs > now.getTime() && canReuseRuntimeCache(persisted.payload)) {
+      if (persisted && hydratePersistedState(persisted)) {
+        const expiresAtMs2 = new Date(persisted.expiresAt).getTime();
+        runtimeCache = { payload: persisted.payload, expiresAtMs: expiresAtMs2 };
+        if (!options.forceRefresh && expiresAtMs2 > now.getTime() && canReuseRuntimeCache(persisted.payload)) {
           return {
             ...persisted.payload,
             runtime: {
@@ -24912,6 +25088,9 @@ async function loadOrGenerateBeke19SnapshotState(env, options, now) {
       console.warn("beke19 persistent state unavailable; continuing in memory", error51);
     }
   }
+  const previouslyPublished = runtimeCache;
+  const memoriesBeforeGeneration = getMemoryRepository().getAll();
+  const auditBeforeGeneration = getPredictionAuditRepository().getLedger();
   const payload = await generateBeke19SnapshotState(env, options, now, stateStore);
   if (payload.runtime.source === "server-harness") {
     try {
@@ -24921,14 +25100,81 @@ async function loadOrGenerateBeke19SnapshotState(env, options, now) {
         predictionAuditLedger: getPredictionAuditRepository().getLedger(),
         expiresAt: payload.runtime.cache.expiresAt
       });
+      const durable = await stateStore.load();
+      if (durable?.payload.state.snapshot.runId !== payload.state.snapshot.runId) {
+        if (durable && hasCurrentRuntimeContract(durable.payload) && isSnapshotAtLeastAsRecent(durable.payload.state.snapshot, payload.state.snapshot)) {
+          repo.save(durable.payload.state.snapshot);
+          getRunRepository().save(durable.payload.state.run);
+          getMemoryRepository().replaceAll(durable.memories);
+          getPredictionAuditRepository().replaceLedger(durable.predictionAuditLedger ?? []);
+          const durableExpiresAtMs = Date.parse(durable.expiresAt);
+          runtimeCache = {
+            payload: durable.payload,
+            expiresAtMs: Number.isFinite(durableExpiresAtMs) ? durableExpiresAtMs : now.getTime() + PUBLIC_READ_RETRY_MS
+          };
+          return durable.payload;
+        }
+        throw new Error("Durable publication was not committed or was superseded unexpectedly");
+      }
     } catch (error51) {
-      console.warn("beke19 persistent state save failed; snapshot remains available", error51);
+      const reason = error51 instanceof Error ? error51.message : String(error51);
+      console.warn("beke19 persistent state save failed; generated snapshot was not published", error51);
+      const expiresAtMs3 = previouslyPublished?.expiresAtMs ?? now.getTime() + PUBLIC_READ_RETRY_MS;
+      const fallbackPayload = previouslyPublished ? {
+        ...previouslyPublished.payload,
+        runtime: {
+          ...previouslyPublished.payload.runtime,
+          generatedAt: now.toISOString(),
+          source: previouslyPublished.payload.runtime.source === "static-fallback" ? "static-fallback" : "last-known-good",
+          cache: {
+            status: "refresh",
+            expiresAt: new Date(expiresAtMs3).toISOString()
+          },
+          degraded: { reason: `Publication persistence failed: ${reason}` }
+        }
+      } : {
+        ...payload,
+        state: {
+          snapshot: latestSnapshot,
+          run: fallbackRun(latestSnapshot)
+        },
+        runtime: {
+          ...payload.runtime,
+          source: "static-fallback",
+          cache: {
+            status: "refresh",
+            expiresAt: new Date(expiresAtMs3).toISOString()
+          },
+          degraded: { reason: `Publication persistence failed: ${reason}` }
+        }
+      };
+      repo.save(fallbackPayload.state.snapshot);
+      getRunRepository().save(fallbackPayload.state.run);
+      getMemoryRepository().replaceAll(memoriesBeforeGeneration);
+      getPredictionAuditRepository().replaceLedger(auditBeforeGeneration);
+      runtimeCache = { payload: fallbackPayload, expiresAtMs: expiresAtMs3 };
+      return fallbackPayload;
     }
+    const expiresAtMs2 = Date.parse(payload.runtime.cache.expiresAt);
+    runtimeCache = {
+      payload,
+      expiresAtMs: Number.isFinite(expiresAtMs2) ? expiresAtMs2 : now.getTime() + (options.cacheTtlMs ?? SNAPSHOT_CACHE_TTL_MS)
+    };
+    return payload;
   }
+  const expiresAtMs = Date.parse(payload.runtime.cache.expiresAt);
+  getMemoryRepository().replaceAll(memoriesBeforeGeneration);
+  getPredictionAuditRepository().replaceLedger(auditBeforeGeneration);
+  runtimeCache = {
+    payload,
+    expiresAtMs: Number.isFinite(expiresAtMs) ? expiresAtMs : now.getTime() + PUBLIC_READ_RETRY_MS
+  };
   return payload;
 }
 async function generateBeke19SnapshotState(env, options, now, stateStore) {
   const repo = getSnapshotRepository();
+  const publishedBeforeRun = repo.getLatestPublished();
+  const publishedRunBeforeRun = publishedBeforeRun ? runtimeCache?.payload.state.snapshot.runId === publishedBeforeRun.runId ? runtimeCache.payload.state.run : getRunRepository().getAll().reverse().find((run) => run.snapshotId === publishedBeforeRun.runId) : void 0;
   const llmProvider = resolveServerLLMProvider(env);
   const providers = options.providers ?? createProductionProviders();
   const cacheStatus = options.forceRefresh ? "refresh" : "miss";
@@ -24956,7 +25202,6 @@ async function generateBeke19SnapshotState(env, options, now, stateStore) {
         },
         runtime: runtimeInfo(llmProvider, "server-harness", providers, cacheStatus, now, expiresAtMs, stateStore.name)
       };
-      runtimeCache = { payload: payload2, expiresAtMs };
       return payload2;
     }
     failedRun = result.run;
@@ -24967,18 +25212,20 @@ async function generateBeke19SnapshotState(env, options, now, stateStore) {
   }
   const lastKnownGood = repo.getLatestPublished();
   const fallbackSnapshot = lastKnownGood ?? latestSnapshot;
+  const lastPublishedRun = publishedBeforeRun?.runId === fallbackSnapshot.runId ? publishedRunBeforeRun : void 0;
   const payload = {
     ok: true,
     state: {
       snapshot: fallbackSnapshot,
-      run: failedRun ? toPublicRun({ ...failedRun, snapshotId: fallbackSnapshot.runId }) : fallbackRun(fallbackSnapshot)
+      // Snapshot and run are one published unit. A failed refresh is runtime
+      // metadata only and must not relabel the prior publication as failed.
+      run: lastPublishedRun ?? (failedRun ? toPublicRun({ ...failedRun, snapshotId: fallbackSnapshot.runId }) : fallbackRun(fallbackSnapshot))
     },
     runtime: {
       ...runtimeInfo(llmProvider, lastKnownGood ? "last-known-good" : "static-fallback", providers, cacheStatus, now, expiresAtMs, stateStore.name),
       degraded: { reason: degradedReason }
     }
   };
-  runtimeCache = { payload, expiresAtMs };
   return payload;
 }
 function headerValue(req, name) {
@@ -25041,10 +25288,8 @@ async function handleBeke19Request(req, res, options = {}) {
     res.status(405).json({ ok: false, error: "Snapshot is read-only" });
     return;
   }
-  const payload = await createBeke19SnapshotState(void 0, {
-    ...options,
-    forceRefresh: action === "refresh" || options.forceRefresh
-  });
+  const env = getRuntimeEnv();
+  const payload = action === "refresh" ? await createBeke19SnapshotState(env, { ...options, forceRefresh: true }) : await readPublishedBeke19SnapshotState(env, options);
   if (idempotencyKey) {
     refreshByIdempotencyKey.set(idempotencyKey, payload);
     if (refreshByIdempotencyKey.size > 100) {
@@ -25061,6 +25306,7 @@ export {
   createBeke19SnapshotState,
   createServerLLMGateway,
   handleBeke19Request,
+  readPublishedBeke19SnapshotState,
   resetBeke19RuntimeCache,
   resolveServerLLMProvider
 };

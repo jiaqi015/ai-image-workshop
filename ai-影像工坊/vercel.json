@@ -1,4 +1,20 @@
 {
+  "functions": {
+    "api/beke19.js": {
+      "maxDuration": 300
+    }
+  },
+  "headers": [
+    {
+      "source": "/beke19/assets/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    }
+  ],
   "rewrites": [
     {
       "source": "/beke19",
