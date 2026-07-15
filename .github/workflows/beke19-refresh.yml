@@ -2,45 +2,36 @@ name: Refresh BEKE19 research
 
 on:
   schedule:
-    - cron: "17 */6 * * *"
+    - cron: "17 * * * *"
   workflow_dispatch:
 
 concurrency:
   group: beke19-research-refresh
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 12
     steps:
-      - name: Publish the next research snapshot
+      - name: Check out the watchdog
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Refresh only when the published snapshot is due
+        working-directory: ai-影像工坊
         env:
           BEKE19_REFRESH_TOKEN: ${{ secrets.BEKE19_REFRESH_TOKEN }}
-          IDEMPOTENCY_KEY: github-${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          set -euo pipefail
-          test -n "$BEKE19_REFRESH_TOKEN"
-          response_file="$(mktemp)"
-          status_code="$(curl \
-            --silent \
-            --show-error \
-            --max-time 300 \
-            --output "$response_file" \
-            --write-out '%{http_code}' \
-            --request POST \
-            --header "Authorization: Bearer $BEKE19_REFRESH_TOKEN" \
-            --header "Idempotency-Key: $IDEMPOTENCY_KEY" \
-            --header "Accept: application/json" \
-            'https://www.cameraclaw.cn/api/beke19?action=refresh')"
-          test "$status_code" = "200"
-          if ! jq -e '
-            .ok == true
-            and .state.snapshot.project == "beke19"
-            and .state.run.status == "success"
-            and .runtime.source == "server-harness"
-          ' "$response_file" >/dev/null; then
-            jq -r '"refresh failed: source=" + (.runtime.source // "unknown") + " reason=" + (.runtime.degraded.reason // "unknown")' "$response_file" >&2
-            exit 1
-          fi
-          jq -r '"published=" + .state.snapshot.updatedAt + " source=" + .runtime.source' "$response_file"
+          BEKE19_IDEMPOTENCY_KEY: github-${{ github.run_id }}-${{ github.run_attempt }}
+          FORCE_REFRESH: ${{ github.event_name == 'workflow_dispatch' }}
+          BEKE19_READ_TIMEOUT_MS: 10000
+          BEKE19_POST_TIMEOUT_MS: 300000
+          BEKE19_RETRY_DELAY_MS: 20000
+        run: node scripts/ops/beke19-watchdog.mjs

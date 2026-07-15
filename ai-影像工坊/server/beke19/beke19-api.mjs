@@ -18302,7 +18302,7 @@ function extractDates(value) {
   return value.match(/\b\d{4}-\d{2}-\d{2}\b/g) ?? [];
 }
 function extractNumbers(value) {
-  return value.match(/(?<![\p{L}\d])\d+(?:\.\d+)?/gu) ?? [];
+  return value.match(/(?<![A-Za-z\d])\d+(?:\.\d+)?(?![A-Za-z\d])/g) ?? [];
 }
 function normalizedNumbers(value) {
   const numbers = extractNumbers(JSON.stringify(value));
@@ -18636,6 +18636,20 @@ function fallbackTargetView(context, target) {
     }
   };
 }
+function fallbackProfessionalTargetDraft(context, target) {
+  const view = fallbackTargetView(context, target);
+  return {
+    expertAssertion: view.headline,
+    essenceAnalysis: view.plainSummary,
+    panoramicAnalysis: view.panoramicAnalysis ?? view.plainSummary,
+    guidance: view.guidance ?? [{
+      action: "\u6838\u5BF9\u65B0\u589E\u516C\u5F00\u8BC1\u636E",
+      signal: "\u7ECF\u8425\u3001\u884C\u4E1A\u4E0E\u4EF7\u683C\u4FE1\u53F7\u662F\u5426\u540C\u5411",
+      horizon: "\u4E0B\u4E00\u6B21\u6B63\u5F0F\u62AB\u9732"
+    }],
+    claimLedger: view.claimLedger ?? []
+  };
+}
 function deterministicProfessionalConclusion(context, synthesis, reason) {
   const targetViews = Object.fromEntries(TARGETS2.map((target) => [target, fallbackTargetView(context, target)]));
   const positives = factorEvidence(context, true);
@@ -18689,6 +18703,13 @@ function sanitizeFactNarrative(value, context, target, fallback, allowSemicolon)
   const matcher = allowSemicolon ? /[^。！？；]+[。！？；]?/g : /[^。！？]+[。！？]?/g;
   const segments = (value.match(matcher) ?? []).map((segment) => segment.trim()).filter(Boolean).filter((segment) => isFactSegmentSupported(segment, context, target)).slice(0, 8).map((segment) => /[。！？；]$/.test(segment) ? segment : `${segment}\u3002`);
   return segments.length >= 4 ? segments.join("") : fallback;
+}
+function sanitizeGuidance(guidance, fallback, context, target) {
+  const safeFallback = fallback.length > 0 ? fallback : [{ action: "\u6838\u5BF9\u65B0\u589E\u516C\u5F00\u8BC1\u636E", signal: "\u7ECF\u8425\u3001\u884C\u4E1A\u4E0E\u4EF7\u683C\u4FE1\u53F7\u662F\u5426\u540C\u5411", horizon: "\u4E0B\u4E00\u6B21\u6B63\u5F0F\u62AB\u9732" }];
+  return guidance.slice(0, 3).map((item, index) => {
+    const factualText = `${item.action} ${item.signal}`;
+    return isFactSegmentSupported(factualText, context, target) ? item : safeFallback[index % safeFallback.length];
+  });
 }
 function sanitizeDraft(draft) {
   const headline = cleanText(draft.headline).split(/[。；\n]/)[0] || cleanText(draft.headline);
@@ -18746,7 +18767,12 @@ function materializeDraft(draft, context, synthesis) {
       safeDerivedText(bear.thesis, `${target} \u7F8E\u5143\u7684\u4E3B\u8981\u7EA6\u675F\u6765\u81EA\u884C\u4E1A\u4E0E\u98CE\u9669\u6EA2\u4EF7\u3002`),
       ...negatives
     ]).slice(0, 5);
-    const guidance = targetDraft.guidance;
+    const guidance = sanitizeGuidance(
+      targetDraft.guidance,
+      deterministicFallback.guidance ?? [],
+      context,
+      target
+    );
     const candidateClaims = targetDraft.claimLedger.filter((claim) => claim.evidenceRefs.every((reference) => knownReferences.has(reference))).map((claim) => ({ ...claim, evidenceRefs: uniqueTexts(claim.evidenceRefs) }));
     const inventory = targetFactInventory(context, target);
     const inventoryText = JSON.stringify(inventory);
@@ -18761,7 +18787,7 @@ function materializeDraft(draft, context, synthesis) {
     ].map((claim) => [claim.id, claim])).values()).slice(0, 4);
     const view = {
       target,
-      headline: ASSERTION_LEDGER.test(targetDraft.expertAssertion) ? deterministicFallback.headline : targetDraft.expertAssertion,
+      headline: ASSERTION_LEDGER.test(targetDraft.expertAssertion) || !isFactSegmentSupported(targetDraft.expertAssertion, context, target) ? deterministicFallback.headline : targetDraft.expertAssertion,
       comparison: previousComparison(context, target),
       plainSummary: sanitizeFactNarrative(
         targetDraft.essenceAnalysis,
@@ -18980,14 +19006,13 @@ var ProfessionalConclusionAgent = class {
       temperature,
       schema: assertProfessionalTargetDraft
     });
+    let usedTargetFallback = false;
     const initialTargets = await Promise.all(TARGETS2.map(async (target) => {
       try {
         return await requestTarget(target);
-      } catch (error51) {
-        return requestTarget(target, {
-          protocolRetry: "\u4E0A\u4E00\u4EFD\u54CD\u5E94\u4E0D\u662F\u5B8C\u6574\u5408\u6CD5\u7684 ProfessionalTargetDraft JSON\uFF1B\u91CD\u65B0\u751F\u6210\u5B8C\u6574 JSON\uFF0C\u4E0D\u8981\u622A\u65AD\uFF0C\u4E0D\u8981\u589E\u52A0\u5B57\u6BB5\u3002",
-          previousError: error51 instanceof Error ? error51.message.slice(0, 240) : String(error51).slice(0, 240)
-        }, 0.35);
+      } catch {
+        usedTargetFallback = true;
+        return fallbackProfessionalTargetDraft(context, target);
       }
     }));
     let draft = sanitizeDraft({
@@ -19035,6 +19060,7 @@ var ProfessionalConclusionAgent = class {
             ...synthesis.generation.stages,
             "professional_editor",
             "deterministic_critic",
+            ...usedTargetFallback ? ["deterministic_target_fallback"] : [],
             ...needsRepair ? ["repair"] : []
           ]
         }
@@ -21086,6 +21112,21 @@ async function executeWorkflowStep(input) {
 // src/research/runtime/version.ts
 var RESEARCH_RUNTIME_VERSION = "research-runtime-probability-synthesis-v1";
 
+// src/research/schedule.ts
+var REFRESH_CADENCE_MS = 6 * 60 * 60 * 1e3;
+var WATCHDOG_MINUTE_UTC = 17;
+function nextRefreshWatchdogAt(publishedAt) {
+  const publishedTimestamp = publishedAt instanceof Date ? publishedAt.getTime() : typeof publishedAt === "number" ? publishedAt : Date.parse(publishedAt);
+  if (!Number.isFinite(publishedTimestamp)) {
+    throw new Error("Cannot schedule refresh from an invalid publication time");
+  }
+  const dueAt = publishedTimestamp + REFRESH_CADENCE_MS;
+  const slot = new Date(dueAt);
+  slot.setUTCMinutes(WATCHDOG_MINUTE_UTC, 0, 0);
+  if (slot.getTime() < dueAt) slot.setUTCHours(slot.getUTCHours() + 1);
+  return slot.toISOString();
+}
+
 // src/research/harness/runBekeHarness.ts
 var globalRunSequence = 0;
 var HarnessRecorder = class {
@@ -21154,18 +21195,18 @@ var HarnessRecorder = class {
   }
 };
 var DEFAULT_STEP_POLICIES = {
-  market: { timeoutMs: 12e3, maxAttempts: 2, retryDelayMs: 150 },
-  news: { timeoutMs: 12e3, maxAttempts: 2, retryDelayMs: 150 },
-  event: { timeoutMs: 5e3, maxAttempts: 1, retryDelayMs: 0 },
-  memory: { timeoutMs: 5e3, maxAttempts: 1, retryDelayMs: 0 },
-  factor: { timeoutMs: 5e3, maxAttempts: 1, retryDelayMs: 0 },
-  evidence_completion: { timeoutMs: 15e3, maxAttempts: 1, retryDelayMs: 0 },
-  probability: { timeoutMs: 8e3, maxAttempts: 1, retryDelayMs: 0 },
-  forecast: { timeoutMs: 8e3, maxAttempts: 1, retryDelayMs: 0 },
-  analysis: { timeoutMs: 105e3, maxAttempts: 1, retryDelayMs: 0 },
-  conclusion: { timeoutMs: 105e3, maxAttempts: 1, retryDelayMs: 0 },
-  review: { timeoutMs: 8e3, maxAttempts: 1, retryDelayMs: 0 },
-  publish: { timeoutMs: 5e3, maxAttempts: 1, retryDelayMs: 0 }
+  market: { timeoutMs: 9e3, maxAttempts: 2, retryDelayMs: 150 },
+  news: { timeoutMs: 9e3, maxAttempts: 2, retryDelayMs: 150 },
+  event: { timeoutMs: 2e3, maxAttempts: 1, retryDelayMs: 0 },
+  memory: { timeoutMs: 2e3, maxAttempts: 1, retryDelayMs: 0 },
+  factor: { timeoutMs: 2e3, maxAttempts: 1, retryDelayMs: 0 },
+  evidence_completion: { timeoutMs: 1e4, maxAttempts: 1, retryDelayMs: 0 },
+  probability: { timeoutMs: 5e3, maxAttempts: 1, retryDelayMs: 0 },
+  forecast: { timeoutMs: 5e3, maxAttempts: 1, retryDelayMs: 0 },
+  analysis: { timeoutMs: 95e3, maxAttempts: 1, retryDelayMs: 0 },
+  conclusion: { timeoutMs: 95e3, maxAttempts: 1, retryDelayMs: 0 },
+  review: { timeoutMs: 4e3, maxAttempts: 1, retryDelayMs: 0 },
+  publish: { timeoutMs: 2e3, maxAttempts: 1, retryDelayMs: 0 }
 };
 function summarizeStepOutput(step, output) {
   switch (step) {
@@ -21657,8 +21698,8 @@ async function runBekeHarness(input, context) {
       `price-rag-${priceKnowledgeBase.metadata.from}_${priceKnowledgeBase.metadata.to}`,
       `property-rag-${propertyKnowledgeBase.version}`
     ].join("+"),
-    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    nextUpdateAt: new Date(Date.now() + 6 * 60 * 60 * 1e3).toISOString(),
+    updatedAt: now.toISOString(),
+    nextUpdateAt: nextRefreshWatchdogAt(now),
     quote: market.quote,
     predictions: publishedPredictions,
     analysis,
@@ -21867,6 +21908,7 @@ var MockLLMProvider = class {
 };
 
 // src/research/providers/TokenPlanProvider.ts
+var TOKEN_PLAN_REQUEST_TIMEOUT_MS = 45e3;
 var FALLBACK_SYSTEM_PROMPT = `\u4F60\u662F\u4E00\u4E2A BEKE\uFF08\u8D1D\u58F3\u627E\u623F\uFF09\u80A1\u7968\u7814\u7A76\u5206\u6790\u5E08\u3002\u6839\u636E\u8F93\u5165\u7684\u516C\u5F00\u5E02\u573A\u6570\u636E\u751F\u6210\u4E2D\u6587 JSON\u3002
 
 \u8FD4\u56DE JSON \u683C\u5F0F\uFF1A
@@ -21920,16 +21962,15 @@ var TokenPlanProvider = class {
   baseUrl;
   modelId;
   name = "TokenPlanProvider";
-  timeoutMs = 1e5;
+  timeoutMs = TOKEN_PLAN_REQUEST_TIMEOUT_MS;
   async complete(request) {
     if (this.modelId !== "mimo-v2.5-pro") {
       throw new Error(`Token Plan research requires mimo-v2.5-pro, received ${this.modelId}`);
     }
     const controller = new AbortController();
     const timer2 = setTimeout(() => controller.abort(), this.timeoutMs);
-    let response;
     try {
-      response = await fetch(`${this.baseUrl}/chat/completions`, {
+      const response = await fetch(`${this.baseUrl}/chat/completions`, {
         method: "POST",
         headers: {
           "api-key": this.apiKey,
@@ -21947,23 +21988,23 @@ var TokenPlanProvider = class {
           max_completion_tokens: request.outputSchema.startsWith("ResearchAgentOpinion") ? 2560 : request.outputSchema.startsWith("ProfessionalTargetDraft") ? 3072 : 4096
         })
       });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Token Plan API error (${response.status}): ${errorText.slice(0, 500)}`);
+      }
+      const data = await response.json();
+      const choice = data.choices?.[0];
+      if (choice?.finish_reason === "length") {
+        throw new Error("Token Plan response was truncated by the completion-token limit");
+      }
+      const content = choice?.message?.content;
+      if (!content) {
+        throw new Error("LLM returned empty response");
+      }
+      return parseJsonContent(content);
     } finally {
       clearTimeout(timer2);
     }
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Token Plan API error (${response.status}): ${errorText.slice(0, 500)}`);
-    }
-    const data = await response.json();
-    const choice = data.choices?.[0];
-    if (choice?.finish_reason === "length") {
-      throw new Error("Token Plan response was truncated by the completion-token limit");
-    }
-    const content = choice?.message?.content;
-    if (!content) {
-      throw new Error("LLM returned empty response");
-    }
-    return parseJsonContent(content);
   }
 };
 
