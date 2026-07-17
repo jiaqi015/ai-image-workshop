@@ -8,8 +8,9 @@ export const DEFAULT_READ_RETRY_DELAY_MS = 1_000;
 export const MAX_REFRESH_ATTEMPTS = 2;
 export const MAX_PREFLIGHT_ATTEMPTS = 2;
 
-const EXPECTED_TARGETS = Object.freeze([18, 19, 20]);
-const EXPECTED_MODEL_VERSION = "probability-synthesis-v3-90d-targets-18-19-20";
+const EXPECTED_TARGETS = Object.freeze([18, 19.5, 21]);
+const EXPECTED_MODEL_VERSION = "probability-synthesis-v4-90d-targets-18-19p5-21";
+const EXPECTED_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-v5-90d-contract";
 const EXPECTED_HORIZON_DAYS = 90;
 const DAY_MS = 86_400_000;
 const EXPECTED_TARGET_KEYS = Object.freeze(EXPECTED_TARGETS.map(String));
@@ -77,17 +78,19 @@ function equalOrderedValues(actual, expected) {
 
 function validateTargetKeys(value, label) {
   const targetMap = requireObject(value, label);
-  const keys = Object.keys(targetMap);
+  const keys = Object.keys(targetMap).sort((left, right) => Number(left) - Number(right));
   if (!equalOrderedValues(keys, EXPECTED_TARGET_KEYS)) {
     throw new Error(`${label} keys must be exactly ${EXPECTED_TARGET_KEYS.join(",")}`);
   }
 }
 
-function validateTargetPublicationContract(snapshot, label, {
-  allowMissingP20InStaticFallback = false,
-} = {}) {
+function validateTargetPublicationContract(snapshot, label) {
   if (snapshot.modelVersion !== EXPECTED_MODEL_VERSION) {
     throw new Error(`${label} modelVersion must be ${EXPECTED_MODEL_VERSION}`);
+  }
+  const dataVersion = requireString(snapshot.dataVersion, `${label} dataVersion`);
+  if (!dataVersion.split("+").includes(EXPECTED_RUNTIME_VERSION)) {
+    throw new Error(`${label} dataVersion must include ${EXPECTED_RUNTIME_VERSION}`);
   }
   const predictions = requireArray(snapshot.predictions, `${label} predictions`);
   const issuedAtValues = new Set();
@@ -127,7 +130,9 @@ function validateTargetPublicationContract(snapshot, label, {
   }
   for (let index = 1; index < predictions.length; index += 1) {
     if (predictions[index].probability > predictions[index - 1].probability) {
-      throw new Error(`${label} probabilities must satisfy P18 >= P19 >= P20`);
+      throw new Error(
+        `${label} probabilities must satisfy ${EXPECTED_TARGETS.map((target) => `P${target}`).join(" >= ")}`,
+      );
     }
   }
 
@@ -140,28 +145,17 @@ function validateTargetPublicationContract(snapshot, label, {
 
   for (const [index, rawPoint] of history.entries()) {
     const point = requireObject(rawPoint, `${label} history[${index}]`);
-    if (Object.hasOwn(point, "p17")) {
-      throw new Error(`${label} history must not contain p17`);
-    }
     const unexpectedProbabilityKey = Object.keys(point).find(
-      (key) => /^p\d+$/.test(key) && !EXPECTED_HISTORY_KEYS.has(key),
+      (key) => /^p\d+(?:\.\d+)?$/.test(key) && !EXPECTED_HISTORY_KEYS.has(key),
     );
     if (unexpectedProbabilityKey) {
       throw new Error(`${label} history contains unsupported probability key ${unexpectedProbabilityKey}`);
     }
-  }
-
-  const latestPoint = requireObject(history.at(-1), `${label} latest history`);
-  for (const key of ["p18", "p19"]) {
-    if (!Number.isFinite(latestPoint[key])) {
-      throw new Error(`${label} latest history ${key} must be finite`);
+    for (const key of EXPECTED_HISTORY_KEYS) {
+      if (!Number.isFinite(point[key])) {
+        throw new Error(`${label} history[${index}] ${key} must be finite`);
+      }
     }
-  }
-  if (!allowMissingP20InStaticFallback && !Number.isFinite(latestPoint.p20)) {
-    throw new Error(`${label} latest history p20 must be finite`);
-  }
-  if (Object.hasOwn(latestPoint, "p20") && !Number.isFinite(latestPoint.p20)) {
-    throw new Error(`${label} latest history p20 must be finite`);
   }
 }
 
@@ -193,13 +187,9 @@ function readPublicationEnvelope(payload, label) {
 
 function validatePublishedPayload(payload, label, {
   requireSuccessfulRun = true,
-  allowStaticFallbackHistoryGap = false,
 } = {}) {
   const publication = readPublicationEnvelope(payload, label);
-  validateTargetPublicationContract(publication.snapshot, label, {
-    allowMissingP20InStaticFallback:
-      allowStaticFallbackHistoryGap && publication.source === "static-fallback",
-  });
+  validateTargetPublicationContract(publication.snapshot, label);
 
   const { runStatus } = publication;
   if (requireSuccessfulRun && runStatus !== "success") {
@@ -339,7 +329,6 @@ export async function runBeke19Watchdog({
       );
       preflight = validatePublishedPayload(preflightPayload, "preflight", {
         requireSuccessfulRun: false,
-        allowStaticFallbackHistoryGap: true,
       });
       break;
     } catch (error) {

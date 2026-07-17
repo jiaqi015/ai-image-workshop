@@ -14,9 +14,11 @@ import {
 const NOW = Date.parse("2026-07-15T04:00:00.000Z");
 const OLD_RUN_ID = "run-old";
 const NEW_RUN_ID = "run-new";
-const CURRENT_TARGETS = [18, 19, 20];
+const CURRENT_TARGETS = [18, 19.5, 21];
+const RETIRED_TARGETS = [18, 19, 20];
 const LEGACY_TARGETS = [17, 18, 19];
-const CURRENT_MODEL_VERSION = "probability-synthesis-v3-90d-targets-18-19-20";
+const CURRENT_MODEL_VERSION = "probability-synthesis-v4-90d-targets-18-19p5-21";
+const CURRENT_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-v5-90d-contract";
 
 function response(status, payload) {
   return new Response(payload === undefined ? undefined : JSON.stringify(payload), {
@@ -70,6 +72,7 @@ function snapshotPayload({
         project: "beke19",
         runId,
         modelVersion: CURRENT_MODEL_VERSION,
+        dataVersion: `${CURRENT_RUNTIME_VERSION}+watchdog-test`,
         updatedAt,
         nextUpdateAt,
         predictions: predictionTargets.map((target, index) => ({
@@ -168,7 +171,6 @@ test("FORCE_REFRESH can recover from a static fallback preflight", async () => {
     response(200, snapshotPayload({
       source: "static-fallback",
       runStatus: "failed",
-      history: [historyPoint([18, 19])],
     })),
     response(200, successfulRefreshPayload()),
     response(200, successfulRefreshPayload()),
@@ -188,7 +190,21 @@ test("FORCE_REFRESH can recover from a static fallback preflight", async () => {
   assert.equal(result.runId, NEW_RUN_ID);
 });
 
-test("rejects the retired 17/18/19 target contract during preflight even when the run says success", async () => {
+test("accepts decimal target object keys after numeric normalization", async () => {
+  const payload = snapshotPayload({ nextUpdateAt: "2026-07-15T04:30:00.000Z" });
+  assert.deepEqual(Object.keys(payload.state.snapshot.analysis.targetViews), ["18", "21", "19.5"]);
+
+  const result = await runBeke19Watchdog({
+    env: { BEKE19_REFRESH_TOKEN: "secret" },
+    now: () => NOW,
+    logger: createLogger(),
+    fetchImpl: async () => response(200, payload),
+  });
+
+  assert.equal(result.status, "not-due");
+});
+
+test("rejects the retired 18/19/20 target contract during preflight even when the run says success", async () => {
   let requests = 0;
   await assert.rejects(
     runBeke19Watchdog({
@@ -199,17 +215,17 @@ test("rejects the retired 17/18/19 target contract during preflight even when th
       fetchImpl: async () => {
         requests += 1;
         return response(200, snapshotPayload({
-          predictionTargets: LEGACY_TARGETS,
+          predictionTargets: RETIRED_TARGETS,
           nextUpdateAt: "2026-07-15T04:30:00.000Z",
         }));
       },
     }),
-    /preflight predictions targets must be exactly 18,19,20 in order/,
+    /preflight predictions targets must be exactly 18,19.5,21 in order/,
   );
   assert.equal(requests, MAX_PREFLIGHT_ATTEMPTS);
 });
 
-test("rejects an 18/19/20 publication that still carries the retired 120-day horizon", async () => {
+test("rejects an 18/19.5/21 publication that still carries the retired 120-day horizon", async () => {
   const payload = snapshotPayload();
   payload.state.snapshot.predictions = payload.state.snapshot.predictions.map((prediction) => ({
     ...prediction,
@@ -234,17 +250,49 @@ test("rejects an 18/19/20 publication that still carries the retired 120-day hor
   );
 });
 
+test("rejects the retired probability model version", async () => {
+  const payload = snapshotPayload({ nextUpdateAt: "2026-07-15T04:30:00.000Z" });
+  payload.state.snapshot.modelVersion = "probability-synthesis-v3-90d-targets-18-19-20";
+
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => response(200, payload),
+    }),
+    /preflight modelVersion must be probability-synthesis-v4-90d-targets-18-19p5-21/,
+  );
+});
+
+test("rejects a publication without the current runtime marker", async () => {
+  const payload = snapshotPayload({ nextUpdateAt: "2026-07-15T04:30:00.000Z" });
+  payload.state.snapshot.dataVersion = "research-runtime-targets-18-19-20-v4-90d-contract+watchdog-test";
+
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => response(200, payload),
+    }),
+    /preflight dataVersion must include research-runtime-targets-18-19p5-21-v5-90d-contract/,
+  );
+});
+
 test("rejects a refresh response that publishes the retired target contract", async () => {
   let postRequests = 0;
   const queue = [
     response(200, snapshotPayload()),
     response(200, snapshotPayload({
-      predictionTargets: LEGACY_TARGETS,
+      predictionTargets: RETIRED_TARGETS,
       runId: NEW_RUN_ID,
       updatedAt: "2026-07-15T04:00:01.000Z",
     })),
     response(200, snapshotPayload({
-      predictionTargets: LEGACY_TARGETS,
+      predictionTargets: RETIRED_TARGETS,
       runId: NEW_RUN_ID,
       updatedAt: "2026-07-15T04:00:01.000Z",
     })),
@@ -264,24 +312,24 @@ test("rejects a refresh response that publishes the retired target contract", as
         return queue.shift();
       },
     }),
-    /refresh predictions targets must be exactly 18,19,20 in order|reconciliation predictions targets must be exactly 18,19,20 in order/,
+    /refresh predictions targets must be exactly 18,19.5,21 in order|reconciliation predictions targets must be exactly 18,19.5,21 in order/,
   );
   assert.equal(postRequests, 1);
 });
 
-test("rejects a verification read whose analysis target keys drift from 18/19/20", async () => {
+test("rejects a verification read whose analysis target keys drift from 18/19.5/21", async () => {
   const queue = [
     response(200, snapshotPayload()),
     response(200, successfulRefreshPayload()),
     response(200, snapshotPayload({
       runId: NEW_RUN_ID,
       updatedAt: "2026-07-15T04:00:01.000Z",
-      targetViewTargets: LEGACY_TARGETS,
+      targetViewTargets: RETIRED_TARGETS,
     })),
     response(200, snapshotPayload({
       runId: NEW_RUN_ID,
       updatedAt: "2026-07-15T04:00:01.000Z",
-      targetViewTargets: LEGACY_TARGETS,
+      targetViewTargets: RETIRED_TARGETS,
     })),
   ];
 
@@ -296,7 +344,7 @@ test("rejects a verification read whose analysis target keys drift from 18/19/20
       sleep: async () => {},
       fetchImpl: async () => queue.shift(),
     }),
-    /verification analysis\.targetViews keys must be exactly 18,19,20|reconciliation analysis\.targetViews keys must be exactly 18,19,20/,
+    /verification analysis\.targetViews keys must be exactly 18,19.5,21|reconciliation analysis\.targetViews keys must be exactly 18,19.5,21/,
   );
 });
 
@@ -308,11 +356,11 @@ test("rejects retired target keys in analysis target explanations", async () => 
       logger: createLogger(),
       sleep: async () => {},
       fetchImpl: async () => response(200, snapshotPayload({
-        targetExplanationTargets: LEGACY_TARGETS,
+        targetExplanationTargets: RETIRED_TARGETS,
         nextUpdateAt: "2026-07-15T04:30:00.000Z",
       })),
     }),
-    /preflight analysis\.targetExplanations keys must be exactly 18,19,20/,
+    /preflight analysis\.targetExplanations keys must be exactly 18,19.5,21/,
   );
 });
 
@@ -348,11 +396,11 @@ test("rejects reconciliation when a timed-out refresh exposes legacy history", a
       sleep: async () => {},
       fetchImpl,
     }),
-    /reconciliation history must not contain p17/,
+    /reconciliation history contains unsupported probability key p17/,
   );
 });
 
-test("requires a finite p20 in the latest server-harness history point", async () => {
+test("rejects retired p19 and p20 history keys", async () => {
   await assert.rejects(
     runBeke19Watchdog({
       env: { BEKE19_REFRESH_TOKEN: "secret" },
@@ -360,11 +408,59 @@ test("requires a finite p20 in the latest server-harness history point", async (
       logger: createLogger(),
       sleep: async () => {},
       fetchImpl: async () => response(200, snapshotPayload({
-        history: [historyPoint([18, 19])],
+        history: [historyPoint(RETIRED_TARGETS)],
         nextUpdateAt: "2026-07-15T04:30:00.000Z",
       })),
     }),
-    /preflight latest history p20 must be finite/,
+    /preflight history contains unsupported probability key p19/,
+  );
+});
+
+test("rejects retired p20 even when the current history ladder is complete", async () => {
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => response(200, snapshotPayload({
+        history: [{ ...historyPoint(CURRENT_TARGETS), p20: 30 }],
+        nextUpdateAt: "2026-07-15T04:30:00.000Z",
+      })),
+    }),
+    /preflight history contains unsupported probability key p20/,
+  );
+});
+
+test("requires a finite p19.5 in every history point", async () => {
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => response(200, snapshotPayload({
+        history: [historyPoint(CURRENT_TARGETS), historyPoint([18, 21])],
+        nextUpdateAt: "2026-07-15T04:30:00.000Z",
+      })),
+    }),
+    /preflight history\[1\] p19\.5 must be finite/,
+  );
+});
+
+test("requires a finite p21 in every history point", async () => {
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => response(200, snapshotPayload({
+        history: [historyPoint([18, 19.5])],
+        nextUpdateAt: "2026-07-15T04:30:00.000Z",
+      })),
+    }),
+    /preflight history\[0\] p21 must be finite/,
   );
 });
 
