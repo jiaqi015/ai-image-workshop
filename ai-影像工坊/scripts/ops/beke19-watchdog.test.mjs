@@ -19,7 +19,12 @@ const RETIRED_TARGETS = [18, 19, 20];
 const LEGACY_TARGETS = [17, 18, 19];
 const CURRENT_MODEL_VERSION = "probability-synthesis-v5-90d-targets-18-19p5-21-23-30";
 const CURRENT_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v6-90d-contract";
-const CURRENT_PROMPT_TARGET_MARKER = "targets-18-19p5-21-23-30";
+const CURRENT_PROMPT_VERSIONS = [
+  "quant-research-context-v1.9.0-90d-targets-18-19p5-21-23-30",
+  "bull-research-context-v1.6.0-90d-targets-18-19p5-21-23-30",
+  "bear-research-context-v1.6.0-90d-targets-18-19p5-21-23-30",
+  "professional-conclusion-context-v1.12.0-90d-targets-18-19p5-21-23-30",
+];
 const REQUIRED_ANALYSIS_STAGES = [
   "quant",
   "bull",
@@ -68,12 +73,7 @@ function modelGeneration(overrides = {}) {
     provider: "TokenPlanProvider",
     modelId: "mimo-v2.5-pro",
     contextId: "ctx-watchdog-test",
-    promptVersions: [
-      `quant-research-context-v1.8.0-90d-${CURRENT_PROMPT_TARGET_MARKER}`,
-      `bull-research-context-v1.5.0-90d-${CURRENT_PROMPT_TARGET_MARKER}`,
-      `bear-research-context-v1.5.0-90d-${CURRENT_PROMPT_TARGET_MARKER}`,
-      `professional-conclusion-context-v1.9.0-90d-${CURRENT_PROMPT_TARGET_MARKER}`,
-    ],
+    promptVersions: [...CURRENT_PROMPT_VERSIONS],
     stages: [...REQUIRED_ANALYSIS_STAGES],
     ...overrides,
   };
@@ -245,7 +245,17 @@ for (const invalidGenerationCase of [
     generation: modelGeneration({
       promptVersions: ["professional-conclusion-context-v1.7.0-90d-targets-18-19p5-21"],
     }),
-    expected: /promptVersions must all use targets-18-19p5-21-23-30/,
+    expected: /promptVersions must exactly match the current release contract/,
+  },
+  {
+    name: "rejects a stale professional prompt even when its target marker is current",
+    generation: modelGeneration({
+      promptVersions: [
+        ...CURRENT_PROMPT_VERSIONS.slice(0, 3),
+        "professional-conclusion-context-v1.11.0-90d-targets-18-19p5-21-23-30",
+      ],
+    }),
+    expected: /promptVersions must exactly match the current release contract/,
   },
   {
     name: "rejects an incomplete model stage ledger",
@@ -827,7 +837,7 @@ test("uses bounded defaults that fit two refresh attempts inside the workflow bu
   const workflowBudgetMs = workflowMinutes * 60_000;
   assert.equal(DEFAULT_READ_TIMEOUT_MS, 10_000);
   assert.equal(DEFAULT_POST_TIMEOUT_MS, 300_000);
-  assert.equal(workflowMinutes, 12);
+  assert.equal(workflowMinutes, 15);
   const worstCaseMs = (
     DEFAULT_READ_TIMEOUT_MS * MAX_PREFLIGHT_ATTEMPTS
     + DEFAULT_READ_RETRY_DELAY_MS * (MAX_PREFLIGHT_ATTEMPTS - 1)

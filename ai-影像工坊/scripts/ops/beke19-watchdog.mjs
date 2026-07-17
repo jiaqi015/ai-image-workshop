@@ -13,7 +13,12 @@ const EXPECTED_MODEL_VERSION = "probability-synthesis-v5-90d-targets-18-19p5-21-
 const EXPECTED_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v6-90d-contract";
 const EXPECTED_ANALYSIS_PROVIDER = "TokenPlanProvider";
 const EXPECTED_ANALYSIS_MODEL_ID = "mimo-v2.5-pro";
-const EXPECTED_PROMPT_TARGET_MARKER = "targets-18-19p5-21-23-30";
+const EXPECTED_PROMPT_VERSIONS = Object.freeze([
+  "quant-research-context-v1.9.0-90d-targets-18-19p5-21-23-30",
+  "bull-research-context-v1.6.0-90d-targets-18-19p5-21-23-30",
+  "bear-research-context-v1.6.0-90d-targets-18-19p5-21-23-30",
+  "professional-conclusion-context-v1.12.0-90d-targets-18-19p5-21-23-30",
+]);
 const REQUIRED_ANALYSIS_STAGES = Object.freeze([
   "quant",
   "bull",
@@ -130,13 +135,9 @@ function validateModelGeneratedAnalysis(snapshot, label) {
     generation.promptVersions,
     `${label} analysis.generation promptVersions`,
   );
-  if (
-    promptVersions.length === 0
-    || promptVersions.some((version) =>
-      typeof version !== "string" || !version.includes(EXPECTED_PROMPT_TARGET_MARKER))
-  ) {
+  if (!equalOrderedValues(promptVersions, EXPECTED_PROMPT_VERSIONS)) {
     throw new Error(
-      `${label} analysis.generation promptVersions must all use ${EXPECTED_PROMPT_TARGET_MARKER}`,
+      `${label} analysis.generation promptVersions must exactly match the current release contract`,
     );
   }
 
