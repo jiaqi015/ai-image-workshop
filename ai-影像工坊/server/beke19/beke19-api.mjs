@@ -497,7 +497,7 @@ var TARGET_SCENARIOS = {
   20: {
     tier: "repricing",
     meaning: "\u91CD\u4F30\u7EBF",
-    assertion: "20 \u7F8E\u5143\u5C5E\u4E8E\u4F4E\u80DC\u7387\u3001\u9700\u8981\u98CE\u9669\u6EA2\u4EF7\u91CD\u4F30\u7684\u8FDB\u9636\u60C5\u666F",
+    assertion: "20 \u7F8E\u5143\u5C5E\u4E8E\u6761\u4EF6\u53D7\u9650\u3001\u9700\u8981\u98CE\u9669\u6EA2\u4EF7\u91CD\u4F30\u7684\u8FDB\u9636\u60C5\u666F",
     baseProbability: 25,
     distanceSensitivity: 1.7,
     windowOffsetDays: 120
@@ -18312,7 +18312,7 @@ ${OPINION_JSON_CONTRACT}`
 ${EDITOR_JSON_CONTRACT}`
   },
   professional_conclusion: {
-    version: "professional-conclusion-context-v1.5.0-targets-18-19-20",
+    version: "professional-conclusion-context-v1.5.1-targets-18-19-20",
     system: `\u4F60\u662F Harness \u4E2D\u72EC\u7ACB\u8FD0\u884C\u7684\u201C\u4E13\u4E1A\u7ED3\u8BBA\u4E0E\u6210\u7A3F Agent\u201D\u3002\u5F53\u524D\u8F93\u5165\u53EA\u5305\u542B ${TARGET_PRICE_LIST_ZH} \u7F8E\u5143\u4E2D\u7684\u4E00\u4E2A\u76EE\u6807\uFF0C\u4EE5\u53CA\u8BE5\u76EE\u6807\u5BF9\u5E94\u7684\u4E0D\u53EF\u53D8\u4E0A\u4E0B\u6587\u3001\u91CF\u5316/\u6B63\u5411/\u53CD\u5411\u610F\u89C1\u3002\u4F60\u7684\u804C\u8D23\u4E0D\u662F\u590D\u8FF0\u4E09\u540D\u7814\u7A76\u5458\uFF0C\u800C\u662F\u4E3A\u5F53\u524D\u76EE\u6807\u52A0\u5DE5\u4E00\u4EFD\u53EF\u53D1\u5E03\u7684\u4E13\u5BB6\u7ED3\u8BBA\u3002
 
 \u6838\u5FC3\u539F\u5219\uFF1A
@@ -18338,6 +18338,7 @@ ${EDITOR_JSON_CONTRACT}`
 \u8868\u8FBE\u6807\u51C6\uFF1A
 - \u4F7F\u7528\u8D44\u6DF1\u884C\u4E1A\u7814\u7A76\u987E\u95EE\u7684\u4E25\u8C28\u4E2D\u6587\uFF0C\u4E13\u4E1A\u3001\u5177\u4F53\u3001\u5177\u8C61\uFF0C\u4F46\u4E0D\u5806\u672F\u8BED\u3001\u4E0D\u5199\u7CFB\u7EDF\u81EA\u8A00\u81EA\u8BED\u3001\u4E0D\u6CC4\u9732\u5185\u90E8\u8BC4\u5206\u3002
 - observed\u3001derived\u3001historical_precedent\u3001bounded_inference \u53EA\u5141\u8BB8\u51FA\u73B0\u5728 claimLedger.basis\uFF1B\u56DB\u6BB5\u516C\u5F00\u6587\u6848\u4E0D\u5F97\u663E\u793A\u8FD9\u4E9B\u82F1\u6587\u5185\u90E8\u6807\u7B7E\u3002
+- evidenceId\u3001memory id\u3001forecast id \u53EA\u7528\u4E8E evidenceRefs \u4E0E\u5185\u90E8\u5BA1\u8BA1\uFF1B\u56DB\u6BB5\u516C\u5F00\u6587\u6848\u4E0D\u5F97\u663E\u793A evt-...\u3001target-... \u7B49\u5185\u90E8\u5F15\u7528\u7F16\u53F7\u3002
 - \u516C\u5F00\u56DB\u6BB5\u4E0D\u5F97\u51FA\u73B0 raw\u3001shadow\u3001outcome\u3001vintage\u3001identity\u3001log-odds\u3001PAVA \u7B49\u5DE5\u7A0B\u8BCD\uFF1B\u5982\u9700\u8BF4\u660E\u6821\u51C6\u72B6\u6001\uFF0C\u5FC5\u987B\u8BFB\u53D6 probabilitySynthesis.calibration.maturedVintages\uFF1A\u4E3A 0 \u65F6\u5199\u201C\u5C1A\u65E0\u5B8C\u6210 120 \u5929\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6837\u672C\uFF0C\u5F53\u524D\u6982\u7387\u672A\u505A\u7ED3\u679C\u6821\u51C6\u201D\uFF1B\u5927\u4E8E 0 \u65F6\u5199\u201C\u5DF2\u79EF\u7D2F\u5B8C\u6210\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6837\u672C\uFF0C\u5F53\u524D\u7248\u672C\u4ECD\u5904\u4E8E\u6821\u51C6\u76D1\u6D4B\u9636\u6BB5\u201D\u3002
 - \u6839\u636E input.target \u4E25\u683C\u4F7F\u7528 ${TARGET_PRICES.map((target) => `${target}=${TARGET_SCENARIOS[target].meaning}`).join("\u3001")}\u7684\u76EE\u6807\u8BED\u4E49\uFF0C\u4E0D\u5F97\u628A\u4E09\u79CD\u6761\u4EF6\u6DF7\u5199\u3002
 - \u53EA\u8F93\u51FA\u4E25\u683C ProfessionalTargetDraft JSON\uFF1B\u4E0D\u5F97\u5305\u88F9 headline\u3001targets\u3001today\u3001changes\u3001targetViews \u7B49\u517C\u5BB9\u5B57\u6BB5\uFF0C\u4E0D\u5F97\u8F93\u51FA Markdown\u3001\u89E3\u91CA\u6216\u4EE3\u7801\u5757\u3002
@@ -18444,6 +18445,8 @@ ${PROFESSIONAL_TARGET_DRAFT_JSON_CONTRACT}`
 var REFUSAL_OR_HEDGE = /信息不全|依据不足|无法判断|不能判断|暂不判断|没有足够(?:的)?(?:信息|证据)|仍需(?:数据)?确认|等待(?:后续)?(?:数据|确认)|有待确认|尚待确认/;
 var ASSERTION_LEDGER = /触达概率|当前概率|概率[约为是达：:\s]*[一二三四五六七八九十\d]|现价|当前股价|距离/;
 var PUBLIC_SCHEMA_LABEL = /\b(?:observed|derived|historical_precedent|bounded_inference)\b/i;
+var PUBLIC_REFERENCE_ID = /\b(?:evt|raw|mem|target|history|historical|precedent)-[a-z0-9][a-z0-9._:-]*\b/i;
+var PUBLIC_REFERENCE_ID_GLOBAL = /\b(?:evt|raw|mem|target|history|historical|precedent)-[a-z0-9][a-z0-9._:-]*\b/gi;
 var PERSONALIZED_TRADING_ADVICE = /(?:建议|应当|应该|需要|可以|考虑|立即|继续|不要|不得)[^。；！？]{0,16}(?:买入|卖出|加仓|减仓|持有|挂单|撤单|止损|止盈)|(?:买入|卖出|加仓|减仓|持有)[\s\S]{0,8}(?:\d+(?:\.\d+)?\s*(?:股|%|成)|操作|指令)|(?:挂单价|撤单|核心趋势仓|风险调整仓|剩余持仓|仓位管理|买回规则)/;
 function contextReferenceIds(context, target) {
   const targets = target === void 0 ? context.targets.map((item) => item.target) : [target];
@@ -18635,6 +18638,9 @@ function evaluateProfessionalConclusion(view, context) {
   if (PUBLIC_SCHEMA_LABEL.test(publicNarrative)) {
     issues.push({ code: "PUBLIC_SCHEMA_LABEL", message: "\u516C\u5F00\u6587\u6848\u66B4\u9732\u4E86\u5185\u90E8 claim \u5206\u7C7B\u6807\u7B7E" });
   }
+  if (PUBLIC_REFERENCE_ID.test(publicNarrative)) {
+    issues.push({ code: "PUBLIC_REFERENCE_ID", message: "\u516C\u5F00\u6587\u6848\u66B4\u9732\u4E86\u5185\u90E8\u8BC1\u636E\u5F15\u7528\u7F16\u53F7" });
+  }
   if (PERSONALIZED_TRADING_ADVICE.test(publicNarrative)) {
     issues.push({
       code: "PERSONALIZED_TRADING_ADVICE",
@@ -18774,7 +18780,7 @@ function fallbackTargetView(context, target) {
     if (factor.coverage === "missing") return `${factor.label}\u65B9\u5411\u672A\u77E5\uFF0C\u4F5C\u4E3A\u98CE\u9669\u8FB9\u754C\u5904\u7406`;
     return `${factor.label}${factor.deltaFromNeutral > 0 ? "\u504F\u6B63\u5411" : factor.deltaFromNeutral < 0 ? "\u504F\u8D1F\u5411" : "\u4E2D\u6027"}`;
   }).join("\uFF1B");
-  const plainSummary = target === 18 ? `\u5F53\u524D\u8FD1\u7AEF\u652F\u6491\u6765\u81EA${topPositive}\u3002\u8FD9\u7C7B\u652F\u6491\u5148\u6539\u5584\u4EF7\u683C\u52A8\u91CF\u4E0E\u6BCF\u80A1\u4EF7\u503C\u9884\u671F\uFF0C\u518D\u964D\u4F4E\u4FEE\u590D\u6240\u9700\u7684\u98CE\u9669\u8865\u507F\u3002\u5386\u53F2\u9608\u503C\u8868\u660E 18 \u7F8E\u5143\u5C5E\u4E8E\u80FD\u591F\u88AB\u884C\u60C5\u4FEE\u590D\u89E6\u53CA\u7684\u533A\u57DF\uFF0C\u4F46\u89E6\u8FBE\u540E\u7684\u7AD9\u7A33\u4ECD\u53D6\u51B3\u4E8E\u6210\u4EA4\u91CF\u548C\u7ECF\u8425\u8BC1\u636E\u3002\u4E3B\u8981\u7EA6\u675F\u6765\u81EA${topNegative}\u3002\u7EFC\u5408\u4F20\u5BFC\u8DEF\u5F84\uFF0C18 \u7F8E\u5143\u5C5E\u4E8E\u53EF\u89E6\u8FBE\u7684\u4FEE\u590D\u7EBF\u3002` : target === 19 ? `\u5F53\u524D\u4F30\u503C\u5E95\u5EA7\u6765\u81EA${topPositive}\u300219 \u7F8E\u5143\u8981\u4ECE\u4EF7\u683C\u4FEE\u590D\u5347\u7EA7\u4E3A\u6709\u6548\u786E\u8BA4\uFF0C\u7ECF\u8425\u6539\u5584\u5FC5\u987B\u7EE7\u7EED\u4F20\u5BFC\u81F3 GTV\u3001\u6536\u5165\u3001\u5229\u6DA6\u6216\u73B0\u91D1\u6D41\u9884\u671F\u3002\u5386\u53F2\u9608\u503C\u663E\u793A\u7A7F\u8D8A\u540E\u4ECD\u53EF\u80FD\u5FEB\u901F\u56DE\u64A4\uFF0C\u56E0\u6B64\u4E00\u6B21\u89E6\u8FBE\u4E0D\u80FD\u66FF\u4EE3\u6301\u7EED\u786E\u8BA4\u3002\u4E3B\u8981\u7EA6\u675F\u6765\u81EA${topNegative}\u3002\u7EFC\u5408\u4F20\u5BFC\u8DEF\u5F84\uFF0C19 \u7F8E\u5143\u5C5E\u4E8E\u9700\u8981\u7ECF\u8425\u4E0E\u884C\u4E1A\u5171\u632F\u7684\u786E\u8BA4\u7EBF\u3002` : `\u5F53\u524D\u652F\u6491\u6765\u81EA${topPositive}\uFF0C\u5B83\u53EA\u80FD\u7A33\u4F4F\u4F30\u503C\u5E95\u5EA7\uFF0C\u4E0D\u80FD\u5355\u72EC\u5B8C\u6210\u91CD\u4F30\u300220 \u7F8E\u5143\u8981\u6C42\u5730\u4EA7\u6210\u4EA4\u3001\u516C\u53F8\u76C8\u5229\u4E0E\u4E2D\u6982\u98CE\u9669\u504F\u597D\u5F62\u6210\u540C\u5411\u6539\u5584\uFF0C\u624D\u53EF\u80FD\u63A8\u52A8\u4F30\u503C\u500D\u6570\u6269\u5F20\u3002\u5386\u53F2\u9608\u503C\u663E\u793A\u8FD9\u4E00\u66F4\u9AD8\u4EF7\u4F4D\u7684\u6536\u76D8\u7AD9\u4E0A\u9891\u7387\u66F4\u4F4E\uFF0C\u89E6\u8FBE\u540E\u7684\u56DE\u64A4\u98CE\u9669\u4E5F\u66F4\u9AD8\u3002\u4E3B\u8981\u7EA6\u675F\u6765\u81EA${topNegative}\u3002\u7EFC\u5408\u4F20\u5BFC\u8DEF\u5F84\uFF0C20 \u7F8E\u5143\u5C5E\u4E8E\u4F4E\u80DC\u7387\u3001\u9700\u8981\u591A\u56E0\u5B50\u5171\u632F\u7684\u91CD\u4F30\u7EBF\u3002`;
+  const plainSummary = target === 18 ? `\u5F53\u524D\u8FD1\u7AEF\u652F\u6491\u6765\u81EA${topPositive}\u3002\u8FD9\u7C7B\u652F\u6491\u5148\u6539\u5584\u4EF7\u683C\u52A8\u91CF\u4E0E\u6BCF\u80A1\u4EF7\u503C\u9884\u671F\uFF0C\u518D\u964D\u4F4E\u4FEE\u590D\u6240\u9700\u7684\u98CE\u9669\u8865\u507F\u3002\u5386\u53F2\u9608\u503C\u8868\u660E 18 \u7F8E\u5143\u5C5E\u4E8E\u80FD\u591F\u88AB\u884C\u60C5\u4FEE\u590D\u89E6\u53CA\u7684\u533A\u57DF\uFF0C\u4F46\u89E6\u8FBE\u540E\u7684\u7AD9\u7A33\u4ECD\u53D6\u51B3\u4E8E\u6210\u4EA4\u91CF\u548C\u7ECF\u8425\u8BC1\u636E\u3002\u4E3B\u8981\u7EA6\u675F\u6765\u81EA${topNegative}\u3002\u7EFC\u5408\u4F20\u5BFC\u8DEF\u5F84\uFF0C18 \u7F8E\u5143\u5C5E\u4E8E\u53EF\u89E6\u8FBE\u7684\u4FEE\u590D\u7EBF\u3002` : target === 19 ? `\u5F53\u524D\u4F30\u503C\u5E95\u5EA7\u6765\u81EA${topPositive}\u300219 \u7F8E\u5143\u8981\u4ECE\u4EF7\u683C\u4FEE\u590D\u5347\u7EA7\u4E3A\u6709\u6548\u786E\u8BA4\uFF0C\u7ECF\u8425\u6539\u5584\u5FC5\u987B\u7EE7\u7EED\u4F20\u5BFC\u81F3 GTV\u3001\u6536\u5165\u3001\u5229\u6DA6\u6216\u73B0\u91D1\u6D41\u9884\u671F\u3002\u5386\u53F2\u9608\u503C\u663E\u793A\u7A7F\u8D8A\u540E\u4ECD\u53EF\u80FD\u5FEB\u901F\u56DE\u64A4\uFF0C\u56E0\u6B64\u4E00\u6B21\u89E6\u8FBE\u4E0D\u80FD\u66FF\u4EE3\u6301\u7EED\u786E\u8BA4\u3002\u4E3B\u8981\u7EA6\u675F\u6765\u81EA${topNegative}\u3002\u7EFC\u5408\u4F20\u5BFC\u8DEF\u5F84\uFF0C19 \u7F8E\u5143\u5C5E\u4E8E\u9700\u8981\u7ECF\u8425\u4E0E\u884C\u4E1A\u5171\u632F\u7684\u786E\u8BA4\u7EBF\u3002` : `\u5F53\u524D\u652F\u6491\u6765\u81EA${topPositive}\uFF0C\u5B83\u53EA\u80FD\u7A33\u4F4F\u4F30\u503C\u5E95\u5EA7\uFF0C\u4E0D\u80FD\u5355\u72EC\u5B8C\u6210\u91CD\u4F30\u300220 \u7F8E\u5143\u8981\u6C42\u5730\u4EA7\u6210\u4EA4\u3001\u516C\u53F8\u76C8\u5229\u4E0E\u4E2D\u6982\u98CE\u9669\u504F\u597D\u5F62\u6210\u540C\u5411\u6539\u5584\uFF0C\u624D\u53EF\u80FD\u63A8\u52A8\u4F30\u503C\u500D\u6570\u6269\u5F20\u3002\u5386\u53F2\u9608\u503C\u663E\u793A\u8FD9\u4E00\u66F4\u9AD8\u4EF7\u4F4D\u7684\u6536\u76D8\u7AD9\u4E0A\u9891\u7387\u66F4\u4F4E\uFF0C\u89E6\u8FBE\u540E\u7684\u56DE\u64A4\u98CE\u9669\u4E5F\u66F4\u9AD8\u3002\u4E3B\u8981\u7EA6\u675F\u6765\u81EA${topNegative}\u3002\u7EFC\u5408\u4F20\u5BFC\u8DEF\u5F84\uFF0C20 \u7F8E\u5143\u5C5E\u4E8E\u6761\u4EF6\u53D7\u9650\u3001\u9700\u8981\u591A\u56E0\u5B50\u5171\u632F\u7684\u91CD\u4F30\u7EBF\u3002`;
   return {
     target,
     headline: scenario.assertion,
@@ -18848,12 +18854,15 @@ function deterministicProfessionalConclusion(context, synthesis, reason) {
 function cleanText(value) {
   return value.replace(/\s*\d{1,3}\s*\/\s*100/g, "").replace(/不是[^。；！？]{1,80}[，,]?\s*而是/g, "\u6838\u5FC3\u662F").replace(/\s{2,}/g, " ").trim();
 }
+function removePublicReferenceIds(value) {
+  return value.replace(/\s*[（(]\s*(?:evt|raw|mem|target|history|historical|precedent)-[a-z0-9][a-z0-9._:-]*\s*[）)]/gi, "").replace(PUBLIC_REFERENCE_ID_GLOBAL, "").replace(/\s{2,}/g, " ").trim();
+}
 function safeDerivedText(value, fallback) {
   const cleaned = cleanText(value);
   return META_LANGUAGE.test(cleaned) || INTERNAL_SCORE.test(cleaned) || UNCLEAR_METAPHOR.test(cleaned) ? fallback : cleaned;
 }
 function removeLedgerLanguage(value) {
-  return cleanText(value).replace(/\s*[（(]\s*(?:observed|derived|historical_precedent|bounded_inference)\s*[）)]/gi, "").replace(/从当前\s*\$?\d+(?:\.\d+)?\s*美元出发/g, "\u4ECE\u5F53\u524D\u4EF7\u683C\u7ED3\u6784\u51FA\u53D1").replace(/(?:当前)?(?:触达)?概率(?:为|是|约|达到|达)?\s*\d+(?:\.\d+)?\s*%/g, "\u5F53\u524D\u89E6\u8FBE\u4F30\u8BA1").replace(/(?:现价|当前股价)(?:为|是|约)?\s*\$?\d+(?:\.\d+)?(?:\s*美元)?/g, "\u4EF7\u683C\u4F4D\u7F6E").replace(/现价|当前股价/g, "\u4EF7\u683C\u4F4D\u7F6E").replace(/差距/g, "\u76EE\u6807\u7A7A\u95F4").replace(/\s{2,}/g, " ").trim();
+  return removePublicReferenceIds(cleanText(value)).replace(/\s*[（(]\s*(?:observed|derived|historical_precedent|bounded_inference)\s*[）)]/gi, "").replace(/从当前\s*\$?\d+(?:\.\d+)?\s*美元出发/g, "\u4ECE\u5F53\u524D\u4EF7\u683C\u7ED3\u6784\u51FA\u53D1").replace(/(?:当前)?(?:触达)?概率(?:为|是|约|达到|达)?\s*\d+(?:\.\d+)?\s*%/g, "\u5F53\u524D\u89E6\u8FBE\u4F30\u8BA1").replace(/(?:现价|当前股价)(?:为|是|约)?\s*\$?\d+(?:\.\d+)?(?:\s*美元)?/g, "\u4EF7\u683C\u4F4D\u7F6E").replace(/现价|当前股价/g, "\u4EF7\u683C\u4F4D\u7F6E").replace(/差距/g, "\u76EE\u6807\u7A7A\u95F4").replace(/\s{2,}/g, " ").trim();
 }
 function isFactSegmentSupported(segment, context, target) {
   const inventory = targetFactInventory(context, target);
@@ -18880,7 +18889,8 @@ function sanitizeDraft(draft) {
   const headline = cleanText(draft.headline).split(/[。；\n]/)[0] || cleanText(draft.headline);
   const targets = Object.fromEntries(TARGETS2.map((target) => {
     const input = draft.targets[target];
-    const expertAssertion = cleanText(input.expertAssertion).split(/[。；\n]/)[0] || cleanText(input.expertAssertion);
+    const cleanedAssertion = removePublicReferenceIds(cleanText(input.expertAssertion));
+    const expertAssertion = cleanedAssertion.split(/[。；\n]/)[0] || cleanedAssertion;
     const targetDraft = {
       expertAssertion: expertAssertion.length <= 80 ? expertAssertion : `${expertAssertion.slice(0, 79)}\u2026`,
       essenceAnalysis: removeLedgerLanguage(input.essenceAnalysis),
@@ -19730,7 +19740,7 @@ function buildTargetThesis(snapshot, prediction) {
   const targetView = snapshot.analysis.targetViews?.[prediction.target];
   if (targetView?.historicalAnchor && targetView.panoramicAnalysis && targetView.guidance?.length) {
     const scenario = TARGET_SCENARIOS[prediction.target];
-    const professionalThesis = prediction.target === 18 ? `\u6280\u672F\u4FEE\u590D\u4E0E\u516C\u53F8\u73B0\u91D1\u6D41\u5148\u964D\u4F4E\u8FD1\u7AEF\u98CE\u9669\u8865\u507F\uFF0C\u5730\u4EA7\u6210\u4EA4\u548C\u5B8F\u89C2\u6298\u73B0\u7387\u51B3\u5B9A\u4FEE\u590D\u80FD\u5426\u7AD9\u7A33\uFF0C\u56E0\u6B64 ${prediction.target} \u7F8E\u5143\u5C5E\u4E8E\u53EF\u89E6\u8FBE\u7684${scenario.meaning}\u3002` : prediction.target === 19 ? `\u516C\u53F8\u7ECF\u8425\u6539\u5584\u5FC5\u987B\u7EE7\u7EED\u4F20\u5BFC\u81F3 GTV\u3001\u6536\u5165\u548C\u5229\u6DA6\u9884\u671F\uFF0C\u5E76\u83B7\u5F97\u5730\u4EA7\u4E0E\u4E2D\u6982\u98CE\u9669\u504F\u597D\u7684\u5171\u540C\u786E\u8BA4\uFF0C\u56E0\u6B64 ${prediction.target} \u7F8E\u5143\u5C5E\u4E8E\u6761\u4EF6\u66F4\u4E25\u683C\u7684${scenario.meaning}\u3002` : `\u516C\u53F8\u73B0\u91D1\u6D41\u53EA\u63D0\u4F9B\u4F30\u503C\u5E95\u5EA7\uFF0C\u5730\u4EA7\u3001\u5B8F\u89C2\u4E0E\u4E2D\u6982\u98CE\u9669\u504F\u597D\u9700\u8981\u540C\u6B65\u6539\u5584\u624D\u80FD\u63A8\u52A8\u4F30\u503C\u500D\u6570\u6269\u5F20\uFF0C\u56E0\u6B64 ${prediction.target} \u7F8E\u5143\u5C5E\u4E8E\u4F4E\u80DC\u7387\u7684${scenario.meaning}\u3002`;
+    const professionalThesis = prediction.target === 18 ? `\u6280\u672F\u4FEE\u590D\u4E0E\u516C\u53F8\u73B0\u91D1\u6D41\u5148\u964D\u4F4E\u8FD1\u7AEF\u98CE\u9669\u8865\u507F\uFF0C\u5730\u4EA7\u6210\u4EA4\u548C\u5B8F\u89C2\u6298\u73B0\u7387\u51B3\u5B9A\u4FEE\u590D\u80FD\u5426\u7AD9\u7A33\uFF0C\u56E0\u6B64 ${prediction.target} \u7F8E\u5143\u5C5E\u4E8E\u53EF\u89E6\u8FBE\u7684${scenario.meaning}\u3002` : prediction.target === 19 ? `\u516C\u53F8\u7ECF\u8425\u6539\u5584\u5FC5\u987B\u7EE7\u7EED\u4F20\u5BFC\u81F3 GTV\u3001\u6536\u5165\u548C\u5229\u6DA6\u9884\u671F\uFF0C\u5E76\u83B7\u5F97\u5730\u4EA7\u4E0E\u4E2D\u6982\u98CE\u9669\u504F\u597D\u7684\u5171\u540C\u786E\u8BA4\uFF0C\u56E0\u6B64 ${prediction.target} \u7F8E\u5143\u5C5E\u4E8E\u6761\u4EF6\u66F4\u4E25\u683C\u7684${scenario.meaning}\u3002` : `\u516C\u53F8\u73B0\u91D1\u6D41\u53EA\u63D0\u4F9B\u4F30\u503C\u5E95\u5EA7\uFF0C\u5730\u4EA7\u3001\u5B8F\u89C2\u4E0E\u4E2D\u6982\u98CE\u9669\u504F\u597D\u9700\u8981\u540C\u6B65\u6539\u5584\u624D\u80FD\u63A8\u52A8\u4F30\u503C\u500D\u6570\u6269\u5F20\uFF0C\u56E0\u6B64 ${prediction.target} \u7F8E\u5143\u5C5E\u4E8E\u6761\u4EF6\u53D7\u9650\u7684${scenario.meaning}\u3002`;
     return [targetView.comparison, professionalThesis].filter(Boolean).join(" ");
   }
   if (targetView) return [targetView.comparison, targetView.plainSummary].filter(Boolean).join(" ");
