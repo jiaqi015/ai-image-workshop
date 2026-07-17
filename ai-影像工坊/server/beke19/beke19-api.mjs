@@ -18442,7 +18442,7 @@ ${PROFESSIONAL_TARGET_DRAFT_JSON_CONTRACT}`
 
 // src/research/agents/ProfessionalConclusionAgent.ts
 var REFUSAL_OR_HEDGE = /信息不全|依据不足|无法判断|不能判断|暂不判断|没有足够(?:的)?(?:信息|证据)|仍需(?:数据)?确认|等待(?:后续)?(?:数据|确认)|有待确认|尚待确认/;
-var ASSERTION_LEDGER = /触达概率|当前概率|概率[约为是达：:\s]*[一二三四五六七八九十\d]|现价|当前股价|目标距离|距离目标/;
+var ASSERTION_LEDGER = /触达概率|当前概率|概率[约为是达：:\s]*[一二三四五六七八九十\d]|现价|当前股价|距离/;
 var PUBLIC_SCHEMA_LABEL = /\b(?:observed|derived|historical_precedent|bounded_inference)\b/i;
 var PERSONALIZED_TRADING_ADVICE = /(?:建议|应当|应该|需要|可以|考虑|立即|继续|不要|不得)[^。；！？]{0,16}(?:买入|卖出|加仓|减仓|持有|挂单|撤单|止损|止盈)|(?:买入|卖出|加仓|减仓|持有)[\s\S]{0,8}(?:\d+(?:\.\d+)?\s*(?:股|%|成)|操作|指令)|(?:挂单价|撤单|核心趋势仓|风险调整仓|剩余持仓|仓位管理|买回规则)/;
 function contextReferenceIds(context, target) {
