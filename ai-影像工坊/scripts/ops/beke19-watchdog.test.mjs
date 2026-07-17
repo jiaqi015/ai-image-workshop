@@ -16,6 +16,7 @@ const OLD_RUN_ID = "run-old";
 const NEW_RUN_ID = "run-new";
 const CURRENT_TARGETS = [18, 19, 20];
 const LEGACY_TARGETS = [17, 18, 19];
+const CURRENT_MODEL_VERSION = "probability-synthesis-v3-90d-targets-18-19-20";
 
 function response(status, payload) {
   return new Response(payload === undefined ? undefined : JSON.stringify(payload), {
@@ -32,6 +33,22 @@ function historyPoint(targets = CURRENT_TARGETS) {
   return {
     publishedAt: "2026-07-14T13:11:00.000Z",
     ...Object.fromEntries(targets.map((target, index) => [`p${target}`, 60 - index * 12])),
+  };
+}
+
+function forecastQuestion(target, issuedAt) {
+  return {
+    questionId: `BEKE-${issuedAt}-${target}-90d-first-touch`,
+    issuedAt,
+    horizonEnd: new Date(Date.parse(issuedAt) + 90 * 86_400_000).toISOString(),
+    horizonDays: 90,
+    barrier: target,
+    priceMeasure: "regular_session_high",
+    event: "first_touch",
+    tradingCalendar: "XNYS",
+    timezone: "America/New_York",
+    corporateActionPolicy: "split_adjusted_barrier",
+    status: "open",
   };
 }
 
@@ -52,9 +69,14 @@ function snapshotPayload({
       snapshot: {
         project: "beke19",
         runId,
+        modelVersion: CURRENT_MODEL_VERSION,
         updatedAt,
         nextUpdateAt,
-        predictions: predictionTargets.map((target) => ({ target, probability: 0.5 })),
+        predictions: predictionTargets.map((target, index) => ({
+          target,
+          probability: 60 - index * 12,
+          forecastQuestion: forecastQuestion(target, updatedAt),
+        })),
         analysis: {
           targetViews: keyedTargets(targetViewTargets, (target) => ({ target })),
           targetExplanations: keyedTargets(targetExplanationTargets, (target) => `${target} 美元目标说明`),
@@ -185,6 +207,31 @@ test("rejects the retired 17/18/19 target contract during preflight even when th
     /preflight predictions targets must be exactly 18,19,20 in order/,
   );
   assert.equal(requests, MAX_PREFLIGHT_ATTEMPTS);
+});
+
+test("rejects an 18/19/20 publication that still carries the retired 120-day horizon", async () => {
+  const payload = snapshotPayload();
+  payload.state.snapshot.predictions = payload.state.snapshot.predictions.map((prediction) => ({
+    ...prediction,
+    forecastQuestion: {
+      ...prediction.forecastQuestion,
+      questionId: prediction.forecastQuestion.questionId.replace("-90d-", "-120d-"),
+      horizonDays: 120,
+      horizonEnd: new Date(
+        Date.parse(prediction.forecastQuestion.issuedAt) + 120 * 86_400_000,
+      ).toISOString(),
+    },
+  }));
+
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      fetchImpl: async () => response(200, payload),
+    }),
+    /current 90-day first-touch contract/,
+  );
 });
 
 test("rejects a refresh response that publishes the retired target contract", async () => {

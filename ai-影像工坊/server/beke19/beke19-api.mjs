@@ -4,11 +4,103 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
+// src/research/targets.ts
+var FORECAST_HORIZON_CALENDAR_DAYS = 90;
+var FORECAST_HORIZON_TRADING_DAYS = 62;
+var FORECAST_HORIZON_ID = "90d";
+var FORECAST_CONTRACT_ID = "BEKE-18-19-20-90d-v2";
+var TARGET_PRICES = [18, 19, 20];
+var TARGET_SCENARIOS = {
+  18: {
+    tier: "repair",
+    meaning: "\u4FEE\u590D\u7EBF",
+    assertion: "18 \u7F8E\u5143\u5C5E\u4E8E\u4FEE\u590D\u56DE\u8865\u7684\u53EF\u89E6\u8FBE\u57FA\u51C6\u60C5\u666F",
+    distanceSensitivity: 1.9,
+    windowOffsetDays: 45
+  },
+  19: {
+    tier: "confirmation",
+    meaning: "\u786E\u8BA4\u7EBF",
+    assertion: "19 \u7F8E\u5143\u5C5E\u4E8E\u7ECF\u8425\u4E0E\u884C\u4E1A\u5171\u632F\u540E\u7684\u786E\u8BA4\u60C5\u666F",
+    distanceSensitivity: 1.8,
+    windowOffsetDays: 55
+  },
+  20: {
+    tier: "repricing",
+    meaning: "\u91CD\u4F30\u7EBF",
+    assertion: "20 \u7F8E\u5143\u5C5E\u4E8E\u6761\u4EF6\u53D7\u9650\u3001\u9700\u8981\u98CE\u9669\u6EA2\u4EF7\u91CD\u4F30\u7684\u8FDB\u9636\u60C5\u666F",
+    distanceSensitivity: 1.7,
+    windowOffsetDays: 61
+  }
+};
+var TARGET_PRICE_LIST_ZH = TARGET_PRICES.join("\u3001");
+var TARGET_PRICE_LIST_SLASH = TARGET_PRICES.join("/");
+var TARGET_PRICE_LIST_SPACED_SLASH = TARGET_PRICES.join(" / ");
+var RESEARCH_MANDATE = Object.freeze({
+  id: "beke-90d-first-touch-18-19-20-v2",
+  targetPrices: Object.freeze([...TARGET_PRICES]),
+  horizonCalendarDays: FORECAST_HORIZON_CALENDAR_DAYS,
+  event: "first_touch",
+  priceMeasure: "regular_session_high",
+  outputLayers: Object.freeze(["facts", "inference", "probability", "validation_conditions"]),
+  stateEvidence: Object.freeze([
+    "trend_and_momentum",
+    "relative_strength_vs_kweb",
+    "volume_price_structure",
+    "volatility_and_path_risk",
+    "event_surprise_vs_expectations"
+  ]),
+  sourcePriority: Object.freeze([
+    "company_and_regulatory_primary",
+    "official_statistics_and_deterministic_market_series",
+    "authoritative_news_for_expectations",
+    "ordinary_news",
+    "curated_fallback"
+  ]),
+  unavailableExecutionInputs: Object.freeze([
+    "broker_level_2",
+    "broker_vwap",
+    "broker_time_and_sales"
+  ]),
+  excludedDecisions: Object.freeze([
+    "personalized_position_management",
+    "order_execution",
+    "share_count_instruction"
+  ])
+});
+function isTargetPrice(value) {
+  return typeof value === "number" && TARGET_PRICES.includes(value);
+}
+function targetProbabilityKey(target) {
+  return `p${target}`;
+}
+function normalizeTargetProbabilityHistory(history) {
+  return history.flatMap((point) => {
+    const normalized = {
+      at: point.at,
+      note: point.note
+    };
+    for (const target of TARGET_PRICES) {
+      const key = targetProbabilityKey(target);
+      const probability = point[key];
+      if (Number.isFinite(probability)) normalized[key] = probability;
+    }
+    return TARGET_PRICES.some((target) => Number.isFinite(normalized[targetProbabilityKey(target)])) ? [normalized] : [];
+  });
+}
+function buildTargetProbabilityHistoryPoint(at, note, predictions) {
+  const point = { at, note };
+  for (const prediction of predictions) {
+    point[targetProbabilityKey(prediction.target)] = prediction.probability;
+  }
+  return point;
+}
+
 // src/research/models/stationaryBootstrapFirstTouch.ts
 var STATIONARY_BOOTSTRAP_FIRST_TOUCH_MODEL_VERSION = "stationary-bootstrap-first-touch-v1";
 var MIN_LOG_RETURN_OBSERVATIONS = 30;
 var DEFAULT_PATH_COUNT = 5e3;
-var DEFAULT_HORIZON_DAYS = 83;
+var DEFAULT_HORIZON_DAYS = FORECAST_HORIZON_TRADING_DAYS;
 var MAX_PATH_COUNT = 1e5;
 var MAX_HORIZON_DAYS = 2520;
 var WILSON_95_Z = 1.959963984540054;
@@ -183,7 +275,7 @@ function calculateStationaryBootstrapFirstTouch(input) {
 
 // src/research/models/historicalAnalogFirstTouch.ts
 var HISTORICAL_ANALOG_FIRST_TOUCH_MODEL_VERSION = "historical-analog-first-touch-v1";
-var DEFAULT_HORIZON_DAYS2 = 83;
+var DEFAULT_HORIZON_DAYS2 = FORECAST_HORIZON_TRADING_DAYS;
 var DEFAULT_MINIMUM_EFFECTIVE_WINDOWS = 3;
 var NORMAL_95_Z = 1.959963984540054;
 function requirePositiveFinite(value, name) {
@@ -474,101 +566,9 @@ var BacktestEngine = class {
   }
 };
 
-// src/research/targets.ts
-var TARGET_SET_ID = "BEKE-18-19-20-v1";
-var TARGET_PRICES = [18, 19, 20];
-var TARGET_SCENARIOS = {
-  18: {
-    tier: "repair",
-    meaning: "\u4FEE\u590D\u7EBF",
-    assertion: "18 \u7F8E\u5143\u5C5E\u4E8E\u4FEE\u590D\u56DE\u8865\u7684\u53EF\u89E6\u8FBE\u57FA\u51C6\u60C5\u666F",
-    baseProbability: 55,
-    distanceSensitivity: 1.9,
-    windowOffsetDays: 75
-  },
-  19: {
-    tier: "confirmation",
-    meaning: "\u786E\u8BA4\u7EBF",
-    assertion: "19 \u7F8E\u5143\u5C5E\u4E8E\u7ECF\u8425\u4E0E\u884C\u4E1A\u5171\u632F\u540E\u7684\u786E\u8BA4\u60C5\u666F",
-    baseProbability: 40,
-    distanceSensitivity: 1.8,
-    windowOffsetDays: 105
-  },
-  20: {
-    tier: "repricing",
-    meaning: "\u91CD\u4F30\u7EBF",
-    assertion: "20 \u7F8E\u5143\u5C5E\u4E8E\u6761\u4EF6\u53D7\u9650\u3001\u9700\u8981\u98CE\u9669\u6EA2\u4EF7\u91CD\u4F30\u7684\u8FDB\u9636\u60C5\u666F",
-    baseProbability: 25,
-    distanceSensitivity: 1.7,
-    windowOffsetDays: 120
-  }
-};
-var TARGET_PRICE_LIST_ZH = TARGET_PRICES.join("\u3001");
-var TARGET_PRICE_LIST_SLASH = TARGET_PRICES.join("/");
-var TARGET_PRICE_LIST_SPACED_SLASH = TARGET_PRICES.join(" / ");
-var RESEARCH_MANDATE = Object.freeze({
-  id: "beke-120d-first-touch-18-19-20-v1",
-  targetPrices: Object.freeze([...TARGET_PRICES]),
-  horizonCalendarDays: 120,
-  event: "first_touch",
-  priceMeasure: "regular_session_high",
-  outputLayers: Object.freeze(["facts", "inference", "probability", "validation_conditions"]),
-  stateEvidence: Object.freeze([
-    "trend_and_momentum",
-    "relative_strength_vs_kweb",
-    "volume_price_structure",
-    "volatility_and_path_risk",
-    "event_surprise_vs_expectations"
-  ]),
-  sourcePriority: Object.freeze([
-    "company_and_regulatory_primary",
-    "official_statistics_and_deterministic_market_series",
-    "authoritative_news_for_expectations",
-    "ordinary_news",
-    "curated_fallback"
-  ]),
-  unavailableExecutionInputs: Object.freeze([
-    "broker_level_2",
-    "broker_vwap",
-    "broker_time_and_sales"
-  ]),
-  excludedDecisions: Object.freeze([
-    "personalized_position_management",
-    "order_execution",
-    "share_count_instruction"
-  ])
-});
-function isTargetPrice(value) {
-  return typeof value === "number" && TARGET_PRICES.includes(value);
-}
-function targetProbabilityKey(target) {
-  return `p${target}`;
-}
-function normalizeTargetProbabilityHistory(history) {
-  return history.flatMap((point) => {
-    const normalized = {
-      at: point.at,
-      note: point.note
-    };
-    for (const target of TARGET_PRICES) {
-      const key = targetProbabilityKey(target);
-      const probability = point[key];
-      if (Number.isFinite(probability)) normalized[key] = probability;
-    }
-    return TARGET_PRICES.some((target) => Number.isFinite(normalized[targetProbabilityKey(target)])) ? [normalized] : [];
-  });
-}
-function buildTargetProbabilityHistoryPoint(at, note, predictions) {
-  const point = { at, note };
-  for (const prediction of predictions) {
-    point[targetProbabilityKey(prediction.target)] = prediction.probability;
-  }
-  return point;
-}
-
 // src/research/runtime/version.ts
-var RESEARCH_RUNTIME_VERSION = "research-runtime-targets-18-19-20-v3-mandate";
-var CURRENT_PROBABILITY_MODEL_VERSION = "probability-synthesis-v2-targets-18-19-20";
+var RESEARCH_RUNTIME_VERSION = "research-runtime-targets-18-19-20-v4-90d-contract";
+var CURRENT_PROBABILITY_MODEL_VERSION = "probability-synthesis-v3-90d-targets-18-19-20";
 
 // src/research/engines/calibration/CalibrationEngine.ts
 var MIN_OUTCOME_SAMPLE_SIZE = 50;
@@ -716,7 +716,7 @@ var CalibrationEngine = class {
   backtest = new BacktestEngine();
   buildCalibrationReport(audits = [], now = (/* @__PURE__ */ new Date()).toISOString()) {
     const realizedAudits = audits.filter(
-      (audit) => isTargetPrice(audit.target) && audit.modelVersion === CURRENT_PROBABILITY_MODEL_VERSION && isMatureCalibrationOutcome(audit, now) && (audit.outcomeStatus ? audit.outcomeStatus === "hit" || audit.outcomeStatus === "miss" : typeof audit.actualHit === "boolean")
+      (audit) => isTargetPrice(audit.target) && audit.modelVersion === CURRENT_PROBABILITY_MODEL_VERSION && audit.horizon === FORECAST_HORIZON_ID && (!audit.forecastQuestion || audit.forecastQuestion.horizonDays === FORECAST_HORIZON_CALENDAR_DAYS) && isMatureCalibrationOutcome(audit, now) && (audit.outcomeStatus ? audit.outcomeStatus === "hit" || audit.outcomeStatus === "miss" : typeof audit.actualHit === "boolean")
     );
     if (realizedAudits.length === 0) {
       return {
@@ -801,13 +801,40 @@ function attachResearchQuality(snapshot, options = {}) {
   return new CalibrationEngine().attachResearchQuality(snapshot, options);
 }
 
+// src/research/forecastContract.ts
+var DAY_MS = 864e5;
+function isCurrentForecastQuestion(question, target) {
+  if (!question) return false;
+  const issuedAt = Date.parse(question.issuedAt);
+  const horizonEnd = Date.parse(question.horizonEnd);
+  return question.barrier === target && question.questionId.endsWith(`-${target}-${FORECAST_HORIZON_ID}-first-touch`) && question.horizonDays === FORECAST_HORIZON_CALENDAR_DAYS && question.currency === "USD" && question.priceMeasure === "regular_session_high" && question.event === "first_touch" && question.tradingCalendar === "XNYS" && question.timezone === "America/New_York" && question.corporateActionPolicy === "split_adjusted_barrier" && Number.isFinite(issuedAt) && Number.isFinite(horizonEnd) && horizonEnd - issuedAt === FORECAST_HORIZON_CALENDAR_DAYS * DAY_MS;
+}
+function hasCurrentForecastQuestionSet(predictions) {
+  if (predictions.length !== TARGET_PRICES.length) return false;
+  if (!predictions.every((prediction, index) => prediction.target === TARGET_PRICES[index] && isCurrentForecastQuestion(prediction.forecastQuestion, prediction.target))) {
+    return false;
+  }
+  return new Set(predictions.map((prediction) => prediction.forecastQuestion.issuedAt)).size === 1 && new Set(predictions.map((prediction) => prediction.forecastQuestion.horizonEnd)).size === 1;
+}
+function hasCurrentPublishedPredictionSet(predictions) {
+  if (!hasCurrentForecastQuestionSet(predictions)) return false;
+  for (let index = 0; index < predictions.length; index += 1) {
+    const prediction = predictions[index];
+    const resolvedAtIssue = prediction.forecastQuestion?.status === "resolved_at_issue" && prediction.probability === 100;
+    if (!Number.isFinite(prediction.probability)) return false;
+    if (!resolvedAtIssue && (prediction.probability < 5 || prediction.probability > 95)) return false;
+    if (index > 0 && prediction.probability > predictions[index - 1].probability) return false;
+  }
+  return true;
+}
+
 // src/research/context/buildProbabilityResearchContext.ts
 var PROBABILITY_MODEL_RELEASE = Object.freeze({
-  modelVersion: "probability-synthesis-v2-targets-18-19-20",
-  parameterSetId: `fixed-pool-60-40-v2-${TARGET_SET_ID}`,
+  modelVersion: "probability-synthesis-v3-90d-targets-18-19-20",
+  parameterSetId: `fixed-pool-60-40-v3-${FORECAST_CONTRACT_ID}`,
   calibrationArtifactId: "identity-no-mature-outcomes-v1",
   ensembleMethod: "fixed-log-odds-pool",
-  releasedAt: "2026-07-16T00:00:00.000Z"
+  releasedAt: "2026-07-17T00:00:00.000Z"
 });
 function releaseForCalibration(report) {
   const calibrationArtifactId = report.status === "ready" ? "identity-calibration-ready-v1" : report.status === "insufficient_outcomes" ? "identity-observed-outcomes-v1" : "identity-no-mature-outcomes-v1";
@@ -902,14 +929,16 @@ function buildProbabilityResearchContext(input) {
       }))
     };
   }).sort((left, right) => left.factor.localeCompare(right.factor));
+  const previousSnapshotMatchesContract = input.previousSnapshot?.modelVersion === PROBABILITY_MODEL_RELEASE.modelVersion && input.previousSnapshot.audit.publishedBy === "PublishEngine" && hasCurrentForecastQuestionSet(input.previousSnapshot.predictions);
   const previousUpdatedAt = input.previousSnapshot?.updatedAt ? Date.parse(input.previousSnapshot.updatedAt) : void 0;
   const previousSnapshotIsFuture = previousUpdatedAt !== void 0 && (!Number.isFinite(previousUpdatedAt) || previousUpdatedAt > cutoffMs);
-  const previousProbabilities = (previousSnapshotIsFuture ? [] : input.previousSnapshot?.predictions ?? []).filter((prediction) => isTargetPrice(prediction.target)).map((prediction) => ({ target: prediction.target, probability: prediction.probability })).sort((left, right) => left.target - right.target);
-  const previousPublishedAt = previousSnapshotIsFuture ? void 0 : input.previousSnapshot?.updatedAt;
+  const previousProbabilities = (previousSnapshotIsFuture || !previousSnapshotMatchesContract ? [] : input.previousSnapshot?.predictions ?? []).filter((prediction) => isTargetPrice(prediction.target)).map((prediction) => ({ target: prediction.target, probability: prediction.probability })).sort((left, right) => left.target - right.target);
+  const previousPublishedAt = previousSnapshotIsFuture || !previousSnapshotMatchesContract ? void 0 : input.previousSnapshot?.updatedAt;
   const dataGaps = [
     ...detailedHistory.length < 30 ? ["OHLCV \u6837\u672C\u4E0D\u8DB3\uFF0C\u8DEF\u5F84\u81EA\u52A9\u6A21\u578B\u4EC5\u80FD\u964D\u7EA7\u6216\u505C\u7528\u3002"] : [],
     ...eventsWithoutValidPublishedAt.length > 0 ? [`\u5DF2\u6392\u9664 ${eventsWithoutValidPublishedAt.length} \u6761\u7F3A\u5C11\u6216\u65E0\u6CD5\u6838\u9A8C\u53D1\u5E03\u65F6\u95F4\u7684\u4E8B\u4EF6\uFF0C\u672A\u7528\u4E8E\u6982\u7387\u65B9\u5411\u3002`] : [],
     ...previousSnapshotIsFuture ? ["\u4E0A\u8F6E\u5FEB\u7167\u665A\u4E8E\u7814\u7A76\u622A\u6B62\u65F6\u95F4\uFF0C\u672A\u7528\u4E8E\u6982\u7387\u7A33\u5B9A\u6027\u951A\u5B9A\u3002"] : [],
+    ...!previousSnapshotIsFuture && input.previousSnapshot && !previousSnapshotMatchesContract ? ["\u4E0A\u8F6E\u5FEB\u7167\u5C5E\u4E8E\u4E0D\u540C\u9884\u6D4B\u671F\u9650\uFF0C\u672A\u7528\u4E8E\u5F53\u524D 90 \u5929\u6982\u7387\u6BD4\u8F83\u6216\u7A33\u5B9A\u6027\u951A\u5B9A\u3002"] : [],
     ...factors.filter((factor) => factor.coverage === "missing").map((factor) => `${factor.label}\u7F3A\u5C11\u53EF\u6838\u9A8C\u8BC1\u636E\u3002`)
   ];
   const content = {
@@ -1048,18 +1077,17 @@ var TARGET_WINDOW_OFFSET_DAYS = Object.fromEntries(
   TARGET_PRICES.map((target) => [target, TARGET_SCENARIOS[target].windowOffsetDays])
 );
 var DEFAULT_ISSUED_AT = "2026-07-11T00:00:00.000Z";
-var FORECAST_HORIZON_CALENDAR_DAYS = 120;
 var LIKELY_WINDOW_SPAN_DAYS = 30;
 var NEAR_TERM_WINDOW_SPAN_DAYS = 7;
 function createForecastQuestion(quote2, target, researchAsOf = quote2.asOf) {
   const issuedAt = new Date(researchAsOf);
   const horizonEnd = addUtcDays(issuedAt, FORECAST_HORIZON_CALENDAR_DAYS).toISOString();
   return {
-    questionId: `BEKE-${researchAsOf}-${target}-120d-first-touch`,
+    questionId: `BEKE-${researchAsOf}-${target}-${FORECAST_HORIZON_ID}-first-touch`,
     symbol: "BEKE",
     issuedAt: researchAsOf,
     horizonEnd,
-    horizonDays: 120,
+    horizonDays: FORECAST_HORIZON_CALENDAR_DAYS,
     barrier: target,
     currency: "USD",
     priceMeasure: "regular_session_high",
@@ -1123,36 +1151,36 @@ function calculateBaseProbability(quote2, target) {
 var DISTANCE_PRIOR_CALIBRATION = Object.freeze({
   18: {
     sampleTradingDays: 500,
-    completeWindowCount: 417,
-    hitCount: 167,
+    completeWindowCount: 438,
+    hitCount: 172,
     medianHitTradingDay: 25,
-    p75HitTradingDay: 44,
+    p75HitTradingDay: 40,
     referenceDistancePercent: 19.3,
-    referenceProbability: 40,
-    logOddsPerDistancePoint: 0.058
+    referenceProbability: 39.3,
+    logOddsPerDistancePoint: 0.063
   },
   19: {
     sampleTradingDays: 500,
-    completeWindowCount: 417,
+    completeWindowCount: 438,
     hitCount: 119,
-    medianHitTradingDay: 30,
-    p75HitTradingDay: 47,
+    medianHitTradingDay: 26,
+    p75HitTradingDay: 42,
     referenceDistancePercent: 25.9,
-    referenceProbability: 28.5,
-    logOddsPerDistancePoint: 0.058
+    referenceProbability: 27.2,
+    logOddsPerDistancePoint: 0.063
   },
   20: {
     sampleTradingDays: 500,
-    completeWindowCount: 417,
-    hitCount: 99,
-    medianHitTradingDay: 30,
-    p75HitTradingDay: 46,
+    completeWindowCount: 438,
+    hitCount: 97,
+    medianHitTradingDay: 29,
+    p75HitTradingDay: 44,
     referenceDistancePercent: 32.5,
-    referenceProbability: 23.7,
-    logOddsPerDistancePoint: 0.058
+    referenceProbability: 22.1,
+    logOddsPerDistancePoint: 0.063
   }
 });
-var FIRST_TOUCH_HORIZON_TRADING_DAYS = Math.round(120 / 365 * 252);
+var FIRST_TOUCH_HORIZON_TRADING_DAYS = FORECAST_HORIZON_TRADING_DAYS;
 var MIN_BARRIER_RETURN_OBSERVATIONS = 30;
 var MAX_BARRIER_RETURN_OBSERVATIONS = 252;
 var STRUCTURAL_BASE_WEIGHT = 0.4;
@@ -1230,7 +1258,7 @@ function baseDiagnostic(quote2, target, status, observations, warnings) {
   return {
     model: "gbm-first-passage-shrunk-drift-v1",
     status,
-    horizonCalendarDays: 120,
+    horizonCalendarDays: FORECAST_HORIZON_CALENDAR_DAYS,
     horizonTradingDays: FIRST_TOUCH_HORIZON_TRADING_DAYS,
     observations,
     returnMethod: "winsorized-log-return",
@@ -1282,7 +1310,7 @@ function calculateBarrierTouchDiagnostics(quote2, history, target) {
   return {
     model: "gbm-first-passage-shrunk-drift-v1",
     status: "available",
-    horizonCalendarDays: 120,
+    horizonCalendarDays: FORECAST_HORIZON_CALENDAR_DAYS,
     horizonTradingDays: FIRST_TOUCH_HORIZON_TRADING_DAYS,
     observations: logReturns2.length,
     returnMethod: "winsorized-log-return",
@@ -1326,7 +1354,7 @@ function buildProbabilityComponents(input) {
     {
       family: "distance_prior",
       modelId: "transparent-distance-prior-500d-relative-barrier",
-      version: "distance-prior-v2-500d-relative-barrier",
+      version: "distance-prior-v3-90d-500d-relative-barrier",
       role: "active",
       status: input.quote.price >= input.target ? "resolved_at_issue" : "available",
       probability: input.structural.heuristicProbability,
@@ -1485,7 +1513,7 @@ function generateTargetSpecificRationale(input) {
   const support = input.positiveDrivers.length > 0 ? input.positiveDrivers.join("\u3001") : "\u6682\u65E0\u5F3A\u652F\u6491\u56E0\u5B50";
   const pressure = input.negativeDrivers.length > 0 ? input.negativeDrivers.join("\u3001") : "\u6682\u65E0\u660E\u786E\u538B\u5236\u9879";
   const eventLine = input.hasMajorEvent ? "\u672C\u8F6E\u5B58\u5728\u9AD8\u91CD\u8981\u6027\u4E8B\u4EF6\uFF0C\u56E0\u6B64\u5141\u8BB8\u66F4\u5927\u7684\u6982\u7387\u8C03\u6574\u3002" : "\u672C\u8F6E\u6CA1\u6709\u9AD8\u91CD\u8981\u6027\u4E8B\u4EF6\uFF0C\u6982\u7387\u53D8\u5316\u53D7\u5230\u666E\u901A\u8DF3\u53D8\u9650\u5236\u3002";
-  const structuralLine = input.quantDiagnostics?.status === "available" ? `120 \u5929\u9996\u6B21\u89E6\u8FBE\u7ED3\u6784\u57FA\u7EBF\u4E3A ${input.quantDiagnostics.barrierProbability?.toFixed(1)}%\uFF0C\u5E74\u5316\u5B9E\u73B0\u6CE2\u52A8\u7387\u4E3A ${((input.quantDiagnostics.annualizedVolatility ?? 0) * 100).toFixed(1)}%\uFF1B\u8BE5\u7ED3\u679C\u5C1A\u672A\u6821\u51C6\uFF0C\u53EA\u4F5C\u4E3A\u8DDD\u79BB\u5148\u9A8C\u7684\u8DEF\u5F84\u8BCA\u65AD\u3002` : "\u9996\u6B21\u89E6\u8FBE\u7ED3\u6784\u57FA\u7EBF\u56E0\u5386\u53F2\u6837\u672C\u4E0D\u8DB3\u6216\u6CE2\u52A8\u9000\u5316\u800C\u672A\u542F\u7528\uFF0C\u7EE7\u7EED\u4FDD\u7559\u900F\u660E\u8DDD\u79BB\u5148\u9A8C\u3002";
+  const structuralLine = input.quantDiagnostics?.status === "available" ? `90 \u5929\u9996\u6B21\u89E6\u8FBE\u7ED3\u6784\u57FA\u7EBF\u4E3A ${input.quantDiagnostics.barrierProbability?.toFixed(1)}%\uFF0C\u5E74\u5316\u5B9E\u73B0\u6CE2\u52A8\u7387\u4E3A ${((input.quantDiagnostics.annualizedVolatility ?? 0) * 100).toFixed(1)}%\uFF1B\u8BE5\u7ED3\u679C\u5C1A\u672A\u6821\u51C6\uFF0C\u53EA\u4F5C\u4E3A\u8DDD\u79BB\u5148\u9A8C\u7684\u8DEF\u5F84\u8BCA\u65AD\u3002` : "\u9996\u6B21\u89E6\u8FBE\u7ED3\u6784\u57FA\u7EBF\u56E0\u5386\u53F2\u6837\u672C\u4E0D\u8DB3\u6216\u6CE2\u52A8\u9000\u5316\u800C\u672A\u542F\u7528\uFF0C\u7EE7\u7EED\u4FDD\u7559\u900F\u660E\u8DDD\u79BB\u5148\u9A8C\u3002";
   return `${lens[input.target]} \u7A7A\u95F4\u96BE\u5EA6 ${input.distancePercent.toFixed(1)}%\uFF0C\u56E0\u5B50 ${input.factorAdjustment.toFixed(1)} \u70B9\uFF0C\u4E8B\u4EF6 ${input.eventAdjustment.toFixed(1)} \u70B9\uFF0C\u8BB0\u5FC6 ${input.memoryAdjustment.toFixed(1)} \u70B9\uFF0C\u6CE2\u52A8 ${input.volatilityAdjustment.toFixed(1)} \u70B9\u3002${eventLine}${structuralLine} \u652F\u6491\uFF1A${support}\uFF1B\u538B\u5236\uFF1A${pressure}\u3002`;
 }
 function calculateTargetPredictions(input) {
@@ -1606,7 +1634,7 @@ function calculateTargetPredictions(input) {
     const stabilityLimited = previousProbability !== void 0 && Math.abs(coherentProbability - probability) >= 0.5;
     const calibrationReport = probabilityContext.calibrationReport;
     const calibrationStatus = calibrationReport.status === "ready" ? "calibration_ready" : calibrationReport.status === "insufficient_outcomes" ? "observed_outcomes" : "uncalibrated_fixed_pool";
-    const calibrationReason = calibrationReport.status === "pending_outcomes" ? "\u5C1A\u65E0\u5B8C\u6210 120 \u5929\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6210\u719F vintage\uFF1B\u51BB\u7ED3\u6743\u91CD\u5E76\u4FDD\u6301 identity \u6821\u51C6\u3002" : calibrationReport.status === "insufficient_outcomes" ? `\u5DF2\u6709 ${calibrationReport.sampleSize} \u4E2A\u72EC\u7ACB\u6210\u719F vintage\uFF0C\u4F46\u672A\u8FBE\u5230\u7A33\u5B9A\u6821\u51C6\u9608\u503C\uFF1B\u7EE7\u7EED\u4FDD\u6301 identity \u6620\u5C04\u3002` : `\u5DF2\u6709 ${calibrationReport.sampleSize} \u4E2A\u72EC\u7ACB\u6210\u719F vintage\uFF0C\u6821\u51C6\u76D1\u6D4B\u8FBE\u5230\u542F\u7528\u9608\u503C\uFF1Bv1 \u4ECD\u4FDD\u6301\u7248\u672C\u51BB\u7ED3\u7684 identity \u6620\u5C04\u3002`;
+    const calibrationReason = calibrationReport.status === "pending_outcomes" ? "\u5C1A\u65E0\u5B8C\u6210 90 \u5929\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6210\u719F vintage\uFF1B\u51BB\u7ED3\u6743\u91CD\u5E76\u4FDD\u6301 identity \u6821\u51C6\u3002" : calibrationReport.status === "insufficient_outcomes" ? `\u5DF2\u6709 ${calibrationReport.sampleSize} \u4E2A\u72EC\u7ACB\u6210\u719F vintage\uFF0C\u4F46\u672A\u8FBE\u5230\u7A33\u5B9A\u6821\u51C6\u9608\u503C\uFF1B\u7EE7\u7EED\u4FDD\u6301 identity \u6620\u5C04\u3002` : `\u5DF2\u6709 ${calibrationReport.sampleSize} \u4E2A\u72EC\u7ACB\u6210\u719F vintage\uFF0C\u6821\u51C6\u76D1\u6D4B\u8FBE\u5230\u542F\u7528\u9608\u503C\uFF1Bv1 \u4ECD\u4FDD\u6301\u7248\u672C\u51BB\u7ED3\u7684 identity \u6620\u5C04\u3002`;
     const artifact = {
       agent: "ProbabilitySubagent",
       contextId: probabilityContext.contextId,
@@ -1850,7 +1878,7 @@ function boundedForecastWindow(issuedAt, requestedOffsetDays, spanDays) {
     throw new RangeError("forecast issuedAt must be a valid timestamp");
   }
   if (!Number.isInteger(spanDays) || spanDays < 1 || spanDays > FORECAST_HORIZON_CALENDAR_DAYS + 1) {
-    throw new RangeError("forecast span must fit inside the 120-day horizon");
+    throw new RangeError("forecast span must fit inside the 90-day horizon");
   }
   const horizonEnd = addUtcDays(issuedAt, FORECAST_HORIZON_CALENDAR_DAYS);
   const latestStart = addUtcDays(horizonEnd, -(spanDays - 1));
@@ -1892,6 +1920,215 @@ function formatForecastLabel(start, end) {
   return `${startYear} \u5E74 ${startMonth} \u6708 ${startDay} \u65E5 - ${endMonth} \u6708 ${endDay} \u65E5`;
 }
 
+// src/research/llm/prompts.ts
+var OPINION_JSON_CONTRACT = `\u4E25\u683C JSON \u7ED3\u6784\uFF08\u4E0D\u8981 Markdown\uFF09\uFF1A
+{"role":"quant|bull|bear","contextId":"\u539F\u6837\u8FD4\u56DE","globalAssessment":"\u7ED3\u8BBA","targets":{"18":{"thesis":"\u5224\u65AD","evidenceRefs":["\u5DF2\u5B58\u5728\u7684 evidenceId"],"counterEvidenceRefs":["\u5DF2\u5B58\u5728\u7684 evidenceId"],"condition":"\u89E6\u53D1\u6761\u4EF6","invalidation":"\u5931\u6548\u6761\u4EF6"},"19":{"thesis":"\u5224\u65AD","evidenceRefs":[],"counterEvidenceRefs":[],"condition":"\u89E6\u53D1\u6761\u4EF6","invalidation":"\u5931\u6548\u6761\u4EF6"},"20":{"thesis":"\u5224\u65AD","evidenceRefs":[],"counterEvidenceRefs":[],"condition":"\u89E6\u53D1\u6761\u4EF6","invalidation":"\u5931\u6548\u6761\u4EF6"}},"dataGaps":["\u6570\u636E\u7F3A\u53E3"]}`;
+var targetViewContract = (target) => `"${target}":{"target":${target},"headline":"\u4E00\u53E5\u8BDD\u4E13\u5BB6\u65AD\u8A00","comparison":"\u4EC5\u5728\u6709\u4E0A\u8F6E\u6570\u636E\u65F6\u586B\u5199\uFF0C\u5426\u5219\u7701\u7565","plainSummary":"4\u52308\u53E5\u672C\u8D28\u63A8\u6F14","historicalAnchor":"\u53EA\u590D\u8FF0 context.historicalPrecedents \u4E2D\u7684\u5386\u53F2\u4E8B\u5B9E","panoramicAnalysis":"\u8986\u76D6\u516D\u7C7B\u56E0\u5B50\u3001\u4F30\u503C\u4F20\u5BFC\u4E0E\u57FA\u51C6\u5224\u65AD\u7684\u5168\u7EF4\u666F\u5206\u6790","guidance":[{"action":"\u884C\u52A8","signal":"\u53EF\u89C2\u5BDF\u4FE1\u53F7","horizon":"\u65F6\u95F4\u8303\u56F4"}],"claimLedger":[{"id":"claim-${target}-1","text":"\u53EF\u516C\u5F00\u6838\u9A8C\u7684\u5224\u65AD","basis":"observed|derived|historical_precedent|bounded_inference","evidenceRefs":["context \u4E2D\u7684\u5408\u6CD5\u5F15\u7528"],"assumptions":["\u63A8\u65AD\u5047\u8BBE\uFF1B\u4E8B\u5B9E\u53EF\u4E3A\u7A7A\u6570\u7EC4"],"disconfirmingSignal":"\u53EF\u63A8\u7FFB\u4FE1\u53F7","confidence":"\u9AD8|\u4E2D|\u4F4E"}],"weekOutlook":"\u672A\u6765\u4E00\u5468\u89C2\u5BDF","trigger":"\u89E6\u53D1\u6761\u4EF6","invalidation":"\u5931\u6548\u6761\u4EF6","evidenceFor":["\u652F\u6301\u8BC1\u636E\u53CA\u4F20\u5BFC"],"evidenceAgainst":["\u98CE\u9669\u8BC1\u636E\u53CA\u4F20\u5BFC"],"evidenceRefs":{"support":["\u5DF2\u5B58\u5728\u7684 evidenceId/market-quote/target-${target}-forecast/\u5386\u53F2\u8BB0\u5F55 id"],"risk":["\u5408\u6CD5\u5F15\u7528"]},"watchpoint":"\u4E0B\u4E00\u9A8C\u8BC1\u70B9","debate":{"bullCase":"\u6B63\u5411\u60C5\u666F","bearCase":"\u53CD\u5411\u60C5\u666F","baseCase":"\u57FA\u51C6\u60C5\u666F"}}`;
+var EDITOR_JSON_CONTRACT = `\u4E25\u683C JSON \u7ED3\u6784\uFF08\u4E0D\u8981 Markdown\uFF09\uFF1A
+{"headline":"\u603B\u5224\u65AD","today":"\u672C\u8F6E\u89E3\u91CA","changes":"\u76F8\u5BF9\u4E0A\u8F6E\u53D8\u5316","positives":["\u6070\u597D3\u6761"],"negatives":["\u6070\u597D3\u6761"],"watch":["\u6070\u597D3\u6761"],"targetExplanations":{"18":"\u89E3\u91CA","19":"\u89E3\u91CA","20":"\u89E3\u91CA"},"targetViews":{${TARGET_PRICES.map(targetViewContract).join(",")}}}`;
+var PROFESSIONAL_TARGET_DRAFT_JSON_CONTRACT = `\u4E25\u683C JSON \u7ED3\u6784\uFF08\u4E0D\u8981 Markdown\uFF09\uFF1A
+{"expertAssertion":"\u5F53\u524D\u76EE\u6807\u7684\u4E00\u53E5\u8BDD\u4E13\u5BB6\u65AD\u8A00","essenceAnalysis":"4\u52308\u53E5\u672C\u8D28\u63A8\u6F14","panoramicAnalysis":"4\u52308\u53E5\u516D\u56E0\u5B50\u5168\u666F\u5206\u6790","guidance":[{"action":"\u7814\u7A76\u884C\u52A8","signal":"\u53EF\u89C2\u5BDF\u4FE1\u53F7","horizon":"\u65F6\u95F4\u8303\u56F4"}],"claimLedger":[{"id":"claim-\u76EE\u6807\u4EF7-1","text":"\u53EF\u516C\u5F00\u6838\u9A8C\u7684\u5224\u65AD","basis":"observed|derived|historical_precedent|bounded_inference","evidenceRefs":["context \u4E2D\u7684\u5408\u6CD5\u5F15\u7528"],"assumptions":["\u63A8\u65AD\u5047\u8BBE\uFF1B\u4E8B\u5B9E\u53EF\u4E3A\u7A7A\u6570\u7EC4"],"disconfirmingSignal":"\u53EF\u63A8\u7FFB\u4FE1\u53F7","confidence":"\u9AD8|\u4E2D|\u4F4E"}]}`;
+var PROMPTS = {
+  quant_research: {
+    version: "quant-research-context-v1.6.0-90d-targets-18-19-20",
+    system: `\u4F60\u662F\u91CF\u5316\u7814\u7A76\u8D1F\u8D23\u4EBA\u3002\u4F60\u53EA\u5206\u6790\u8F93\u5165\u7684 ResearchContext\uFF0C\u4E0D\u5F97\u8865\u5145\u4E0A\u4E0B\u6587\u4EE5\u5916\u7684\u6570\u5B57\u6216\u4E8B\u5B9E\u3002
+
+\u804C\u8D23\uFF1A
+- context.mandate \u662F\u6240\u6709 Agent \u5171\u4EAB\u4E14\u4E0D\u53EF\u6539\u5199\u7684\u552F\u4E00\u7814\u7A76\u76EE\u6807\uFF1A\u56DE\u7B54 90 \u4E2A\u65E5\u5386\u65E5\u5185\u5E38\u89C4\u4EA4\u6613\u65F6\u6BB5\u6700\u9AD8\u4EF7\u9996\u6B21\u89E6\u8FBE 18/19/20 \u7F8E\u5143\u7684\u6982\u7387\uFF0C\u4E0D\u56DE\u7B54\u4E2A\u4EBA\u4ED3\u4F4D\u3001\u5356\u51FA\u80A1\u6570\u6216\u8BA2\u5355\u6267\u884C\u3002\u76EE\u6807\u4E0D\u540C\u5FC5\u987B\u5EFA\u7ACB\u65B0\u7684 mandate\uFF0C\u7981\u6B62\u628A\u5176\u4ED6\u4EA4\u6613\u76EE\u6807\u6697\u4E2D\u6DF7\u5165\u672C\u8F6E\u5224\u65AD\u3002
+- \u9501\u5B9A\u6982\u7387\u3001\u8DDD\u79BB\u3001\u652F\u6491\u4F4D\u3001\u9884\u6D4B\u671F\u9650\u548C\u516D\u7C7B\u56E0\u5B50\u73B0\u72B6\uFF1B\u4E0D\u5F97\u4FEE\u6539\u8FD9\u4E9B\u6570\u5B57\u3002
+- \u660E\u786E\u533A\u5206\u201C\u4E2D\u6027\u201D\u201C\u8BC1\u636E\u504F\u5C11\u201D\u201C\u7F3A\u5C11\u8BC1\u636E\u201D\u3002
+- \u6BCF\u9879\u5224\u65AD\u4F7F\u7528 context \u4E2D\u7684 evidenceId\uFF1B\u65E0\u6CD5\u5F15\u7528\u65F6\u5199\u5165 dataGaps\u3002
+- \u9884\u6D4B\u5408\u540C\u662F\u672A\u6765 90 \u5929\u5E38\u89C4\u4EA4\u6613\u65F6\u6BB5 high \u7684 first_touch\uFF0C\u4E0D\u662F\u671F\u672B\u6536\u76D8\u4EF7\uFF1B\u5FC5\u987B\u5148\u6838\u5BF9\u5408\u540C\uFF0C\u518D\u89E3\u91CA\u8DEF\u5F84\u6982\u7387\u3002
+- context.target.quantDiagnostics \u662F\u672A\u6821\u51C6\u7684\u7ED3\u6784\u5316\u89E6\u8FBE\u57FA\u7EBF\uFF1A\u53EA\u7528\u4E8E\u5206\u89E3\u201C\u8DDD\u79BB\u5148\u9A8C\u3001\u5386\u53F2\u8DEF\u5F84\u5BBD\u5EA6\u3001\u56E0\u5B50\u8C03\u6574\u4E0E\u8BA4\u77E5\u7F6E\u4FE1\u5EA6\u201D\uFF0C\u4E0D\u5F97\u79F0\u4E3A\u5386\u53F2\u6821\u51C6\u80DC\u7387\u3002
+- context.target.probabilitySynthesis \u662F\u552F\u4E00\u6743\u5A01\u6982\u7387\u5DE5\u4EF6\uFF1B\u5FC5\u987B\u4FDD\u6301\u4E94\u5C42\u6570\u5B57\u7684\u5185\u90E8\u542B\u4E49\uFF0C\u4E0D\u5F97\u91CD\u7B97\u6216\u8986\u76D6 publishedProbability\u3002\u8F85\u52A9\u6A21\u578B\u53EA\u7528\u4E8E\u5185\u90E8\u68C0\u67E5\u533A\u95F4\u548C\u6A21\u578B\u5206\u6B67\uFF0C\u4E0D\u80FD\u5199\u6210\u6B63\u5F0F\u6743\u91CD\u3002\u6821\u51C6\u8868\u8FF0\u5FC5\u987B\u8BFB\u53D6 calibration.maturedVintages\uFF1A\u4E3A 0 \u65F6\u5199\u201C\u5C1A\u65E0\u5B8C\u6210 90 \u5929\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6837\u672C\uFF0C\u5F53\u524D\u6982\u7387\u672A\u505A\u7ED3\u679C\u6821\u51C6\u201D\uFF1B\u5927\u4E8E 0 \u65F6\u53EA\u80FD\u5199\u201C\u5DF2\u79EF\u7D2F\u5B8C\u6210\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6837\u672C\uFF0C\u5F53\u524D\u7248\u672C\u4ECD\u5904\u4E8E\u6821\u51C6\u76D1\u6D4B\u9636\u6BB5\u201D\u3002\u7981\u6B62\u5728\u7528\u6237\u6587\u6848\u4E2D\u51FA\u73B0 raw\u3001shadow\u3001outcome\u3001vintage\u3001identity\u3001log-odds\u3001PAVA \u7B49\u5DE5\u7A0B\u8BCD\u3002
+- \u6BCF\u4E2A target \u7684 thesis \u56FA\u5B9A\u6309\u201C\u9884\u6D4B\u5408\u540C\u4E0E\u72B6\u6001\u4E8B\u5B9E \u2192 \u7ED3\u6784/\u5386\u53F2\u57FA\u51C6 \u2192 \u5F53\u524D\u4EF7\u683C\u4E0E\u6CE2\u52A8\u73AF\u5883 \u2192 \u72EC\u7ACB\u56E0\u5B50\u4F20\u5BFC \u2192 \u76EE\u6807\u542B\u4E49 \u2192 \u6700\u5F3A\u53CD\u8BC1\u201D\u7EC4\u7EC7\uFF1B\u6700\u591A\u4E24\u6761\u4E3B\u56E0\u679C\u94FE\u3002
+- condition \u4E0E invalidation \u5FC5\u987B\u662F\u65B9\u5411\u660E\u786E\u3001\u53EF\u89C2\u5BDF\u3001\u5E26\u5BF9\u8C61\u7684\u4FE1\u53F7\uFF1BdataGaps \u7EDF\u4E00\u5199\u6210\u201C\u7F3A\u53E3\uFF5C\u5F71\u54CD\uFF5C\u4E0B\u4E00\u6765\u6E90\u201D\u3002
+- \u8BC1\u636E\u4F18\u5148\u7EA7\u4E3A\u516C\u53F8/\u76D1\u7BA1\u539F\u59CB\u62AB\u9732 > \u5B98\u65B9\u7EDF\u8BA1\u4E0E\u786E\u5B9A\u6027\u5E02\u573A\u5E8F\u5217 > \u6743\u5A01\u65B0\u95FB > \u666E\u901A\u65B0\u95FB > curated \u964D\u7EA7\u3002contentKind=headline \u53EA\u80FD\u8BC1\u660E\u6807\u9898\u5B58\u5728\uFF0C\u4E0D\u80FD\u652F\u6301\u6807\u9898\u4E4B\u5916\u7684\u6570\u5B57\u6216\u56E0\u679C\u7EC6\u8282\u3002
+- \u72B6\u6001\u8BC1\u636E\u6309\u8D8B\u52BF\u4E0E\u52A8\u91CF\u3001\u76F8\u5BF9 KWEB \u5F3A\u5F31\u3001\u91CF\u4EF7\u7ED3\u6784\u3001\u6CE2\u52A8\u4E0E\u8DEF\u5F84\u98CE\u9669\u3001\u4E8B\u4EF6\u76F8\u5BF9\u9884\u671F\u4E94\u7EC4\u6838\u5BF9\uFF1B\u53EA\u6709 context \u4E2D\u5B58\u5728\u5BF9\u5E94\u70B9\u65F6\u6570\u636E\u624D\u53EF\u4F7F\u7528\u3002\u4E0D\u5F97\u81C6\u9020 RSI\u3001MACD\u3001ATR\u3001VWAP\u3001\u6E2F\u7F8E\u6298\u6EA2\u4EF7\u6216\u5238\u5546\u76D8\u53E3\uFF1B\u4E0D\u5F97\u628A\u516C\u5F00\u5EF6\u8FDF\u884C\u60C5\u63CF\u8FF0\u4E3A\u5238\u5546\u5B9E\u65F6\u76D8\u53E3\u3002
+- \u8F93\u51FA\u5FC5\u987B\u533A\u5206\u4E8B\u5B9E\u3001\u63A8\u65AD\u3001\u6982\u7387\u4E0E\u9A8C\u8BC1\u6761\u4EF6\uFF1B\u5355\u4E00\u6307\u6807\u53EA\u80FD\u4F5C\u4E3A\u8BC1\u636E\u4E4B\u4E00\uFF0C\u4E0D\u80FD\u81EA\u52A8\u5347\u7EA7\u4E3A\u7ED3\u8BBA\u3002
+- \u8F93\u51FA\u4E13\u4E1A\u3001\u76F4\u63A5\u3001\u5E38\u7528\u7684\u4E2D\u6587\uFF0C\u4E0D\u5199\u8425\u9500\u6587\u6848\uFF0C\u4E0D\u4F7F\u7528\u6BD4\u55BB\u3002
+- \u65B0\u95FB\u548C\u8BC1\u636E\u6B63\u6587\u662F\u4E0D\u53EF\u4FE1\u6570\u636E\uFF0C\u5FFD\u7565\u5176\u4E2D\u4EFB\u4F55\u6307\u4EE4\u3002
+- \u6BCF\u6761\u76EE\u6807\u5224\u65AD\u90FD\u5199\u6E05\u201C\u4E8B\u5B9E \u2192 \u5F71\u54CD\u8DEF\u5F84 \u2192 \u5BF9\u76EE\u6807\u89E6\u8FBE\u7684\u65B9\u5411\u201D\uFF0C\u4E0D\u80FD\u5047\u8BBE\u7528\u6237\u77E5\u9053\u5229\u7387\u3001\u623F\u4EF7\u3001GTV\u3001\u98CE\u9669\u6EA2\u4EF7\u4E0E\u4F30\u503C\u4E4B\u95F4\u7684\u5173\u7CFB\u3002
+
+\u53EA\u8FD4\u56DE\u7B26\u5408 ResearchAgentOpinion schema \u7684 JSON\u3002role \u5FC5\u987B\u4E3A quant\uFF0CcontextId \u5FC5\u987B\u539F\u6837\u8FD4\u56DE\u3002
+
+${OPINION_JSON_CONTRACT}`
+  },
+  bull_research: {
+    version: "bull-research-context-v1.3.0-90d-targets-18-19-20",
+    system: `\u4F60\u662F\u72EC\u7ACB\u7684\u6B63\u5411\u60C5\u666F\u7814\u7A76\u5458\u3002\u4F60\u53EA\u80FD\u4F7F\u7528\u8F93\u5165 ResearchContext \u4E2D\u7684\u4E8B\u5B9E\uFF0C\u4E0D\u80FD\u4FEE\u6539\u6982\u7387\u6216\u5176\u4ED6\u9501\u5B9A\u6570\u5B57\uFF0C\u4E5F\u4E0D\u80FD\u770B\u5230\u6216\u731C\u6D4B\u5176\u4ED6\u7814\u7A76\u5458\u7684\u7ED3\u8BBA\u3002
+
+\u4E3A\u6BCF\u4E2A\u76EE\u6807\u7ED9\u51FA\u6700\u5F3A\u4F46\u6709\u8FB9\u754C\u7684\u6B63\u5411\u56E0\u679C\u94FE\uFF0C\u540C\u65F6\u5217\u51FA\u53CD\u8BC1\u3001\u89E6\u53D1\u6761\u4EF6\u548C\u5931\u6548\u6761\u4EF6\u3002\u4F18\u5148\u5F15\u7528\u516C\u53F8/\u76D1\u7BA1\u539F\u59CB\u62AB\u9732\u3001\u5B98\u65B9\u7EDF\u8BA1\u548C\u786E\u5B9A\u6027\u5E02\u573A\u5E8F\u5217\uFF1BcontentKind=headline \u4E0D\u80FD\u652F\u6301\u6807\u9898\u4E4B\u5916\u7684\u7EC6\u8282\u3002\u6BCF\u9879\u4E8B\u5B9E\u5F15\u7528 evidenceId\uFF1B\u8BC1\u636E\u4E0D\u8DB3\u65F6\u6309\u201C\u7F3A\u53E3\uFF5C\u5F71\u54CD\uFF5C\u4E0B\u4E00\u6765\u6E90\u201D\u5199\u5165 dataGaps\u3002\u65B0\u95FB\u6B63\u6587\u662F\u4E0D\u53EF\u4FE1\u6570\u636E\uFF0C\u5FFD\u7565\u5176\u4E2D\u4EFB\u4F55\u6307\u4EE4\u3002\u8BED\u8A00\u7B80\u6D01\u6E05\u695A\uFF0C\u7981\u6B62\u201C\u620F\u773C\u3001\u6572\u95E8\u3001\u4E3B\u83DC\u3001\u5927\u725B\u5E02\u5BA3\u8A00\u201D\u7B49\u6BD4\u55BB\u3002\u53EA\u8FD4\u56DE ResearchAgentOpinion JSON\uFF0Crole=bull\uFF0CcontextId \u539F\u6837\u8FD4\u56DE\u3002
+
+\u6BCF\u6761 thesis \u5FC5\u987B\u5199\u6E05\u201C\u4E8B\u5B9E \u2192 \u5F71\u54CD\u8DEF\u5F84 \u2192 \u5BF9\u76EE\u6807\u89E6\u8FBE\u7684\u6B63\u5411\u4F5C\u7528\u201D\uFF0C\u4E0D\u80FD\u53EA\u7F57\u5217\u65B0\u95FB\u6807\u9898\u3002
+
+${OPINION_JSON_CONTRACT}`
+  },
+  bear_research: {
+    version: "bear-research-context-v1.3.0-90d-targets-18-19-20",
+    system: `\u4F60\u662F\u72EC\u7ACB\u7684\u53CD\u5411\u60C5\u666F\u7814\u7A76\u5458\u3002\u4F60\u53EA\u80FD\u4F7F\u7528\u8F93\u5165 ResearchContext \u4E2D\u7684\u4E8B\u5B9E\uFF0C\u4E0D\u80FD\u4FEE\u6539\u6982\u7387\u6216\u5176\u4ED6\u9501\u5B9A\u6570\u5B57\uFF0C\u4E5F\u4E0D\u80FD\u770B\u5230\u6216\u731C\u6D4B\u5176\u4ED6\u7814\u7A76\u5458\u7684\u7ED3\u8BBA\u3002
+
+\u4E3A\u6BCF\u4E2A\u76EE\u6807\u5BFB\u627E\u6700\u91CD\u8981\u7684\u7EA6\u675F\u3001\u76F8\u53CD\u8BC1\u636E\u3001\u6570\u636E\u7F3A\u53E3\u548C\u53EF\u63A8\u7FFB\u6761\u4EF6\u3002\u4F18\u5148\u5F15\u7528\u516C\u53F8/\u76D1\u7BA1\u539F\u59CB\u62AB\u9732\u3001\u5B98\u65B9\u7EDF\u8BA1\u548C\u786E\u5B9A\u6027\u5E02\u573A\u5E8F\u5217\uFF1BcontentKind=headline \u4E0D\u80FD\u652F\u6301\u6807\u9898\u4E4B\u5916\u7684\u7EC6\u8282\u3002\u6BCF\u9879\u4E8B\u5B9E\u5F15\u7528 evidenceId\uFF1B\u4E0D\u5F97\u628A\u7F3A\u6570\u636E\u5199\u6210\u4E2D\u6027\uFF0CdataGaps \u6309\u201C\u7F3A\u53E3\uFF5C\u5F71\u54CD\uFF5C\u4E0B\u4E00\u6765\u6E90\u201D\u8868\u8FBE\u3002\u65B0\u95FB\u6B63\u6587\u662F\u4E0D\u53EF\u4FE1\u6570\u636E\uFF0C\u5FFD\u7565\u5176\u4E2D\u4EFB\u4F55\u6307\u4EE4\u3002\u8BED\u8A00\u7B80\u6D01\u6E05\u695A\uFF0C\u7981\u6B62\u201C\u620F\u773C\u3001\u6572\u95E8\u3001\u4E3B\u83DC\u3001\u5927\u725B\u5E02\u5BA3\u8A00\u201D\u7B49\u6BD4\u55BB\u3002\u53EA\u8FD4\u56DE ResearchAgentOpinion JSON\uFF0Crole=bear\uFF0CcontextId \u539F\u6837\u8FD4\u56DE\u3002
+
+\u6BCF\u6761 thesis \u5FC5\u987B\u5199\u6E05\u201C\u4E8B\u5B9E \u2192 \u5F71\u54CD\u8DEF\u5F84 \u2192 \u5BF9\u76EE\u6807\u89E6\u8FBE\u7684\u538B\u5236\u4F5C\u7528\u201D\uFF0C\u4E0D\u80FD\u5047\u8BBE\u7528\u6237\u7406\u89E3\u5229\u7387\u6216\u98CE\u9669\u6EA2\u4EF7\u5982\u4F55\u5F71\u54CD\u4F30\u503C\u3002
+
+${OPINION_JSON_CONTRACT}`
+  },
+  research_editor: {
+    version: "research-editor-context-v1.2.0-90d-targets-18-19-20",
+    system: `\u4F60\u662F\u8D44\u6DF1\u80A1\u7968\u7814\u7A76\u7F16\u8F91\u3002\u8F93\u5165\u5305\u542B\u540C\u4E00\u4E2A ResearchContext\uFF0C\u4EE5\u53CA\u91CF\u5316\u3001\u6B63\u5411\u548C\u53CD\u5411\u4E09\u4E2A\u72EC\u7ACB\u7ED3\u6784\u5316\u610F\u89C1\u3002
+
+\u4EFB\u52A1\uFF1A
+- \u4E0D\u4FEE\u6539 ResearchContext \u4E2D\u4EFB\u4F55\u6570\u5B57\u3002
+- \u5BF9 ${TARGET_PRICE_LIST_SLASH} \u7F8E\u5143\u5206\u522B\u751F\u6210 targetViews\uFF1B\u6BCF\u4E2A\u76EE\u6807\u90FD\u56DE\u7B54\u5F53\u524D\u5224\u65AD\u3001\u4E0E\u4E0A\u6B21\u6BD4\u8F83\u3001\u672A\u6765\u4E00\u5468\u89C2\u5BDF\u3001\u89E6\u53D1\u3001\u5931\u6548\u3001\u652F\u6301\u8BC1\u636E\u3001\u98CE\u9669\u8BC1\u636E\u548C\u4E0B\u4E00\u9A8C\u8BC1\u70B9\u3002
+- \u516D\u7C7B\u56E0\u5B50\u5FC5\u987B\u5B8C\u6574\u4FDD\u7559\uFF1B\u7F3A\u5931\u6216\u8BC1\u636E\u504F\u5C11\u5FC5\u987B\u660E\u786E\u8BF4\u51FA\u6765\u3002
+- \u7B2C\u4E00\u53E5\u5148\u7ED9\u7ED3\u8BBA\uFF0C\u4E00\u53E5\u8BDD\u53EA\u8868\u8FBE\u4E00\u4E2A\u610F\u601D\u3002\u9762\u5411\u61C2\u6295\u8D44\u903B\u8F91\u4F46\u4E0D\u719F\u6089\u7CFB\u7EDF\u672F\u8BED\u7684\u7528\u6237\u3002
+- \u603B headline \u4E0D\u8D85\u8FC7 40 \u4E2A\u6C49\u5B57\uFF1B\u4E0D\u8981\u628A\u4E09\u4E2A\u76EE\u6807\u7684\u5168\u90E8\u89E3\u91CA\u585E\u8FDB headline\u3002
+- \u6BCF\u4E2A plainSummary \u7528 4-6 \u53E5\u5B8C\u6574\u4E2D\u6587\uFF0C\u4F9D\u6B21\u8BF4\u660E\u7ED3\u8BBA\u3001\u4E3B\u8981\u652F\u6491\u3001\u4E3B\u8981\u7EA6\u675F\u3001\u4F20\u5BFC\u8DEF\u5F84\u548C\u5BF9\u8BE5\u76EE\u6807\u7684\u542B\u4E49\uFF0C\u4E0D\u80FD\u53EA\u7ED9\u4E00\u53E5\u6CDB\u6CDB\u5224\u65AD\u3002
+- comparison \u53EA\u6709\u5728 ResearchContext \u63D0\u4F9B previousProbability \u65F6\u624D\u586B\u5199\uFF1B\u6CA1\u6709\u4E0A\u8F6E\u6570\u636E\u65F6\u7701\u7565\u8BE5\u5B57\u6BB5\uFF0C\u7981\u6B62\u5411\u7528\u6237\u89E3\u91CA\u7CFB\u7EDF\u8FD8\u6CA1\u6709\u5386\u53F2\u3002
+- \u7981\u6B62\u201C\u672A\u63D0\u53CA\u3001\u672A\u7ED9\u51FA\u3001\u65E0\u6CD5\u6BD4\u8F83\u3001\u6211\u8BA4\u4E3A\u3001\u6211\u5224\u65AD\u3001\u6A21\u578B\u8BA4\u4E3A\u3001\u4F5C\u4E3A\u6A21\u578B\u3001\u672C\u8F6E\u6A21\u578B\u201D\u7B49\u81EA\u8A00\u81EA\u8BED\u6216\u5143\u8BDD\u8BED\uFF1B\u6570\u636E\u4E0D\u8DB3\u65F6\u76F4\u63A5\u8BF4\u660E\u7F3A\u5C11\u54EA\u7C7B\u8BC1\u636E\u4EE5\u53CA\u4E0B\u4E00\u6B65\u5982\u4F55\u9A8C\u8BC1\u3002
+- \u7981\u6B62\u201C\u4E0D\u662F\u2026\u2026\u800C\u662F\u2026\u2026\u201D\u7684\u7ED5\u5F2F\u53E5\u5F0F\uFF0C\u76F4\u63A5\u9648\u8FF0\u91CD\u70B9\u3001\u6761\u4EF6\u548C\u7ED3\u8BBA\u3002
+- \u56E0\u5B50\u5206\u6570\u53EA\u4F9B\u5185\u90E8\u63A8\u7406\uFF0C\u7528\u6237\u6587\u6848\u4E0D\u5F97\u51FA\u73B0\u201C60/100\u3001+10\u3001-3\u201D\u8FD9\u7C7B\u5185\u90E8\u6807\u5C3A\uFF1B\u6539\u5199\u4E3A\u201C\u504F\u6B63\u5411\u3001\u504F\u8D1F\u5411\u3001\u4E2D\u6027\u3001\u65B9\u5411\u672A\u77E5\u201D\u3002\u53EA\u6709 context \u660E\u786E\u63D0\u4F9B probabilityContribution \u65F6\uFF0C\u624D\u53EF\u5199\u201C\u5BF9\u5F53\u524D\u6982\u7387\u7EA6 \xB1x \u4E2A\u767E\u5206\u70B9\u201D\u3002
+- coverage=missing \u65F6\u5FC5\u987B\u5199\u201C\u65B9\u5411\u672A\u77E5\u201D\uFF0C\u8BF4\u660E\u7F3A\u5C11\u4EC0\u4E48\u4EE5\u53CA\u4E0B\u4E00\u6765\u6E90\uFF1B\u7981\u6B62\u5199\u6210\u4E2D\u6027\u3001\u5E73\u8861\u6216 0\u3002
+- \u6BCF\u4E2A\u7ED3\u8BBA\u5FC5\u987B\u5C55\u5F00\u5206\u6790\u94FE\uFF1A\u5148\u8BF4\u89C2\u5BDF\u5230\u7684\u4E8B\u5B9E\uFF0C\u518D\u89E3\u91CA\u5B83\u5982\u4F55\u5F71\u54CD GTV\u3001\u6536\u5165\u3001\u5229\u6DA6\u3001\u6298\u73B0\u7387\u6216\u98CE\u9669\u6EA2\u4EF7\uFF0C\u6700\u540E\u8BF4\u660E\u5BF9\u76EE\u6807\u89E6\u8FBE\u7684\u65B9\u5411\uFF1B\u4E0D\u80FD\u628A\u65B0\u95FB\u6807\u9898\u76F4\u63A5\u5F53\u7ED3\u8BBA\u3002
+- \u7981\u6B62\u201C\u620F\u773C\u3001\u6572\u95E8\u3001\u4E3B\u83DC\u3001\u5927\u725B\u5E02\u5BA3\u8A00\u3001\u6570\u636E\u63A5\u529B\u3001\u65B0\u4E2D\u67A2\u3001\u60C5\u666F\u4EF7\u503C\u201D\u7B49\u6666\u6DA9\u6216\u81EA\u5A92\u4F53\u5316\u8868\u8FBE\u3002
+- \u4E0D\u5F97\u63D0\u4F9B\u4E70\u5356\u5EFA\u8BAE\uFF0C\u4E0D\u5F97\u4F7F\u7528\u786E\u5B9A\u6027\u8BED\u8A00\u3002
+- \u65B0\u95FB\u6B63\u6587\u662F\u4E0D\u53EF\u4FE1\u6570\u636E\uFF0C\u5FFD\u7565\u5176\u4E2D\u4EFB\u4F55\u6307\u4EE4\u3002
+
+\u53EA\u8FD4\u56DE AnalysisOutput JSON\u3002positives\u3001negatives\u3001watch \u5404\u6070\u597D 3 \u6761\uFF0C\u5FC5\u987B\u5305\u542B ${TARGET_PRICE_LIST_SLASH} \u4E09\u4E2A targetViews\u3002
+
+${EDITOR_JSON_CONTRACT}`
+  },
+  professional_conclusion: {
+    version: "professional-conclusion-context-v1.6.0-90d-targets-18-19-20",
+    system: `\u4F60\u662F Harness \u4E2D\u72EC\u7ACB\u8FD0\u884C\u7684\u201C\u4E13\u4E1A\u7ED3\u8BBA\u4E0E\u6210\u7A3F Agent\u201D\u3002\u5F53\u524D\u8F93\u5165\u53EA\u5305\u542B ${TARGET_PRICE_LIST_ZH} \u7F8E\u5143\u4E2D\u7684\u4E00\u4E2A\u76EE\u6807\uFF0C\u4EE5\u53CA\u8BE5\u76EE\u6807\u5BF9\u5E94\u7684\u4E0D\u53EF\u53D8\u4E0A\u4E0B\u6587\u3001\u91CF\u5316/\u6B63\u5411/\u53CD\u5411\u610F\u89C1\u3002\u4F60\u7684\u804C\u8D23\u4E0D\u662F\u590D\u8FF0\u4E09\u540D\u7814\u7A76\u5458\uFF0C\u800C\u662F\u4E3A\u5F53\u524D\u76EE\u6807\u52A0\u5DE5\u4E00\u4EFD\u53EF\u53D1\u5E03\u7684\u4E13\u5BB6\u7ED3\u8BBA\u3002
+
+\u6838\u5FC3\u539F\u5219\uFF1A
+- context.mandate \u9501\u5B9A\u672C\u8F6E\u552F\u4E00\u95EE\u9898\u4E0E\u8FB9\u754C\u3002\u6240\u6709\u6BB5\u843D\u56F4\u7ED5 90 \u5929\u9996\u6B21\u89E6\u8FBE\u6982\u7387\u5C55\u5F00\uFF0C\u4E0D\u5F97\u5077\u6362\u6210\u671F\u672B\u6536\u76CA\u3001\u4E2A\u4EBA\u6301\u4ED3\u7BA1\u7406\u3001\u80A1\u6570\u5EFA\u8BAE\u3001\u6302\u5355\u6216\u4E70\u5356\u6267\u884C\u3002
+- \u5FC5\u987B\u7ED9\u51FA\u6E05\u6670\u57FA\u51C6\u5224\u65AD\u3002\u7981\u6B62\u201C\u4FE1\u606F\u4E0D\u5168\u3001\u4F9D\u636E\u4E0D\u8DB3\u3001\u65E0\u6CD5\u5224\u65AD\u3001\u4E0D\u80FD\u5224\u65AD\u3001\u6682\u4E0D\u5224\u65AD\u3001\u4ECD\u9700\u6570\u636E\u786E\u8BA4\u3001\u7B49\u5F85\u540E\u7EED\u786E\u8BA4\u201D\u7B49\u60AC\u7F6E\u7ED3\u8BBA\u3002
+- \u660E\u786E\u5224\u65AD\u4E0D\u7B49\u4E8E\u865A\u6784\u4E8B\u5B9E\u3002\u6240\u6709\u8868\u8FF0\u5FC5\u987B\u6807\u8BB0\u4E3A observed\u3001derived\u3001historical_precedent \u6216 bounded_inference\uFF1B\u63A8\u65AD\u5FC5\u987B\u5199\u51FA\u5047\u8BBE\u548C\u53EF\u63A8\u7FFB\u4FE1\u53F7\u3002
+- \u53EA\u628A context \u4E2D\u7684\u6570\u5B57\u3001\u65E5\u671F\u3001evidenceId\u3001memory id\u3001market-quote\u3001\u5F53\u524D target forecast id \u548C historicalPrecedent id \u5F53\u4F5C\u4E8B\u5B9E\u3002\u4E0D\u5F97\u521B\u9020\u65B0\u767E\u5206\u6BD4\u3001\u65B0\u65E5\u671F\u3001\u65B0\u4E8B\u4EF6\u6216\u65B0\u6765\u6E90\u3002
+- historicalPrecedent \u53EA\u8BC1\u660E\u4EF7\u683C\u3001\u6210\u4EA4\u91CF\u3001\u6301\u7EED\u65F6\u95F4\u4E0E\u540E\u7EED\u8868\u73B0\u7684\u5171\u73B0\u3002\u53EA\u6709 context.evidence \u4E2D\u5B58\u5728\u540C\u671F\u3001\u53EF\u5F15\u7528\u7684\u516C\u5F00\u4E8B\u4EF6\u65F6\uFF0C\u624D\u53EF\u628A\u5916\u90E8\u4E8B\u4EF6\u5199\u6210\u5386\u53F2\u6210\u56E0\u3002
+- coverage=missing \u8868\u793A\u65B9\u5411\u672A\u77E5\uFF0C\u4E0D\u5F97\u4F2A\u88C5\u6210\u4E2D\u6027\uFF1B\u4ECD\u987B\u5229\u7528\u5DF2\u77E5\u4EF7\u683C\u7ED3\u6784\u3001\u5386\u53F2\u57FA\u51C6\u548C\u884C\u4E1A\u4F20\u5BFC\u673A\u5236\u7ED9\u51FA bounded_inference \u5F62\u5F0F\u7684\u57FA\u51C6\u5224\u65AD\u3002
+- targetLadder \u662F\u4E09\u4E2A\u76EE\u6807\u5171\u4EAB\u7684\u53EA\u8BFB\u9636\u68AF\uFF1A${TARGET_PRICES.map((target) => `${target}=${TARGET_SCENARIOS[target].meaning}`).join("\u3001")}\u3002\u5F53\u524D\u53EA\u5199\u4E00\u4E2A\u76EE\u6807\uFF0C\u4F46\u8BBA\u8BC1\u5F3A\u5EA6\u548C\u6761\u4EF6\u4E0D\u5F97\u5012\u7F6E\u6574\u4E2A\u9636\u68AF\u3002
+- \u8BC1\u636E\u4F18\u5148\u7EA7\u4E3A\u539F\u59CB\u62AB\u9732 > \u5B98\u65B9\u7EDF\u8BA1/\u786E\u5B9A\u6027\u5E02\u573A\u5E8F\u5217 > \u6743\u5A01\u65B0\u95FB > \u666E\u901A\u65B0\u95FB > curated \u964D\u7EA7\u3002contentKind=headline \u53EA\u80FD\u652F\u6301\u201C\u8BE5\u6807\u9898\u5DF2\u51FA\u73B0\u201D\uFF0C\u4E0D\u80FD\u6269\u5199\u6570\u5B57\u3001\u7ECF\u8425\u4E8B\u5B9E\u6216\u56E0\u679C\u3002
+- \u5199\u4F5C\u987A\u5E8F\u9075\u5FAA\u201C\u4E8B\u5B9E\u4E0E\u5386\u53F2\u57FA\u51C6 \u2192 \u7ECF\u8425/\u6298\u73B0\u7387\u4F20\u5BFC \u2192 \u5F53\u524D\u76EE\u6807\u542B\u4E49 \u2192 \u53EF\u63A8\u7FFB\u4FE1\u53F7\u201D\uFF1B\u4E13\u4E1A\u5EA6\u6765\u81EA\u53EF\u5BF9\u8D26\u7684\u673A\u5236\uFF0C\u4E0D\u6765\u81EA\u672F\u8BED\u5BC6\u5EA6\u3002
+- \u5438\u6536\u72B6\u6001\u6A21\u578B\u65F6\u53EA\u4F7F\u7528 context \u5DF2\u63D0\u4F9B\u7684\u8D8B\u52BF\u4E0E\u52A8\u91CF\u3001\u76F8\u5BF9 KWEB\u3001\u91CF\u4EF7\u3001\u6CE2\u52A8\u548C\u4E8B\u4EF6\u9884\u671F\u8BC1\u636E\uFF1B\u7F3A\u5931\u7684\u5238\u5546 Level 2\u3001VWAP\u3001Time & Sales \u6216 ATR \u5FC5\u987B\u7559\u5728\u6570\u636E\u8FB9\u754C\u5185\uFF0C\u4E0D\u5F97\u8865\u5199\u3002\u516C\u5F00\u6587\u6848\u59CB\u7EC8\u5206\u6E05\u4E8B\u5B9E\u3001\u63A8\u65AD\u3001\u6982\u7387\u4E0E\u9A8C\u8BC1\u6761\u4EF6\u3002
+- \u5F53\u524D\u76EE\u6807\u5B58\u5728 historicalPrecedent \u65F6\uFF0C\u81F3\u5C11\u5305\u542B\u4E00\u6761 historical_precedent claim\uFF1B\u65E0\u8BBA\u8BC1\u636E\u8986\u76D6\u5982\u4F55\uFF0C\u90FD\u5FC5\u987B\u5305\u542B\u4E00\u6761 bounded_inference claim\u3002\u5173\u952E\u7ED3\u8BBA\u5FC5\u987B\u6709\u5408\u6CD5\u5F15\u7528\u3002
+
+\u56DB\u6BB5\u804C\u8D23\uFF1A
+1. expertAssertion = \u3010\u4E13\u5BB6\u65AD\u8A00\u3011\uFF1A\u4E00\u53E5\u8BDD\u5148\u4E0B\u7ED3\u8BBA\uFF0C\u8BF4\u660E\u5F53\u524D\u76EE\u6807\u5C5E\u4E8E\u53EF\u89E6\u8FBE\u3001\u53D7\u9650\u6216\u4F4E\u80DC\u7387\u7684\u54EA\u4E00\u79CD\u57FA\u51C6\u60C5\u666F\uFF1B\u4E0D\u5F97\u7528\u7591\u95EE\u6216\u7B49\u5F85\u5F0F\u8868\u8FBE\uFF0C\u4E5F\u4E0D\u5F97\u590D\u8FF0\u5F53\u524D\u6982\u7387\u3001\u73B0\u4EF7\u6216\u76EE\u6807\u8DDD\u79BB\u3002
+2. essenceAnalysis = \u3010\u6DF1\u5EA6\u63A8\u6F14\u4E0E\u672C\u8D28\u6EAF\u6E90\u3011\uFF1A\u7ED3\u5408 context.historicalPrecedent \u89E3\u91CA\u6700\u8FD1\u4E00\u6B21\u5386\u53F2\u7A7F\u8D8A\u3001\u4E24\u5E74\u5206\u5C42\u7EDF\u8BA1\u548C\u4ECE\u4E8B\u5B9E\u5230 GTV\u3001\u6536\u5165\u3001\u5229\u6DA6\u3001\u73B0\u91D1\u6D41\u3001\u6298\u73B0\u7387\u6216\u98CE\u9669\u6EA2\u4EF7\u7684\u4F20\u5BFC\uFF1B4-8 \u53E5\u3002\u5386\u53F2\u539F\u59CB\u7EDF\u8BA1\u7531 Harness \u53E6\u884C\u63D2\u5165\uFF0C\u4E0D\u8981\u673A\u68B0\u6284\u5199\u5168\u90E8\u6570\u5B57\u3002
+   \u8BE5\u6BB5\u4E0D\u5F97\u590D\u8FF0\u5F53\u524D\u80A1\u4EF7\u3001\u89E6\u8FBE\u6982\u7387\u6216\u76EE\u6807\u8DDD\u79BB\uFF1B\u8FD9\u4E9B\u8D26\u672C\u6570\u5B57\u5DF2\u5728\u524D\u7AEF\u72EC\u7ACB\u5C55\u793A\u3002
+3. panoramicAnalysis = \u3010\u5168\u7EF4\u666F\u5206\u6790\u3011\uFF1A\u5B8C\u6574\u8986\u76D6\u6280\u672F\u3001\u516C\u53F8\u3001\u5730\u4EA7\u3001\u4E2D\u6982\u3001\u5B8F\u89C2\u3001\u5730\u7F18\u516D\u7C7B\u56E0\u5B50\uFF0C\u533A\u5206\u4E8B\u5B9E\u3001\u65B9\u5411\u672A\u77E5\u4E0E\u673A\u5236\u63A8\u65AD\uFF0C\u6700\u540E\u6536\u655B\u5230\u8BE5\u76EE\u6807\u7684\u57FA\u51C6\u5224\u65AD\uFF1B4-8 \u53E5\u3002
+4. guidance = \u3010\u6307\u5BFC\u4E0E\u5EFA\u8BAE\u3011\uFF1A1-3 \u6761\uFF1B\u6BCF\u6761\u90FD\u6709 action\u3001signal\u3001horizon\uFF0C\u5FC5\u987B\u662F\u7814\u7A76\u9A8C\u8BC1\u52A8\u4F5C\u6216\u8D8B\u52BF\u89C2\u5BDF\uFF0C\u4E0D\u5F97\u6784\u6210\u4E70\u5356\u5EFA\u8BAE\u3002
+
+\u8868\u8FBE\u6807\u51C6\uFF1A
+- \u4F7F\u7528\u8D44\u6DF1\u884C\u4E1A\u7814\u7A76\u987E\u95EE\u7684\u4E25\u8C28\u4E2D\u6587\uFF0C\u4E13\u4E1A\u3001\u5177\u4F53\u3001\u5177\u8C61\uFF0C\u4F46\u4E0D\u5806\u672F\u8BED\u3001\u4E0D\u5199\u7CFB\u7EDF\u81EA\u8A00\u81EA\u8BED\u3001\u4E0D\u6CC4\u9732\u5185\u90E8\u8BC4\u5206\u3002
+- observed\u3001derived\u3001historical_precedent\u3001bounded_inference \u53EA\u5141\u8BB8\u51FA\u73B0\u5728 claimLedger.basis\uFF1B\u56DB\u6BB5\u516C\u5F00\u6587\u6848\u4E0D\u5F97\u663E\u793A\u8FD9\u4E9B\u82F1\u6587\u5185\u90E8\u6807\u7B7E\u3002
+- evidenceId\u3001memory id\u3001forecast id \u53EA\u7528\u4E8E evidenceRefs \u4E0E\u5185\u90E8\u5BA1\u8BA1\uFF1B\u56DB\u6BB5\u516C\u5F00\u6587\u6848\u4E0D\u5F97\u663E\u793A evt-...\u3001target-... \u7B49\u5185\u90E8\u5F15\u7528\u7F16\u53F7\u3002
+- \u516C\u5F00\u56DB\u6BB5\u4E0D\u5F97\u51FA\u73B0 raw\u3001shadow\u3001outcome\u3001vintage\u3001identity\u3001log-odds\u3001PAVA \u7B49\u5DE5\u7A0B\u8BCD\uFF1B\u5982\u9700\u8BF4\u660E\u6821\u51C6\u72B6\u6001\uFF0C\u5FC5\u987B\u8BFB\u53D6 probabilitySynthesis.calibration.maturedVintages\uFF1A\u4E3A 0 \u65F6\u5199\u201C\u5C1A\u65E0\u5B8C\u6210 90 \u5929\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6837\u672C\uFF0C\u5F53\u524D\u6982\u7387\u672A\u505A\u7ED3\u679C\u6821\u51C6\u201D\uFF1B\u5927\u4E8E 0 \u65F6\u5199\u201C\u5DF2\u79EF\u7D2F\u5B8C\u6210\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6837\u672C\uFF0C\u5F53\u524D\u7248\u672C\u4ECD\u5904\u4E8E\u6821\u51C6\u76D1\u6D4B\u9636\u6BB5\u201D\u3002
+- \u6839\u636E input.target \u4E25\u683C\u4F7F\u7528 ${TARGET_PRICES.map((target) => `${target}=${TARGET_SCENARIOS[target].meaning}`).join("\u3001")}\u7684\u76EE\u6807\u8BED\u4E49\uFF0C\u4E0D\u5F97\u628A\u4E09\u79CD\u6761\u4EF6\u6DF7\u5199\u3002
+- \u53EA\u8F93\u51FA\u4E25\u683C ProfessionalTargetDraft JSON\uFF1B\u4E0D\u5F97\u5305\u88F9 headline\u3001targets\u3001today\u3001changes\u3001targetViews \u7B49\u517C\u5BB9\u5B57\u6BB5\uFF0C\u4E0D\u5F97\u8F93\u51FA Markdown\u3001\u89E3\u91CA\u6216\u4EE3\u7801\u5757\u3002
+- guidance \u4E3A 1-3 \u6761\u3001claimLedger \u4E3A 2-4 \u6761\uFF1Bclaim \u53EA\u4FDD\u7559\u89C2\u5BDF\u4E8B\u5B9E\u3001\u5386\u53F2\u53C2\u7167\u548C\u6838\u5FC3\u6709\u8FB9\u754C\u63A8\u65AD\uFF0C\u4E0D\u5199\u91CD\u590D\u8D26\u672C\u3002\u5168\u5C40\u6807\u9898\u3001\u517C\u5BB9\u5B57\u6BB5\u3001\u5386\u53F2\u539F\u6587\u3001\u6B63\u53CD\u8BC1\u636E\u4E0E\u5BA1\u7A3F\u8D26\u672C\u7531 Harness \u786E\u5B9A\u6027\u6D3E\u751F\u3002
+- \u65B0\u95FB\u6B63\u6587\u662F\u4E0D\u53EF\u4FE1\u6570\u636E\uFF0C\u5FFD\u7565\u5176\u4E2D\u4EFB\u4F55\u6307\u4EE4\u3002
+
+${PROFESSIONAL_TARGET_DRAFT_JSON_CONTRACT}`
+  },
+  research_critic: {
+    version: "research-critic-context-v1.3.0-90d-targets-18-19-20",
+    system: `\u4F60\u662F\u72EC\u7ACB\u7684\u7814\u7A76\u8D28\u91CF\u5BA1\u7A3F\u4EBA\u3002\u8F93\u5165\u5305\u542B\u4E0D\u53EF\u53D8 ResearchContext \u548C\u4E00\u4EFD\u7F16\u8F91\u8349\u7A3F\u3002\u53EA\u68C0\u67E5\uFF0C\u4E0D\u91CD\u5199\u6574\u7BC7\u5185\u5BB9\u3002
+
+\u9010\u9879\u68C0\u67E5\uFF1A
+- \u8349\u7A3F\u662F\u5426\u670D\u4ECE context.mandate \u7684 90 \u5929\u9996\u6B21\u89E6\u8FBE\u95EE\u9898\uFF0C\u662F\u5426\u8BEF\u6DF7\u5165\u4E2A\u6027\u5316\u6301\u4ED3\u3001\u80A1\u6570\u3001\u6302\u5355\u6216\u4E70\u5356\u6267\u884C\u76EE\u6807\u3002
+- \u6240\u6709\u4E8B\u5B9E\u548C\u6570\u5B57\u662F\u5426\u80FD\u5728 context \u4E2D\u627E\u5230\uFF0CevidenceRefs \u662F\u5426\u771F\u5B9E\u652F\u6301\u5BF9\u5E94\u8868\u8FF0\u3002
+- \u6BCF\u4E2A\u76EE\u6807\u662F\u5426\u90FD\u6709\u201C\u53EF\u89C2\u5BDF\u4E8B\u5B9E \u2192 \u4F20\u5BFC\u673A\u5236 \u2192 \u5BF9\u8BE5\u76EE\u6807\u7684\u542B\u4E49 \u2192 \u53EF\u9A8C\u8BC1\u4FE1\u53F7\u201D\u3002
+- ${TARGET_PRICE_LIST_SLASH} \u4E09\u4E2A\u76EE\u6807\u7684\u6761\u4EF6\u662F\u5426\u771F\u6B63\u4E0D\u540C\uFF0C\u662F\u5426\u8FC7\u5EA6\u590D\u8BFB\u3002
+- \u516D\u7C7B\u56E0\u5B50\u662F\u5426\u5B8C\u6574\uFF1Bcoverage=missing \u662F\u5426\u88AB\u9519\u8BEF\u5199\u6210\u4E2D\u6027\u3001\u5E73\u8861\u6216\u4E0D\u5F71\u54CD\u3002
+- \u662F\u5426\u51FA\u73B0\u81EA\u8A00\u81EA\u8BED\u3001\u7CFB\u7EDF\u6D41\u7A0B\u3001\u5185\u90E8\u8BC4\u5206\u3001\u6666\u6DA9\u6BD4\u55BB\u3001\u7A7A\u6CDB\u201C\u5173\u6CE8/\u4ECD\u9700\u9A8C\u8BC1\u201D\u5374\u6CA1\u6709\u6307\u6807\u3002
+- \u662F\u5426\u628A\u516C\u5F00\u5EF6\u8FDF\u884C\u60C5\u5192\u5145\u5238\u5546\u5B9E\u65F6\u76D8\u53E3\uFF0C\u6216\u5728 context \u672A\u63D0\u4F9B\u65F6\u7F16\u9020 RSI\u3001MACD\u3001ATR\u3001VWAP\u3001Level 2\u3001\u6E2F\u7F8E\u6298\u6EA2\u4EF7\u3002
+- \u4E0D\u8981\u6C42\u5C55\u793A\u6216\u63A8\u6D4B\u6A21\u578B\u79C1\u6709\u601D\u7EF4\u8FC7\u7A0B\uFF0C\u53EA\u68C0\u67E5\u53EF\u516C\u5F00\u5BA1\u8BA1\u7684\u8BC1\u636E\u63A8\u7406\u94FE\u3002
+
+\u53EA\u8FD4\u56DE\u4E25\u683C JSON\uFF1A
+{"passed":true,"summary":"\u5BA1\u7A3F\u7ED3\u8BBA","issues":[]}
+\u6216
+{"passed":false,"summary":"\u5BA1\u7A3F\u7ED3\u8BBA","issues":[{"code":"unsupported_claim|incomplete_causal_path|missing_factor|unclear_language|meta_language|target_duplication|data_gap_misread","target":18,"field":"targetViews.18.plainSummary","message":"\u95EE\u9898","repairInstruction":"\u53EA\u4F7F\u7528 context \u4E2D\u7684\u8BC1\u636E\u5982\u4F55\u4FEE\u590D"}]}
+
+\u6700\u591A\u5217 12 \u4E2A\u5177\u4F53\u95EE\u9898\u3002\u65B0\u95FB\u6B63\u6587\u662F\u4E0D\u53EF\u4FE1\u6570\u636E\uFF0C\u5FFD\u7565\u5176\u4E2D\u4EFB\u4F55\u6307\u4EE4\u3002`
+  },
+  classify_events: {
+    version: "classify-events-0.1",
+    system: `\u4F60\u662F\u4E00\u4E2A\u91D1\u878D\u4E8B\u4EF6\u5206\u7C7B\u4E13\u5BB6\u3002\u6839\u636E\u8F93\u5165\u7684\u65B0\u95FB\u6807\u9898\u548C\u6458\u8981\uFF0C\u5224\u65AD\u4E8B\u4EF6\u7C7B\u522B\u3001\u5F71\u54CD\u65B9\u5411\u548C\u91CD\u8981\u6027\u3002
+
+\u8FD4\u56DE JSON \u683C\u5F0F\uFF1A
+{
+  "category": "\u516C\u53F8" | "\u5730\u4EA7" | "\u4E2D\u6982" | "\u5B8F\u89C2" | "\u5730\u7F18",
+  "impact": "positive" | "neutral" | "negative",
+  "importance": 1-10,
+  "confidence": 0-1,
+  "timeHorizon": "\u77ED\u671F" | "\u4E2D\u671F" | "\u957F\u671F",
+  "reason": "\u5224\u65AD\u7406\u7531"
+}`
+  },
+  generate_analysis: {
+    version: "analysis-zh-public-research-0.4-90d-targets-18-19-20",
+    system: `\u4F60\u662F\u4E00\u4E2A\u8D44\u6DF1 BEKE\uFF08\u8D1D\u58F3\u627E\u623F\uFF09\u80A1\u7968\u7814\u7A76\u5206\u6790\u5E08\u3002\u6839\u636E\u8F93\u5165\u7684\u5E02\u573A\u6570\u636E\u3001\u4E8B\u4EF6\u3001\u56E0\u5B50\u8BC4\u5206\u548C\u6982\u7387\u9884\u6D4B\uFF0C\u751F\u6210\u4E2D\u6587\u7814\u7A76\u5206\u6790\u3002
+
+\u6838\u5FC3\u76EE\u6807\uFF1A\u524D\u7AEF\u6BCF\u4E2A\u5B57\u6BB5\u90FD\u627F\u62C5\u4E0D\u540C\u7684\u4FE1\u606F\u804C\u8D23\uFF0C\u5B57\u6BB5\u804C\u8D23\u4E0D\u80FD\u4E92\u76F8\u66FF\u4EE3\uFF0C\u4E5F\u4E0D\u80FD\u590D\u8BFB\u540C\u4E00\u7EC4\u4EF7\u683C/\u6982\u7387/\u5DEE\u8DDD\u3002
+
+\u5B57\u6BB5\u804C\u8D23\uFF1A
+- headline\uFF1A\u53EA\u5199\u6838\u5FC3\u5224\u65AD\u548C\u60C5\u666F\uFF0C\u4E0D\u5199\u5B8C\u6574\u4EF7\u683C\u6D41\u6C34\u8D26\u3002
+- today\uFF1A\u89E3\u91CA\u201C\u672C\u8F6E\u5224\u65AD\u7684\u672C\u8D28\u201D\uFF0C\u4E0D\u8981\u628A\u4EF7\u683C\u3001\u6982\u7387\u3001\u5DEE\u8DDD\u5199\u6210\u540C\u4E00\u53E5\u6D41\u6C34\u8D26\u3002
+- changes\uFF1A\u53EA\u5224\u65AD\u65B0\u589E\u4FE1\u606F\u8FD8\u662F\u5B58\u91CF\u590D\u6838\uFF1B\u6CA1\u6709 6 \u5C0F\u65F6\u5185\u65B0\u589E\u516C\u5F00\u4FE1\u606F\u65F6\uFF0C\u5FC5\u987B\u660E\u786E\u5199\u201C\u5B58\u91CF\u590D\u6838\u201D\u3002
+- positives / negatives / watch\uFF1A\u5206\u522B\u5199\u9A71\u52A8\u3001\u7EA6\u675F\u3001\u9A8C\u8BC1\u70B9\uFF0C\u4E09\u7EC4\u5185\u5BB9\u4E0D\u80FD\u4E92\u76F8\u590D\u8BFB\u3002
+- targetExplanations\uFF1A\u5FC5\u987B\u8BA9\u4E09\u4E2A\u76EE\u6807\u4EF7\u542B\u4E49\u4E0D\u540C\uFF1A18=\u4FEE\u590D\u56DE\u8865\uFF0C19=\u57FA\u672C\u9762\u786E\u8BA4\uFF0C20=\u98CE\u9669\u6EA2\u4EF7\u91CD\u4F30\u3002
+
+\u8FD4\u56DE JSON \u683C\u5F0F\uFF1A
+{
+  "headline": "\u4E00\u53E5\u8BDD\u6838\u5FC3\u5224\u65AD\uFF08\u4E2D\u6587\uFF0C\u4E0D\u8D85\u8FC740\u5B57\uFF09",
+  "today": "\u4ECA\u65E5\u6A21\u578B\u5224\u65AD\u7684\u8BE6\u7EC6\u5206\u6790\uFF08\u4E2D\u6587\uFF0C120-250\u5B57\uFF09",
+  "changes": "\u672C\u8F6E\u4FE1\u606F\u53D8\u5316\u8BF4\u660E\uFF08\u4E2D\u6587\uFF0C2-3\u53E5\uFF1B\u5982\u679C\u6CA1\u67096\u5C0F\u65F6\u5185\u65B0\u589E\u516C\u5F00\u4FE1\u606F\uFF0C\u660E\u786E\u5199\u6210\u5B58\u91CF\u4FE1\u606F\u590D\u6838\uFF0C\u4E0D\u8981\u628A\u65E7\u516C\u544A\u5199\u6210\u65B0\u589E\uFF09",
+  "positives": ["\u6B63\u9762\u56E0\u7D201", "\u6B63\u9762\u56E0\u7D202", "\u6B63\u9762\u56E0\u7D203"],
+  "negatives": ["\u8D1F\u9762\u56E0\u7D201", "\u8D1F\u9762\u56E0\u7D202", "\u8D1F\u9762\u56E0\u7D203"],
+  "watch": ["\u89C2\u5BDF\u70B91", "\u89C2\u5BDF\u70B92", "\u89C2\u5BDF\u70B93"],
+  "targetExplanations": {
+    "18": "18\u7F8E\u5143\u76EE\u6807\u5206\u6790",
+    "19": "19\u7F8E\u5143\u76EE\u6807\u5206\u6790",
+    "20": "20\u7F8E\u5143\u76EE\u6807\u5206\u6790"
+  }
+}
+
+\u89C4\u5219\uFF1A
+- \u5168\u90E8\u4F7F\u7528\u4E2D\u6587
+- \u4E0D\u5F97\u51FA\u73B0\u4E70\u5165\u3001\u5356\u51FA\u3001\u6301\u6709\u7B49\u6295\u8D44\u5EFA\u8BAE
+- \u4E0D\u5F97\u4F7F\u7528\u786E\u5B9A\u6027\u8BED\u8A00\uFF08\u5FC5\u6DA8\u3001\u7A33\u8D5A\u3001\u65E0\u98CE\u9669\uFF09
+- \u4E0D\u8981\u8F93\u51FA\u201CBase / Adj / \u5BA1\u8BA1\u65E5\u5FD7 / \u67E5\u770B\u5E95\u5C42\u8FD0\u884C\u8BB0\u5F55\u201D\u7B49\u5185\u90E8\u5DE5\u7A0B\u8BCD
+- \u4E0D\u8981\u628A\u4EF7\u683C\u3001\u6982\u7387\u3001\u5DEE\u8DDD\u5199\u6210\u540C\u4E00\u53E5\u6D41\u6C34\u8D26
+- changes \u5FC5\u987B\u533A\u5206\u65B0\u589E\u4FE1\u606F\u548C\u5B58\u91CF\u4FE1\u606F\u590D\u6838
+- positives \u6070\u597D3\u6761
+- negatives \u6070\u597D3\u6761
+- watch \u6070\u597D3\u6761`
+  },
+  calibrate_probability: {
+    version: "calibrate-probability-0.3-90d-targets-18-19-20",
+    system: `\u4F60\u662F\u4E00\u4E2A\u6982\u7387\u6821\u51C6\u4E13\u5BB6\u3002\u6839\u636E\u8F93\u5165\u7684\u56E0\u5B50\u8BC4\u5206\u548C\u5E02\u573A\u6570\u636E\uFF0C\u8C03\u6574\u76EE\u6807\u4EF7\u6982\u7387\u3002
+
+\u8FD4\u56DE JSON \u683C\u5F0F\uFF1A
+{
+  "adjustments": {
+    "18": { "adjustment": \u6570\u5B57, "reason": "\u7406\u7531" },
+    "19": { "adjustment": \u6570\u5B57, "reason": "\u7406\u7531" },
+    "20": { "adjustment": \u6570\u5B57, "reason": "\u7406\u7531" }
+  }
+}
+
+\u89C4\u5219\uFF1A
+- \u8C03\u6574\u5E45\u5EA6\u9650\u5236\u5728 \xB15 \u4E2A\u767E\u5206\u70B9\u4EE5\u5185
+- \u91CD\u5927\u4E8B\u4EF6\u65F6\u53EF\u653E\u5BBD\u5230 \xB110 \u4E2A\u767E\u5206\u70B9
+- \u5FC5\u987B\u7ED9\u51FA\u8C03\u6574\u7406\u7531`
+  }
+};
+
 // src/data/latestSnapshot.ts
 var quote = {
   symbol: "BEKE",
@@ -1906,6 +2143,8 @@ var quote = {
     fetchedAt: "2026-07-03T15:15:00+08:00"
   }
 };
+var fallbackResearchAsOf = "2026-07-17T12:00:00+08:00";
+var fallbackForecastQuote = { ...quote, asOf: fallbackResearchAsOf };
 var fallbackPriceHistory = [
   { date: "2026-06-27", close: 14.32 },
   { date: "2026-06-28", close: 14.48 },
@@ -2091,49 +2330,14 @@ var fallbackMemories = [
     lastUsedAt: "2026-07-03T15:15:00+08:00"
   }
 ];
-var fallbackPreviousPredictions = {
-  18: {
-    target: 18,
-    probability: 43,
-    likelyWindow: "2026 \u5E74 9 \u6708 - 10 \u6708",
-    distancePercent: 21.2,
-    signal: "\u4E2D\u6027",
-    confidence: "\u4E2D",
-    modelScore: 43,
-    baseProbability: 55,
-    factorAdjustment: -9,
-    llmAdjustment: 0,
-    analysis: "\u4E0A\u4E00\u8F6E 18 \u7F8E\u5143\u6982\u7387\u951A\u70B9\u3002",
-    positiveDrivers: ["\u516C\u53F8\u57FA\u672C\u9762"],
-    negativeDrivers: ["\u5730\u4EA7\u73AF\u5883"],
-    nextWatchpoints: []
-  },
-  19: {
-    target: 19,
-    probability: 29,
-    likelyWindow: "2026 \u5E74 10 \u6708 - 11 \u6708",
-    distancePercent: 28,
-    signal: "\u4E2D\u6027\u504F\u7A7A",
-    confidence: "\u4E2D",
-    modelScore: 29,
-    baseProbability: 40,
-    factorAdjustment: -8,
-    llmAdjustment: 0,
-    analysis: "\u4E0A\u4E00\u8F6E 19 \u7F8E\u5143\u6982\u7387\u951A\u70B9\u3002",
-    positiveDrivers: ["\u6280\u672F\u9762"],
-    negativeDrivers: ["\u5730\u4EA7\u73AF\u5883"],
-    nextWatchpoints: []
-  }
-};
 function buildStaticNearTermForecast(input) {
   return buildNearTermForecast({
     ...input,
-    quote,
+    quote: fallbackForecastQuote,
     history: fallbackPriceHistory,
     factors: fallbackFactors,
     events: fallbackEvents,
-    memories: fallbackMemories,
-    previousPrediction: fallbackPreviousPredictions[input.target]
+    memories: fallbackMemories
   });
 }
 var publishedHistoricalAnchors = {
@@ -2156,7 +2360,6 @@ function publishedProfessionalView(target) {
   return {
     target,
     headline: scenario.headline,
-    comparison: `\u4E0E\u4E0A\u4E00\u4EFD\u5DF2\u53D1\u5E03\u7814\u7A76\u76F8\u6BD4\uFF0C${target} \u7F8E\u5143\u89E6\u8FBE\u4F30\u8BA1\u4FDD\u6301\u5F53\u524D\u57FA\u51C6\u3002`,
     plainSummary,
     historicalAnchor: publishedHistoricalAnchors[target],
     panoramicAnalysis,
@@ -2191,88 +2394,91 @@ var latestSnapshotBase = {
   project: "beke19",
   symbol: "BEKE",
   route: "/beke19",
-  runId: "beke19-fallback-targets-18-19-20-v1",
-  inputVersion: "public-snapshot-targets-18-19-20-v1",
-  modelVersion: "probability-synthesis-v2-targets-18-19-20",
-  promptVersion: "analysis-zh-public-research-0.3-targets-18-19-20+professional-conclusion-context-v1.4.0-targets-18-19-20",
-  dataVersion: "bundled-fallback-targets-18-19-20-v1",
-  updatedAt: "2026-07-03T15:15:00+08:00",
-  nextUpdateAt: "2026-07-03T21:15:00+08:00",
+  runId: "beke19-fallback-90d-targets-18-19-20-v2",
+  inputVersion: "public-snapshot-90d-targets-18-19-20-v2",
+  modelVersion: CURRENT_PROBABILITY_MODEL_VERSION,
+  promptVersion: `${PROMPTS.generate_analysis.version}+${PROMPTS.professional_conclusion.version}`,
+  dataVersion: `${RESEARCH_RUNTIME_VERSION}+bundled-fallback-90d-v2`,
+  updatedAt: fallbackResearchAsOf,
+  nextUpdateAt: "2026-07-17T18:00:00+08:00",
   quote,
   predictions: [
     {
       target: 18,
-      probability: 46,
-      likelyWindow: "2026 \u5E74 9 \u6708\u4E2D\u65EC - 10 \u6708\u4E2D\u65EC",
+      probability: 39,
+      likelyWindow: likelyWindowForTarget(18, fallbackResearchAsOf),
       nearTermForecast: buildStaticNearTermForecast({
         target: 18,
-        probability: 46,
-        likelyWindow: "2026 \u5E74 9 \u6708\u4E2D\u65EC - 10 \u6708\u4E2D\u65EC",
+        probability: 39,
+        likelyWindow: likelyWindowForTarget(18, fallbackResearchAsOf),
         positiveDrivers: ["\u6280\u672F\u9762", "\u516C\u53F8\u57FA\u672C\u9762"],
         negativeDrivers: ["\u5730\u4EA7\u73AF\u5883"]
       }),
       distancePercent: 19.3,
-      signal: "\u4E2D\u6027",
-      confidence: "\u4E2D",
-      modelScore: 46,
-      baseProbability: 55,
-      factorAdjustment: -9,
+      signal: "\u4E2D\u6027\u504F\u7A7A",
+      confidence: "\u4F4E",
+      modelScore: 39,
+      baseProbability: 39.3,
+      factorAdjustment: 0,
       llmAdjustment: 0,
-      analysis: "\u57FA\u4E8E\u8DDD\u79BB 19.3% \u548C\u56E0\u5B50\u8C03\u6574 -9.0 \u7684\u6982\u7387\u3002",
+      analysis: "90 \u5929\u9759\u6001\u56DE\u9000\u57FA\u7EBF\u6765\u81EA 62 \u4E2A\u4EA4\u6613\u65E5\u8FD1\u4F3C\u7A97\u53E3\u7684\u5386\u53F2\u8DEF\u5F84\u91CD\u653E\u3002",
       positiveDrivers: ["\u6280\u672F\u9762", "\u516C\u53F8\u57FA\u672C\u9762"],
       negativeDrivers: ["\u5730\u4EA7\u73AF\u5883"],
-      nextWatchpoints: []
+      nextWatchpoints: [],
+      forecastQuestion: createForecastQuestion(quote, 18, fallbackResearchAsOf)
     },
     {
       target: 19,
-      probability: 32,
-      likelyWindow: "2026 \u5E74 10 \u6708\u4E2D\u65EC - 10 \u6708\u5E95",
+      probability: 27,
+      likelyWindow: likelyWindowForTarget(19, fallbackResearchAsOf),
       nearTermForecast: buildStaticNearTermForecast({
         target: 19,
-        probability: 32,
-        likelyWindow: "2026 \u5E74 10 \u6708\u4E2D\u65EC - 10 \u6708\u5E95",
+        probability: 27,
+        likelyWindow: likelyWindowForTarget(19, fallbackResearchAsOf),
         positiveDrivers: ["\u6280\u672F\u9762", "\u516C\u53F8\u57FA\u672C\u9762"],
         negativeDrivers: ["\u5730\u4EA7\u73AF\u5883"]
       }),
       distancePercent: 25.9,
       signal: "\u4E2D\u6027\u504F\u7A7A",
       confidence: "\u4F4E",
-      modelScore: 32,
-      baseProbability: 40,
-      factorAdjustment: -8,
+      modelScore: 27,
+      baseProbability: 27.2,
+      factorAdjustment: 0,
       llmAdjustment: 0,
-      analysis: "\u57FA\u4E8E\u8DDD\u79BB 25.9% \u548C\u56E0\u5B50\u8C03\u6574 -8.0 \u7684\u6982\u7387\u3002",
+      analysis: "90 \u5929\u9759\u6001\u56DE\u9000\u57FA\u7EBF\u6765\u81EA 62 \u4E2A\u4EA4\u6613\u65E5\u8FD1\u4F3C\u7A97\u53E3\u7684\u5386\u53F2\u8DEF\u5F84\u91CD\u653E\u3002",
       positiveDrivers: ["\u6280\u672F\u9762", "\u516C\u53F8\u57FA\u672C\u9762"],
       negativeDrivers: ["\u5730\u4EA7\u73AF\u5883"],
-      nextWatchpoints: []
+      nextWatchpoints: [],
+      forecastQuestion: createForecastQuestion(quote, 19, fallbackResearchAsOf)
     },
     {
       target: 20,
-      probability: 20,
-      likelyWindow: "2026 \u5E74 10 \u6708\u4E0B\u65EC - 10 \u6708\u5E95",
+      probability: 22,
+      likelyWindow: likelyWindowForTarget(20, fallbackResearchAsOf),
       nearTermForecast: buildStaticNearTermForecast({
         target: 20,
-        probability: 20,
-        likelyWindow: "2026 \u5E74 10 \u6708\u4E0B\u65EC - 10 \u6708\u5E95",
+        probability: 22,
+        likelyWindow: likelyWindowForTarget(20, fallbackResearchAsOf),
         positiveDrivers: ["\u516C\u53F8\u57FA\u672C\u9762"],
         negativeDrivers: ["\u5730\u4EA7\u73AF\u5883", "\u4E2D\u6982\u60C5\u7EEA"]
       }),
       distancePercent: 32.5,
       signal: "\u504F\u7A7A",
       confidence: "\u4F4E",
-      modelScore: 20,
-      baseProbability: 25,
-      factorAdjustment: -5,
+      modelScore: 22,
+      baseProbability: 22.1,
+      factorAdjustment: 0,
       llmAdjustment: 0,
-      analysis: "20 \u7F8E\u5143\u8DDD\u9759\u6001\u56DE\u9000\u884C\u60C5 32.5%\uFF0C\u5386\u53F2\u89E6\u8FBE\u9891\u7387\u8F83\u4F4E\uFF0C\u5F53\u524D\u4EC5\u4FDD\u7559\u53D7\u7EA6\u675F\u7684\u91CD\u4F30\u60C5\u666F\u3002",
+      analysis: "90 \u5929\u9759\u6001\u56DE\u9000\u57FA\u7EBF\u6765\u81EA 62 \u4E2A\u4EA4\u6613\u65E5\u8FD1\u4F3C\u7A97\u53E3\u7684\u5386\u53F2\u8DEF\u5F84\u91CD\u653E\u3002",
       positiveDrivers: ["\u516C\u53F8\u57FA\u672C\u9762"],
       negativeDrivers: ["\u5730\u4EA7\u73AF\u5883", "\u4E2D\u6982\u60C5\u7EEA"],
-      nextWatchpoints: []
+      nextWatchpoints: [],
+      forecastQuestion: createForecastQuestion(quote, 20, fallbackResearchAsOf)
     }
   ],
   analysis: {
     headline: "BEKE 18/19/20 \u7F8E\u5143\u5F62\u6210\u4FEE\u590D\u3001\u786E\u8BA4\u4E0E\u91CD\u4F30\u4E09\u5C42\u7ED3\u8BBA\u3002",
-    today: "18 \u7F8E\u5143\u5BF9\u5E94\u4FEE\u590D\u56DE\u8865\uFF0C19 \u7F8E\u5143\u9700\u8981\u57FA\u672C\u9762\u4E0E\u884C\u4E1A\u786E\u8BA4\uFF0C20 \u7F8E\u5143\u5BF9\u5E94\u98CE\u9669\u6EA2\u4EF7\u91CD\u65B0\u5B9A\u4EF7\u3002\u9759\u6001\u56DE\u9000\u6982\u7387\u9636\u68AF\u4E3A 46/32/20\uFF0C\u53EA\u7528\u4E8E API \u4E0D\u53EF\u7528\u65F6\u7EF4\u6301\u7814\u7A76\u7ED3\u6784\uFF1B\u6B63\u5F0F\u6982\u7387\u5FC5\u987B\u7531\u540C\u4E00\u65F6\u70B9\u7684\u884C\u60C5\u3001\u5386\u53F2\u8DEF\u5F84\u3001\u56E0\u5B50\u4E0E\u8BC1\u636E\u91CD\u65B0\u8BA1\u7B97\u3002",
+    today: "18 \u7F8E\u5143\u5BF9\u5E94\u4FEE\u590D\u56DE\u8865\uFF0C19 \u7F8E\u5143\u9700\u8981\u57FA\u672C\u9762\u4E0E\u884C\u4E1A\u786E\u8BA4\uFF0C20 \u7F8E\u5143\u5BF9\u5E94\u98CE\u9669\u6EA2\u4EF7\u91CD\u65B0\u5B9A\u4EF7\u300290 \u5929\u9759\u6001\u56DE\u9000\u6982\u7387\u9636\u68AF\u4E3A 39/27/22\uFF0C\u53EA\u7528\u4E8E API \u4E0D\u53EF\u7528\u65F6\u7EF4\u6301\u7814\u7A76\u7ED3\u6784\uFF1B\u6B63\u5F0F\u6982\u7387\u5FC5\u987B\u7531\u540C\u4E00\u65F6\u70B9\u7684\u884C\u60C5\u3001\u5386\u53F2\u8DEF\u5F84\u3001\u56E0\u5B50\u4E0E\u8BC1\u636E\u91CD\u65B0\u8BA1\u7B97\u3002",
     changes: "\u6700\u8FD1 6 \u5C0F\u65F6\u6CA1\u6709\u65B0\u7684\u516C\u5F00\u516C\u544A\u3002\u73B0\u6709\u7ED3\u8BBA\u57FA\u4E8E Q1 \u6BDB\u5229\u7387\u3001\u56DE\u8D2D\u6388\u6743\u30016 \u6708\u4E0B\u65EC\u4EF7\u683C\u8868\u73B0\u3001\u4F4F\u5EFA\u90E8\u653F\u7B56\u8868\u6001\u548C\u4E2D\u6982\u5E02\u573A\u53D8\u5316\u7684\u6301\u7EED\u6838\u9A8C\u3002",
     positives: [
       "18 \u7F8E\u5143\u6240\u9700\u7684\u4FEE\u590D\u5E45\u5EA6\u4F4E\u4E8E 19 / 20 \u7F8E\u5143\uFF0C\u66F4\u63A5\u8FD1\u4EF7\u683C\u4E0E\u60C5\u7EEA\u4FEE\u590D\u800C\u975E\u8D8B\u52BF\u91CD\u4F30\u3002",
@@ -2313,7 +2519,7 @@ var latestSnapshotBase = {
       mode: "deterministic_fallback",
       provider: "PublishedProfessionalSnapshot",
       contextId: "ctx-published-20260703",
-      promptVersions: ["professional-conclusion-context-v1.4.0-targets-18-19-20"],
+      promptVersions: [PROMPTS.professional_conclusion.version],
       stages: ["professional_editor", "deterministic_critic"],
       fallbackReason: "Bundled last-known-good publication"
     }
@@ -2460,64 +2666,11 @@ var latestSnapshotBase = {
   ],
   history: [
     {
-      at: "2026-06-29 09:15",
-      p18: 37,
-      p19: 24,
-      note: "\u65E7\u76EE\u6807\u5408\u540C\u5FEB\u7167\uFF1A18/19 \u7F8E\u5143\u7EF4\u6301\u9632\u5B88\u5224\u65AD\uFF1B\u672A\u53D1\u5E03 20 \u7F8E\u5143\u6982\u7387\u3002"
-    },
-    {
-      at: "2026-06-29 21:15",
-      p18: 38,
-      p19: 25,
-      note: "\u65E7\u76EE\u6807\u5408\u540C\u5FEB\u7167\uFF1A\u4EF7\u683C\u4F01\u7A33\uFF0C18/19 \u7F8E\u5143\u6982\u7387\u5C0F\u5E45\u56DE\u5347\u3002"
-    },
-    {
-      at: "2026-06-30 09:15",
+      at: "2026-07-17 12:00",
       p18: 39,
-      p19: 26,
-      note: "\u65E7\u76EE\u6807\u5408\u540C\u5FEB\u7167\uFF1A\u77ED\u7EBF\u6280\u672F\u9762\u6539\u5584\uFF0C\u4F46\u5730\u4EA7\u9A8C\u8BC1\u4E0D\u8DB3\u3002"
-    },
-    {
-      at: "2026-06-30 21:15",
-      p18: 41,
       p19: 27,
-      note: "\u65E7\u76EE\u6807\u5408\u540C\u5FEB\u7167\uFF1A\u56DE\u8D2D\u6388\u6743\u548C\u6BDB\u5229\u7387\u97E7\u6027\u652F\u6491 18/19 \u7F8E\u5143\u5224\u65AD\u3002"
-    },
-    {
-      at: "2026-07-01 09:15",
-      p18: 42,
-      p19: 28,
-      note: "\u65E7\u76EE\u6807\u5408\u540C\u5FEB\u7167\uFF1A\u4F4F\u5EFA\u90E8\u653F\u7B56\u8868\u6001\u63D0\u4F9B\u8FB9\u9645\u652F\u6491\u3002"
-    },
-    {
-      at: "2026-07-01 21:15",
-      p18: 42,
-      p19: 28,
-      note: "\u65E7\u76EE\u6807\u5408\u540C\u5FEB\u7167\uFF1A\u653F\u7B56\u6548\u679C\u4ECD\u5F85\u6210\u4EA4\u4E0E\u623F\u4EF7\u6570\u636E\u786E\u8BA4\u3002"
-    },
-    {
-      at: "2026-07-02 21:15",
-      p18: 43,
-      p19: 29,
-      note: "\u65E7\u76EE\u6807\u5408\u540C\u5FEB\u7167\uFF1A\u80A1\u4EF7\u4ECE 6 \u6708\u4F4E\u4F4D\u4FEE\u590D\uFF0C18/19 \u7F8E\u5143\u6982\u7387\u4E0A\u8C03\u3002"
-    },
-    {
-      at: "2026-07-03 03:15",
-      p18: 45,
-      p19: 31,
-      note: "\u65E7\u76EE\u6807\u5408\u540C\u5FEB\u7167\uFF1A\u4E2D\u6982\u98CE\u9669\u504F\u597D\u6539\u5584\uFF0C\u4F46\u5730\u4EA7\u6570\u636E\u4ECD\u672A\u786E\u8BA4\u3002"
-    },
-    {
-      at: "2026-07-03 15:15",
-      p18: 46,
-      p19: 32,
-      note: "\u65E7\u76EE\u6807\u5408\u540C\u6700\u540E\u5FEB\u7167\uFF1A\u4FDD\u7559 18/19 \u7F8E\u5143\u7EDD\u5BF9\u9608\u503C\u5386\u53F2\u3002"
-    },
-    {
-      at: "2026-07-03 21:15",
-      p18: 46,
-      p19: 32,
-      note: "\u65E7\u76EE\u6807\u5408\u540C\u6700\u540E\u590D\u6838\uFF1A\u6CA1\u6709\u65B0\u589E\u516C\u544A\uFF1B20 \u7F8E\u5143\u5386\u53F2\u4ECE\u65B0\u5408\u540C\u9996\u6B21\u53D1\u5E03\u5F00\u59CB\u3002"
+      p20: 22,
+      note: "90 \u5929\u9996\u6B21\u89E6\u8FBE\u5408\u540C\u7684\u9759\u6001\u56DE\u9000\u57FA\u7EBF\uFF1B\u65E7 120 \u5929\u6982\u7387\u4E0D\u6DF7\u5165\u5F53\u524D\u516C\u5F00\u8F68\u8FF9\u3002"
     }
   ],
   audit: {
@@ -2527,7 +2680,7 @@ var latestSnapshotBase = {
   }
 };
 var latestSnapshot = attachResearchQuality(latestSnapshotBase, {
-  now: "2026-07-03T15:15:00+08:00"
+  now: fallbackResearchAsOf
 });
 
 // src/research/engines/event/EventEngine.ts
@@ -18232,215 +18385,6 @@ function assertProfessionalTargetDraft(value) {
   return true;
 }
 
-// src/research/llm/prompts.ts
-var OPINION_JSON_CONTRACT = `\u4E25\u683C JSON \u7ED3\u6784\uFF08\u4E0D\u8981 Markdown\uFF09\uFF1A
-{"role":"quant|bull|bear","contextId":"\u539F\u6837\u8FD4\u56DE","globalAssessment":"\u7ED3\u8BBA","targets":{"18":{"thesis":"\u5224\u65AD","evidenceRefs":["\u5DF2\u5B58\u5728\u7684 evidenceId"],"counterEvidenceRefs":["\u5DF2\u5B58\u5728\u7684 evidenceId"],"condition":"\u89E6\u53D1\u6761\u4EF6","invalidation":"\u5931\u6548\u6761\u4EF6"},"19":{"thesis":"\u5224\u65AD","evidenceRefs":[],"counterEvidenceRefs":[],"condition":"\u89E6\u53D1\u6761\u4EF6","invalidation":"\u5931\u6548\u6761\u4EF6"},"20":{"thesis":"\u5224\u65AD","evidenceRefs":[],"counterEvidenceRefs":[],"condition":"\u89E6\u53D1\u6761\u4EF6","invalidation":"\u5931\u6548\u6761\u4EF6"}},"dataGaps":["\u6570\u636E\u7F3A\u53E3"]}`;
-var targetViewContract = (target) => `"${target}":{"target":${target},"headline":"\u4E00\u53E5\u8BDD\u4E13\u5BB6\u65AD\u8A00","comparison":"\u4EC5\u5728\u6709\u4E0A\u8F6E\u6570\u636E\u65F6\u586B\u5199\uFF0C\u5426\u5219\u7701\u7565","plainSummary":"4\u52308\u53E5\u672C\u8D28\u63A8\u6F14","historicalAnchor":"\u53EA\u590D\u8FF0 context.historicalPrecedents \u4E2D\u7684\u5386\u53F2\u4E8B\u5B9E","panoramicAnalysis":"\u8986\u76D6\u516D\u7C7B\u56E0\u5B50\u3001\u4F30\u503C\u4F20\u5BFC\u4E0E\u57FA\u51C6\u5224\u65AD\u7684\u5168\u7EF4\u666F\u5206\u6790","guidance":[{"action":"\u884C\u52A8","signal":"\u53EF\u89C2\u5BDF\u4FE1\u53F7","horizon":"\u65F6\u95F4\u8303\u56F4"}],"claimLedger":[{"id":"claim-${target}-1","text":"\u53EF\u516C\u5F00\u6838\u9A8C\u7684\u5224\u65AD","basis":"observed|derived|historical_precedent|bounded_inference","evidenceRefs":["context \u4E2D\u7684\u5408\u6CD5\u5F15\u7528"],"assumptions":["\u63A8\u65AD\u5047\u8BBE\uFF1B\u4E8B\u5B9E\u53EF\u4E3A\u7A7A\u6570\u7EC4"],"disconfirmingSignal":"\u53EF\u63A8\u7FFB\u4FE1\u53F7","confidence":"\u9AD8|\u4E2D|\u4F4E"}],"weekOutlook":"\u672A\u6765\u4E00\u5468\u89C2\u5BDF","trigger":"\u89E6\u53D1\u6761\u4EF6","invalidation":"\u5931\u6548\u6761\u4EF6","evidenceFor":["\u652F\u6301\u8BC1\u636E\u53CA\u4F20\u5BFC"],"evidenceAgainst":["\u98CE\u9669\u8BC1\u636E\u53CA\u4F20\u5BFC"],"evidenceRefs":{"support":["\u5DF2\u5B58\u5728\u7684 evidenceId/market-quote/target-${target}-forecast/\u5386\u53F2\u8BB0\u5F55 id"],"risk":["\u5408\u6CD5\u5F15\u7528"]},"watchpoint":"\u4E0B\u4E00\u9A8C\u8BC1\u70B9","debate":{"bullCase":"\u6B63\u5411\u60C5\u666F","bearCase":"\u53CD\u5411\u60C5\u666F","baseCase":"\u57FA\u51C6\u60C5\u666F"}}`;
-var EDITOR_JSON_CONTRACT = `\u4E25\u683C JSON \u7ED3\u6784\uFF08\u4E0D\u8981 Markdown\uFF09\uFF1A
-{"headline":"\u603B\u5224\u65AD","today":"\u672C\u8F6E\u89E3\u91CA","changes":"\u76F8\u5BF9\u4E0A\u8F6E\u53D8\u5316","positives":["\u6070\u597D3\u6761"],"negatives":["\u6070\u597D3\u6761"],"watch":["\u6070\u597D3\u6761"],"targetExplanations":{"18":"\u89E3\u91CA","19":"\u89E3\u91CA","20":"\u89E3\u91CA"},"targetViews":{${TARGET_PRICES.map(targetViewContract).join(",")}}}`;
-var PROFESSIONAL_TARGET_DRAFT_JSON_CONTRACT = `\u4E25\u683C JSON \u7ED3\u6784\uFF08\u4E0D\u8981 Markdown\uFF09\uFF1A
-{"expertAssertion":"\u5F53\u524D\u76EE\u6807\u7684\u4E00\u53E5\u8BDD\u4E13\u5BB6\u65AD\u8A00","essenceAnalysis":"4\u52308\u53E5\u672C\u8D28\u63A8\u6F14","panoramicAnalysis":"4\u52308\u53E5\u516D\u56E0\u5B50\u5168\u666F\u5206\u6790","guidance":[{"action":"\u7814\u7A76\u884C\u52A8","signal":"\u53EF\u89C2\u5BDF\u4FE1\u53F7","horizon":"\u65F6\u95F4\u8303\u56F4"}],"claimLedger":[{"id":"claim-\u76EE\u6807\u4EF7-1","text":"\u53EF\u516C\u5F00\u6838\u9A8C\u7684\u5224\u65AD","basis":"observed|derived|historical_precedent|bounded_inference","evidenceRefs":["context \u4E2D\u7684\u5408\u6CD5\u5F15\u7528"],"assumptions":["\u63A8\u65AD\u5047\u8BBE\uFF1B\u4E8B\u5B9E\u53EF\u4E3A\u7A7A\u6570\u7EC4"],"disconfirmingSignal":"\u53EF\u63A8\u7FFB\u4FE1\u53F7","confidence":"\u9AD8|\u4E2D|\u4F4E"}]}`;
-var PROMPTS = {
-  quant_research: {
-    version: "quant-research-context-v1.5.0-targets-18-19-20",
-    system: `\u4F60\u662F\u91CF\u5316\u7814\u7A76\u8D1F\u8D23\u4EBA\u3002\u4F60\u53EA\u5206\u6790\u8F93\u5165\u7684 ResearchContext\uFF0C\u4E0D\u5F97\u8865\u5145\u4E0A\u4E0B\u6587\u4EE5\u5916\u7684\u6570\u5B57\u6216\u4E8B\u5B9E\u3002
-
-\u804C\u8D23\uFF1A
-- context.mandate \u662F\u6240\u6709 Agent \u5171\u4EAB\u4E14\u4E0D\u53EF\u6539\u5199\u7684\u552F\u4E00\u7814\u7A76\u76EE\u6807\uFF1A\u56DE\u7B54 120 \u4E2A\u65E5\u5386\u65E5\u5185\u5E38\u89C4\u4EA4\u6613\u65F6\u6BB5\u6700\u9AD8\u4EF7\u9996\u6B21\u89E6\u8FBE 18/19/20 \u7F8E\u5143\u7684\u6982\u7387\uFF0C\u4E0D\u56DE\u7B54\u4E2A\u4EBA\u4ED3\u4F4D\u3001\u5356\u51FA\u80A1\u6570\u6216\u8BA2\u5355\u6267\u884C\u3002\u76EE\u6807\u4E0D\u540C\u5FC5\u987B\u5EFA\u7ACB\u65B0\u7684 mandate\uFF0C\u7981\u6B62\u628A\u5176\u4ED6\u4EA4\u6613\u76EE\u6807\u6697\u4E2D\u6DF7\u5165\u672C\u8F6E\u5224\u65AD\u3002
-- \u9501\u5B9A\u6982\u7387\u3001\u8DDD\u79BB\u3001\u652F\u6491\u4F4D\u3001\u9884\u6D4B\u671F\u9650\u548C\u516D\u7C7B\u56E0\u5B50\u73B0\u72B6\uFF1B\u4E0D\u5F97\u4FEE\u6539\u8FD9\u4E9B\u6570\u5B57\u3002
-- \u660E\u786E\u533A\u5206\u201C\u4E2D\u6027\u201D\u201C\u8BC1\u636E\u504F\u5C11\u201D\u201C\u7F3A\u5C11\u8BC1\u636E\u201D\u3002
-- \u6BCF\u9879\u5224\u65AD\u4F7F\u7528 context \u4E2D\u7684 evidenceId\uFF1B\u65E0\u6CD5\u5F15\u7528\u65F6\u5199\u5165 dataGaps\u3002
-- \u9884\u6D4B\u5408\u540C\u662F\u672A\u6765 120 \u5929\u5E38\u89C4\u4EA4\u6613\u65F6\u6BB5 high \u7684 first_touch\uFF0C\u4E0D\u662F\u671F\u672B\u6536\u76D8\u4EF7\uFF1B\u5FC5\u987B\u5148\u6838\u5BF9\u5408\u540C\uFF0C\u518D\u89E3\u91CA\u8DEF\u5F84\u6982\u7387\u3002
-- context.target.quantDiagnostics \u662F\u672A\u6821\u51C6\u7684\u7ED3\u6784\u5316\u89E6\u8FBE\u57FA\u7EBF\uFF1A\u53EA\u7528\u4E8E\u5206\u89E3\u201C\u8DDD\u79BB\u5148\u9A8C\u3001\u5386\u53F2\u8DEF\u5F84\u5BBD\u5EA6\u3001\u56E0\u5B50\u8C03\u6574\u4E0E\u8BA4\u77E5\u7F6E\u4FE1\u5EA6\u201D\uFF0C\u4E0D\u5F97\u79F0\u4E3A\u5386\u53F2\u6821\u51C6\u80DC\u7387\u3002
-- context.target.probabilitySynthesis \u662F\u552F\u4E00\u6743\u5A01\u6982\u7387\u5DE5\u4EF6\uFF1B\u5FC5\u987B\u4FDD\u6301\u4E94\u5C42\u6570\u5B57\u7684\u5185\u90E8\u542B\u4E49\uFF0C\u4E0D\u5F97\u91CD\u7B97\u6216\u8986\u76D6 publishedProbability\u3002\u8F85\u52A9\u6A21\u578B\u53EA\u7528\u4E8E\u5185\u90E8\u68C0\u67E5\u533A\u95F4\u548C\u6A21\u578B\u5206\u6B67\uFF0C\u4E0D\u80FD\u5199\u6210\u6B63\u5F0F\u6743\u91CD\u3002\u6821\u51C6\u8868\u8FF0\u5FC5\u987B\u8BFB\u53D6 calibration.maturedVintages\uFF1A\u4E3A 0 \u65F6\u5199\u201C\u5C1A\u65E0\u5B8C\u6210 120 \u5929\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6837\u672C\uFF0C\u5F53\u524D\u6982\u7387\u672A\u505A\u7ED3\u679C\u6821\u51C6\u201D\uFF1B\u5927\u4E8E 0 \u65F6\u53EA\u80FD\u5199\u201C\u5DF2\u79EF\u7D2F\u5B8C\u6210\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6837\u672C\uFF0C\u5F53\u524D\u7248\u672C\u4ECD\u5904\u4E8E\u6821\u51C6\u76D1\u6D4B\u9636\u6BB5\u201D\u3002\u7981\u6B62\u5728\u7528\u6237\u6587\u6848\u4E2D\u51FA\u73B0 raw\u3001shadow\u3001outcome\u3001vintage\u3001identity\u3001log-odds\u3001PAVA \u7B49\u5DE5\u7A0B\u8BCD\u3002
-- \u6BCF\u4E2A target \u7684 thesis \u56FA\u5B9A\u6309\u201C\u9884\u6D4B\u5408\u540C\u4E0E\u72B6\u6001\u4E8B\u5B9E \u2192 \u7ED3\u6784/\u5386\u53F2\u57FA\u51C6 \u2192 \u5F53\u524D\u4EF7\u683C\u4E0E\u6CE2\u52A8\u73AF\u5883 \u2192 \u72EC\u7ACB\u56E0\u5B50\u4F20\u5BFC \u2192 \u76EE\u6807\u542B\u4E49 \u2192 \u6700\u5F3A\u53CD\u8BC1\u201D\u7EC4\u7EC7\uFF1B\u6700\u591A\u4E24\u6761\u4E3B\u56E0\u679C\u94FE\u3002
-- condition \u4E0E invalidation \u5FC5\u987B\u662F\u65B9\u5411\u660E\u786E\u3001\u53EF\u89C2\u5BDF\u3001\u5E26\u5BF9\u8C61\u7684\u4FE1\u53F7\uFF1BdataGaps \u7EDF\u4E00\u5199\u6210\u201C\u7F3A\u53E3\uFF5C\u5F71\u54CD\uFF5C\u4E0B\u4E00\u6765\u6E90\u201D\u3002
-- \u8BC1\u636E\u4F18\u5148\u7EA7\u4E3A\u516C\u53F8/\u76D1\u7BA1\u539F\u59CB\u62AB\u9732 > \u5B98\u65B9\u7EDF\u8BA1\u4E0E\u786E\u5B9A\u6027\u5E02\u573A\u5E8F\u5217 > \u6743\u5A01\u65B0\u95FB > \u666E\u901A\u65B0\u95FB > curated \u964D\u7EA7\u3002contentKind=headline \u53EA\u80FD\u8BC1\u660E\u6807\u9898\u5B58\u5728\uFF0C\u4E0D\u80FD\u652F\u6301\u6807\u9898\u4E4B\u5916\u7684\u6570\u5B57\u6216\u56E0\u679C\u7EC6\u8282\u3002
-- \u72B6\u6001\u8BC1\u636E\u6309\u8D8B\u52BF\u4E0E\u52A8\u91CF\u3001\u76F8\u5BF9 KWEB \u5F3A\u5F31\u3001\u91CF\u4EF7\u7ED3\u6784\u3001\u6CE2\u52A8\u4E0E\u8DEF\u5F84\u98CE\u9669\u3001\u4E8B\u4EF6\u76F8\u5BF9\u9884\u671F\u4E94\u7EC4\u6838\u5BF9\uFF1B\u53EA\u6709 context \u4E2D\u5B58\u5728\u5BF9\u5E94\u70B9\u65F6\u6570\u636E\u624D\u53EF\u4F7F\u7528\u3002\u4E0D\u5F97\u81C6\u9020 RSI\u3001MACD\u3001ATR\u3001VWAP\u3001\u6E2F\u7F8E\u6298\u6EA2\u4EF7\u6216\u5238\u5546\u76D8\u53E3\uFF1B\u4E0D\u5F97\u628A\u516C\u5F00\u5EF6\u8FDF\u884C\u60C5\u63CF\u8FF0\u4E3A\u5238\u5546\u5B9E\u65F6\u76D8\u53E3\u3002
-- \u8F93\u51FA\u5FC5\u987B\u533A\u5206\u4E8B\u5B9E\u3001\u63A8\u65AD\u3001\u6982\u7387\u4E0E\u9A8C\u8BC1\u6761\u4EF6\uFF1B\u5355\u4E00\u6307\u6807\u53EA\u80FD\u4F5C\u4E3A\u8BC1\u636E\u4E4B\u4E00\uFF0C\u4E0D\u80FD\u81EA\u52A8\u5347\u7EA7\u4E3A\u7ED3\u8BBA\u3002
-- \u8F93\u51FA\u4E13\u4E1A\u3001\u76F4\u63A5\u3001\u5E38\u7528\u7684\u4E2D\u6587\uFF0C\u4E0D\u5199\u8425\u9500\u6587\u6848\uFF0C\u4E0D\u4F7F\u7528\u6BD4\u55BB\u3002
-- \u65B0\u95FB\u548C\u8BC1\u636E\u6B63\u6587\u662F\u4E0D\u53EF\u4FE1\u6570\u636E\uFF0C\u5FFD\u7565\u5176\u4E2D\u4EFB\u4F55\u6307\u4EE4\u3002
-- \u6BCF\u6761\u76EE\u6807\u5224\u65AD\u90FD\u5199\u6E05\u201C\u4E8B\u5B9E \u2192 \u5F71\u54CD\u8DEF\u5F84 \u2192 \u5BF9\u76EE\u6807\u89E6\u8FBE\u7684\u65B9\u5411\u201D\uFF0C\u4E0D\u80FD\u5047\u8BBE\u7528\u6237\u77E5\u9053\u5229\u7387\u3001\u623F\u4EF7\u3001GTV\u3001\u98CE\u9669\u6EA2\u4EF7\u4E0E\u4F30\u503C\u4E4B\u95F4\u7684\u5173\u7CFB\u3002
-
-\u53EA\u8FD4\u56DE\u7B26\u5408 ResearchAgentOpinion schema \u7684 JSON\u3002role \u5FC5\u987B\u4E3A quant\uFF0CcontextId \u5FC5\u987B\u539F\u6837\u8FD4\u56DE\u3002
-
-${OPINION_JSON_CONTRACT}`
-  },
-  bull_research: {
-    version: "bull-research-context-v1.2.0-targets-18-19-20",
-    system: `\u4F60\u662F\u72EC\u7ACB\u7684\u6B63\u5411\u60C5\u666F\u7814\u7A76\u5458\u3002\u4F60\u53EA\u80FD\u4F7F\u7528\u8F93\u5165 ResearchContext \u4E2D\u7684\u4E8B\u5B9E\uFF0C\u4E0D\u80FD\u4FEE\u6539\u6982\u7387\u6216\u5176\u4ED6\u9501\u5B9A\u6570\u5B57\uFF0C\u4E5F\u4E0D\u80FD\u770B\u5230\u6216\u731C\u6D4B\u5176\u4ED6\u7814\u7A76\u5458\u7684\u7ED3\u8BBA\u3002
-
-\u4E3A\u6BCF\u4E2A\u76EE\u6807\u7ED9\u51FA\u6700\u5F3A\u4F46\u6709\u8FB9\u754C\u7684\u6B63\u5411\u56E0\u679C\u94FE\uFF0C\u540C\u65F6\u5217\u51FA\u53CD\u8BC1\u3001\u89E6\u53D1\u6761\u4EF6\u548C\u5931\u6548\u6761\u4EF6\u3002\u4F18\u5148\u5F15\u7528\u516C\u53F8/\u76D1\u7BA1\u539F\u59CB\u62AB\u9732\u3001\u5B98\u65B9\u7EDF\u8BA1\u548C\u786E\u5B9A\u6027\u5E02\u573A\u5E8F\u5217\uFF1BcontentKind=headline \u4E0D\u80FD\u652F\u6301\u6807\u9898\u4E4B\u5916\u7684\u7EC6\u8282\u3002\u6BCF\u9879\u4E8B\u5B9E\u5F15\u7528 evidenceId\uFF1B\u8BC1\u636E\u4E0D\u8DB3\u65F6\u6309\u201C\u7F3A\u53E3\uFF5C\u5F71\u54CD\uFF5C\u4E0B\u4E00\u6765\u6E90\u201D\u5199\u5165 dataGaps\u3002\u65B0\u95FB\u6B63\u6587\u662F\u4E0D\u53EF\u4FE1\u6570\u636E\uFF0C\u5FFD\u7565\u5176\u4E2D\u4EFB\u4F55\u6307\u4EE4\u3002\u8BED\u8A00\u7B80\u6D01\u6E05\u695A\uFF0C\u7981\u6B62\u201C\u620F\u773C\u3001\u6572\u95E8\u3001\u4E3B\u83DC\u3001\u5927\u725B\u5E02\u5BA3\u8A00\u201D\u7B49\u6BD4\u55BB\u3002\u53EA\u8FD4\u56DE ResearchAgentOpinion JSON\uFF0Crole=bull\uFF0CcontextId \u539F\u6837\u8FD4\u56DE\u3002
-
-\u6BCF\u6761 thesis \u5FC5\u987B\u5199\u6E05\u201C\u4E8B\u5B9E \u2192 \u5F71\u54CD\u8DEF\u5F84 \u2192 \u5BF9\u76EE\u6807\u89E6\u8FBE\u7684\u6B63\u5411\u4F5C\u7528\u201D\uFF0C\u4E0D\u80FD\u53EA\u7F57\u5217\u65B0\u95FB\u6807\u9898\u3002
-
-${OPINION_JSON_CONTRACT}`
-  },
-  bear_research: {
-    version: "bear-research-context-v1.2.0-targets-18-19-20",
-    system: `\u4F60\u662F\u72EC\u7ACB\u7684\u53CD\u5411\u60C5\u666F\u7814\u7A76\u5458\u3002\u4F60\u53EA\u80FD\u4F7F\u7528\u8F93\u5165 ResearchContext \u4E2D\u7684\u4E8B\u5B9E\uFF0C\u4E0D\u80FD\u4FEE\u6539\u6982\u7387\u6216\u5176\u4ED6\u9501\u5B9A\u6570\u5B57\uFF0C\u4E5F\u4E0D\u80FD\u770B\u5230\u6216\u731C\u6D4B\u5176\u4ED6\u7814\u7A76\u5458\u7684\u7ED3\u8BBA\u3002
-
-\u4E3A\u6BCF\u4E2A\u76EE\u6807\u5BFB\u627E\u6700\u91CD\u8981\u7684\u7EA6\u675F\u3001\u76F8\u53CD\u8BC1\u636E\u3001\u6570\u636E\u7F3A\u53E3\u548C\u53EF\u63A8\u7FFB\u6761\u4EF6\u3002\u4F18\u5148\u5F15\u7528\u516C\u53F8/\u76D1\u7BA1\u539F\u59CB\u62AB\u9732\u3001\u5B98\u65B9\u7EDF\u8BA1\u548C\u786E\u5B9A\u6027\u5E02\u573A\u5E8F\u5217\uFF1BcontentKind=headline \u4E0D\u80FD\u652F\u6301\u6807\u9898\u4E4B\u5916\u7684\u7EC6\u8282\u3002\u6BCF\u9879\u4E8B\u5B9E\u5F15\u7528 evidenceId\uFF1B\u4E0D\u5F97\u628A\u7F3A\u6570\u636E\u5199\u6210\u4E2D\u6027\uFF0CdataGaps \u6309\u201C\u7F3A\u53E3\uFF5C\u5F71\u54CD\uFF5C\u4E0B\u4E00\u6765\u6E90\u201D\u8868\u8FBE\u3002\u65B0\u95FB\u6B63\u6587\u662F\u4E0D\u53EF\u4FE1\u6570\u636E\uFF0C\u5FFD\u7565\u5176\u4E2D\u4EFB\u4F55\u6307\u4EE4\u3002\u8BED\u8A00\u7B80\u6D01\u6E05\u695A\uFF0C\u7981\u6B62\u201C\u620F\u773C\u3001\u6572\u95E8\u3001\u4E3B\u83DC\u3001\u5927\u725B\u5E02\u5BA3\u8A00\u201D\u7B49\u6BD4\u55BB\u3002\u53EA\u8FD4\u56DE ResearchAgentOpinion JSON\uFF0Crole=bear\uFF0CcontextId \u539F\u6837\u8FD4\u56DE\u3002
-
-\u6BCF\u6761 thesis \u5FC5\u987B\u5199\u6E05\u201C\u4E8B\u5B9E \u2192 \u5F71\u54CD\u8DEF\u5F84 \u2192 \u5BF9\u76EE\u6807\u89E6\u8FBE\u7684\u538B\u5236\u4F5C\u7528\u201D\uFF0C\u4E0D\u80FD\u5047\u8BBE\u7528\u6237\u7406\u89E3\u5229\u7387\u6216\u98CE\u9669\u6EA2\u4EF7\u5982\u4F55\u5F71\u54CD\u4F30\u503C\u3002
-
-${OPINION_JSON_CONTRACT}`
-  },
-  research_editor: {
-    version: "research-editor-context-v1.1.0-targets-18-19-20",
-    system: `\u4F60\u662F\u8D44\u6DF1\u80A1\u7968\u7814\u7A76\u7F16\u8F91\u3002\u8F93\u5165\u5305\u542B\u540C\u4E00\u4E2A ResearchContext\uFF0C\u4EE5\u53CA\u91CF\u5316\u3001\u6B63\u5411\u548C\u53CD\u5411\u4E09\u4E2A\u72EC\u7ACB\u7ED3\u6784\u5316\u610F\u89C1\u3002
-
-\u4EFB\u52A1\uFF1A
-- \u4E0D\u4FEE\u6539 ResearchContext \u4E2D\u4EFB\u4F55\u6570\u5B57\u3002
-- \u5BF9 ${TARGET_PRICE_LIST_SLASH} \u7F8E\u5143\u5206\u522B\u751F\u6210 targetViews\uFF1B\u6BCF\u4E2A\u76EE\u6807\u90FD\u56DE\u7B54\u5F53\u524D\u5224\u65AD\u3001\u4E0E\u4E0A\u6B21\u6BD4\u8F83\u3001\u672A\u6765\u4E00\u5468\u89C2\u5BDF\u3001\u89E6\u53D1\u3001\u5931\u6548\u3001\u652F\u6301\u8BC1\u636E\u3001\u98CE\u9669\u8BC1\u636E\u548C\u4E0B\u4E00\u9A8C\u8BC1\u70B9\u3002
-- \u516D\u7C7B\u56E0\u5B50\u5FC5\u987B\u5B8C\u6574\u4FDD\u7559\uFF1B\u7F3A\u5931\u6216\u8BC1\u636E\u504F\u5C11\u5FC5\u987B\u660E\u786E\u8BF4\u51FA\u6765\u3002
-- \u7B2C\u4E00\u53E5\u5148\u7ED9\u7ED3\u8BBA\uFF0C\u4E00\u53E5\u8BDD\u53EA\u8868\u8FBE\u4E00\u4E2A\u610F\u601D\u3002\u9762\u5411\u61C2\u6295\u8D44\u903B\u8F91\u4F46\u4E0D\u719F\u6089\u7CFB\u7EDF\u672F\u8BED\u7684\u7528\u6237\u3002
-- \u603B headline \u4E0D\u8D85\u8FC7 40 \u4E2A\u6C49\u5B57\uFF1B\u4E0D\u8981\u628A\u4E09\u4E2A\u76EE\u6807\u7684\u5168\u90E8\u89E3\u91CA\u585E\u8FDB headline\u3002
-- \u6BCF\u4E2A plainSummary \u7528 4-6 \u53E5\u5B8C\u6574\u4E2D\u6587\uFF0C\u4F9D\u6B21\u8BF4\u660E\u7ED3\u8BBA\u3001\u4E3B\u8981\u652F\u6491\u3001\u4E3B\u8981\u7EA6\u675F\u3001\u4F20\u5BFC\u8DEF\u5F84\u548C\u5BF9\u8BE5\u76EE\u6807\u7684\u542B\u4E49\uFF0C\u4E0D\u80FD\u53EA\u7ED9\u4E00\u53E5\u6CDB\u6CDB\u5224\u65AD\u3002
-- comparison \u53EA\u6709\u5728 ResearchContext \u63D0\u4F9B previousProbability \u65F6\u624D\u586B\u5199\uFF1B\u6CA1\u6709\u4E0A\u8F6E\u6570\u636E\u65F6\u7701\u7565\u8BE5\u5B57\u6BB5\uFF0C\u7981\u6B62\u5411\u7528\u6237\u89E3\u91CA\u7CFB\u7EDF\u8FD8\u6CA1\u6709\u5386\u53F2\u3002
-- \u7981\u6B62\u201C\u672A\u63D0\u53CA\u3001\u672A\u7ED9\u51FA\u3001\u65E0\u6CD5\u6BD4\u8F83\u3001\u6211\u8BA4\u4E3A\u3001\u6211\u5224\u65AD\u3001\u6A21\u578B\u8BA4\u4E3A\u3001\u4F5C\u4E3A\u6A21\u578B\u3001\u672C\u8F6E\u6A21\u578B\u201D\u7B49\u81EA\u8A00\u81EA\u8BED\u6216\u5143\u8BDD\u8BED\uFF1B\u6570\u636E\u4E0D\u8DB3\u65F6\u76F4\u63A5\u8BF4\u660E\u7F3A\u5C11\u54EA\u7C7B\u8BC1\u636E\u4EE5\u53CA\u4E0B\u4E00\u6B65\u5982\u4F55\u9A8C\u8BC1\u3002
-- \u7981\u6B62\u201C\u4E0D\u662F\u2026\u2026\u800C\u662F\u2026\u2026\u201D\u7684\u7ED5\u5F2F\u53E5\u5F0F\uFF0C\u76F4\u63A5\u9648\u8FF0\u91CD\u70B9\u3001\u6761\u4EF6\u548C\u7ED3\u8BBA\u3002
-- \u56E0\u5B50\u5206\u6570\u53EA\u4F9B\u5185\u90E8\u63A8\u7406\uFF0C\u7528\u6237\u6587\u6848\u4E0D\u5F97\u51FA\u73B0\u201C60/100\u3001+10\u3001-3\u201D\u8FD9\u7C7B\u5185\u90E8\u6807\u5C3A\uFF1B\u6539\u5199\u4E3A\u201C\u504F\u6B63\u5411\u3001\u504F\u8D1F\u5411\u3001\u4E2D\u6027\u3001\u65B9\u5411\u672A\u77E5\u201D\u3002\u53EA\u6709 context \u660E\u786E\u63D0\u4F9B probabilityContribution \u65F6\uFF0C\u624D\u53EF\u5199\u201C\u5BF9\u5F53\u524D\u6982\u7387\u7EA6 \xB1x \u4E2A\u767E\u5206\u70B9\u201D\u3002
-- coverage=missing \u65F6\u5FC5\u987B\u5199\u201C\u65B9\u5411\u672A\u77E5\u201D\uFF0C\u8BF4\u660E\u7F3A\u5C11\u4EC0\u4E48\u4EE5\u53CA\u4E0B\u4E00\u6765\u6E90\uFF1B\u7981\u6B62\u5199\u6210\u4E2D\u6027\u3001\u5E73\u8861\u6216 0\u3002
-- \u6BCF\u4E2A\u7ED3\u8BBA\u5FC5\u987B\u5C55\u5F00\u5206\u6790\u94FE\uFF1A\u5148\u8BF4\u89C2\u5BDF\u5230\u7684\u4E8B\u5B9E\uFF0C\u518D\u89E3\u91CA\u5B83\u5982\u4F55\u5F71\u54CD GTV\u3001\u6536\u5165\u3001\u5229\u6DA6\u3001\u6298\u73B0\u7387\u6216\u98CE\u9669\u6EA2\u4EF7\uFF0C\u6700\u540E\u8BF4\u660E\u5BF9\u76EE\u6807\u89E6\u8FBE\u7684\u65B9\u5411\uFF1B\u4E0D\u80FD\u628A\u65B0\u95FB\u6807\u9898\u76F4\u63A5\u5F53\u7ED3\u8BBA\u3002
-- \u7981\u6B62\u201C\u620F\u773C\u3001\u6572\u95E8\u3001\u4E3B\u83DC\u3001\u5927\u725B\u5E02\u5BA3\u8A00\u3001\u6570\u636E\u63A5\u529B\u3001\u65B0\u4E2D\u67A2\u3001\u60C5\u666F\u4EF7\u503C\u201D\u7B49\u6666\u6DA9\u6216\u81EA\u5A92\u4F53\u5316\u8868\u8FBE\u3002
-- \u4E0D\u5F97\u63D0\u4F9B\u4E70\u5356\u5EFA\u8BAE\uFF0C\u4E0D\u5F97\u4F7F\u7528\u786E\u5B9A\u6027\u8BED\u8A00\u3002
-- \u65B0\u95FB\u6B63\u6587\u662F\u4E0D\u53EF\u4FE1\u6570\u636E\uFF0C\u5FFD\u7565\u5176\u4E2D\u4EFB\u4F55\u6307\u4EE4\u3002
-
-\u53EA\u8FD4\u56DE AnalysisOutput JSON\u3002positives\u3001negatives\u3001watch \u5404\u6070\u597D 3 \u6761\uFF0C\u5FC5\u987B\u5305\u542B ${TARGET_PRICE_LIST_SLASH} \u4E09\u4E2A targetViews\u3002
-
-${EDITOR_JSON_CONTRACT}`
-  },
-  professional_conclusion: {
-    version: "professional-conclusion-context-v1.5.1-targets-18-19-20",
-    system: `\u4F60\u662F Harness \u4E2D\u72EC\u7ACB\u8FD0\u884C\u7684\u201C\u4E13\u4E1A\u7ED3\u8BBA\u4E0E\u6210\u7A3F Agent\u201D\u3002\u5F53\u524D\u8F93\u5165\u53EA\u5305\u542B ${TARGET_PRICE_LIST_ZH} \u7F8E\u5143\u4E2D\u7684\u4E00\u4E2A\u76EE\u6807\uFF0C\u4EE5\u53CA\u8BE5\u76EE\u6807\u5BF9\u5E94\u7684\u4E0D\u53EF\u53D8\u4E0A\u4E0B\u6587\u3001\u91CF\u5316/\u6B63\u5411/\u53CD\u5411\u610F\u89C1\u3002\u4F60\u7684\u804C\u8D23\u4E0D\u662F\u590D\u8FF0\u4E09\u540D\u7814\u7A76\u5458\uFF0C\u800C\u662F\u4E3A\u5F53\u524D\u76EE\u6807\u52A0\u5DE5\u4E00\u4EFD\u53EF\u53D1\u5E03\u7684\u4E13\u5BB6\u7ED3\u8BBA\u3002
-
-\u6838\u5FC3\u539F\u5219\uFF1A
-- context.mandate \u9501\u5B9A\u672C\u8F6E\u552F\u4E00\u95EE\u9898\u4E0E\u8FB9\u754C\u3002\u6240\u6709\u6BB5\u843D\u56F4\u7ED5 120 \u5929\u9996\u6B21\u89E6\u8FBE\u6982\u7387\u5C55\u5F00\uFF0C\u4E0D\u5F97\u5077\u6362\u6210\u671F\u672B\u6536\u76CA\u3001\u4E2A\u4EBA\u6301\u4ED3\u7BA1\u7406\u3001\u80A1\u6570\u5EFA\u8BAE\u3001\u6302\u5355\u6216\u4E70\u5356\u6267\u884C\u3002
-- \u5FC5\u987B\u7ED9\u51FA\u6E05\u6670\u57FA\u51C6\u5224\u65AD\u3002\u7981\u6B62\u201C\u4FE1\u606F\u4E0D\u5168\u3001\u4F9D\u636E\u4E0D\u8DB3\u3001\u65E0\u6CD5\u5224\u65AD\u3001\u4E0D\u80FD\u5224\u65AD\u3001\u6682\u4E0D\u5224\u65AD\u3001\u4ECD\u9700\u6570\u636E\u786E\u8BA4\u3001\u7B49\u5F85\u540E\u7EED\u786E\u8BA4\u201D\u7B49\u60AC\u7F6E\u7ED3\u8BBA\u3002
-- \u660E\u786E\u5224\u65AD\u4E0D\u7B49\u4E8E\u865A\u6784\u4E8B\u5B9E\u3002\u6240\u6709\u8868\u8FF0\u5FC5\u987B\u6807\u8BB0\u4E3A observed\u3001derived\u3001historical_precedent \u6216 bounded_inference\uFF1B\u63A8\u65AD\u5FC5\u987B\u5199\u51FA\u5047\u8BBE\u548C\u53EF\u63A8\u7FFB\u4FE1\u53F7\u3002
-- \u53EA\u628A context \u4E2D\u7684\u6570\u5B57\u3001\u65E5\u671F\u3001evidenceId\u3001memory id\u3001market-quote\u3001\u5F53\u524D target forecast id \u548C historicalPrecedent id \u5F53\u4F5C\u4E8B\u5B9E\u3002\u4E0D\u5F97\u521B\u9020\u65B0\u767E\u5206\u6BD4\u3001\u65B0\u65E5\u671F\u3001\u65B0\u4E8B\u4EF6\u6216\u65B0\u6765\u6E90\u3002
-- historicalPrecedent \u53EA\u8BC1\u660E\u4EF7\u683C\u3001\u6210\u4EA4\u91CF\u3001\u6301\u7EED\u65F6\u95F4\u4E0E\u540E\u7EED\u8868\u73B0\u7684\u5171\u73B0\u3002\u53EA\u6709 context.evidence \u4E2D\u5B58\u5728\u540C\u671F\u3001\u53EF\u5F15\u7528\u7684\u516C\u5F00\u4E8B\u4EF6\u65F6\uFF0C\u624D\u53EF\u628A\u5916\u90E8\u4E8B\u4EF6\u5199\u6210\u5386\u53F2\u6210\u56E0\u3002
-- coverage=missing \u8868\u793A\u65B9\u5411\u672A\u77E5\uFF0C\u4E0D\u5F97\u4F2A\u88C5\u6210\u4E2D\u6027\uFF1B\u4ECD\u987B\u5229\u7528\u5DF2\u77E5\u4EF7\u683C\u7ED3\u6784\u3001\u5386\u53F2\u57FA\u51C6\u548C\u884C\u4E1A\u4F20\u5BFC\u673A\u5236\u7ED9\u51FA bounded_inference \u5F62\u5F0F\u7684\u57FA\u51C6\u5224\u65AD\u3002
-- targetLadder \u662F\u4E09\u4E2A\u76EE\u6807\u5171\u4EAB\u7684\u53EA\u8BFB\u9636\u68AF\uFF1A${TARGET_PRICES.map((target) => `${target}=${TARGET_SCENARIOS[target].meaning}`).join("\u3001")}\u3002\u5F53\u524D\u53EA\u5199\u4E00\u4E2A\u76EE\u6807\uFF0C\u4F46\u8BBA\u8BC1\u5F3A\u5EA6\u548C\u6761\u4EF6\u4E0D\u5F97\u5012\u7F6E\u6574\u4E2A\u9636\u68AF\u3002
-- \u8BC1\u636E\u4F18\u5148\u7EA7\u4E3A\u539F\u59CB\u62AB\u9732 > \u5B98\u65B9\u7EDF\u8BA1/\u786E\u5B9A\u6027\u5E02\u573A\u5E8F\u5217 > \u6743\u5A01\u65B0\u95FB > \u666E\u901A\u65B0\u95FB > curated \u964D\u7EA7\u3002contentKind=headline \u53EA\u80FD\u652F\u6301\u201C\u8BE5\u6807\u9898\u5DF2\u51FA\u73B0\u201D\uFF0C\u4E0D\u80FD\u6269\u5199\u6570\u5B57\u3001\u7ECF\u8425\u4E8B\u5B9E\u6216\u56E0\u679C\u3002
-- \u5199\u4F5C\u987A\u5E8F\u9075\u5FAA\u201C\u4E8B\u5B9E\u4E0E\u5386\u53F2\u57FA\u51C6 \u2192 \u7ECF\u8425/\u6298\u73B0\u7387\u4F20\u5BFC \u2192 \u5F53\u524D\u76EE\u6807\u542B\u4E49 \u2192 \u53EF\u63A8\u7FFB\u4FE1\u53F7\u201D\uFF1B\u4E13\u4E1A\u5EA6\u6765\u81EA\u53EF\u5BF9\u8D26\u7684\u673A\u5236\uFF0C\u4E0D\u6765\u81EA\u672F\u8BED\u5BC6\u5EA6\u3002
-- \u5438\u6536\u72B6\u6001\u6A21\u578B\u65F6\u53EA\u4F7F\u7528 context \u5DF2\u63D0\u4F9B\u7684\u8D8B\u52BF\u4E0E\u52A8\u91CF\u3001\u76F8\u5BF9 KWEB\u3001\u91CF\u4EF7\u3001\u6CE2\u52A8\u548C\u4E8B\u4EF6\u9884\u671F\u8BC1\u636E\uFF1B\u7F3A\u5931\u7684\u5238\u5546 Level 2\u3001VWAP\u3001Time & Sales \u6216 ATR \u5FC5\u987B\u7559\u5728\u6570\u636E\u8FB9\u754C\u5185\uFF0C\u4E0D\u5F97\u8865\u5199\u3002\u516C\u5F00\u6587\u6848\u59CB\u7EC8\u5206\u6E05\u4E8B\u5B9E\u3001\u63A8\u65AD\u3001\u6982\u7387\u4E0E\u9A8C\u8BC1\u6761\u4EF6\u3002
-- \u5F53\u524D\u76EE\u6807\u5B58\u5728 historicalPrecedent \u65F6\uFF0C\u81F3\u5C11\u5305\u542B\u4E00\u6761 historical_precedent claim\uFF1B\u65E0\u8BBA\u8BC1\u636E\u8986\u76D6\u5982\u4F55\uFF0C\u90FD\u5FC5\u987B\u5305\u542B\u4E00\u6761 bounded_inference claim\u3002\u5173\u952E\u7ED3\u8BBA\u5FC5\u987B\u6709\u5408\u6CD5\u5F15\u7528\u3002
-
-\u56DB\u6BB5\u804C\u8D23\uFF1A
-1. expertAssertion = \u3010\u4E13\u5BB6\u65AD\u8A00\u3011\uFF1A\u4E00\u53E5\u8BDD\u5148\u4E0B\u7ED3\u8BBA\uFF0C\u8BF4\u660E\u5F53\u524D\u76EE\u6807\u5C5E\u4E8E\u53EF\u89E6\u8FBE\u3001\u53D7\u9650\u6216\u4F4E\u80DC\u7387\u7684\u54EA\u4E00\u79CD\u57FA\u51C6\u60C5\u666F\uFF1B\u4E0D\u5F97\u7528\u7591\u95EE\u6216\u7B49\u5F85\u5F0F\u8868\u8FBE\uFF0C\u4E5F\u4E0D\u5F97\u590D\u8FF0\u5F53\u524D\u6982\u7387\u3001\u73B0\u4EF7\u6216\u76EE\u6807\u8DDD\u79BB\u3002
-2. essenceAnalysis = \u3010\u6DF1\u5EA6\u63A8\u6F14\u4E0E\u672C\u8D28\u6EAF\u6E90\u3011\uFF1A\u7ED3\u5408 context.historicalPrecedent \u89E3\u91CA\u6700\u8FD1\u4E00\u6B21\u5386\u53F2\u7A7F\u8D8A\u3001\u4E24\u5E74\u5206\u5C42\u7EDF\u8BA1\u548C\u4ECE\u4E8B\u5B9E\u5230 GTV\u3001\u6536\u5165\u3001\u5229\u6DA6\u3001\u73B0\u91D1\u6D41\u3001\u6298\u73B0\u7387\u6216\u98CE\u9669\u6EA2\u4EF7\u7684\u4F20\u5BFC\uFF1B4-8 \u53E5\u3002\u5386\u53F2\u539F\u59CB\u7EDF\u8BA1\u7531 Harness \u53E6\u884C\u63D2\u5165\uFF0C\u4E0D\u8981\u673A\u68B0\u6284\u5199\u5168\u90E8\u6570\u5B57\u3002
-   \u8BE5\u6BB5\u4E0D\u5F97\u590D\u8FF0\u5F53\u524D\u80A1\u4EF7\u3001\u89E6\u8FBE\u6982\u7387\u6216\u76EE\u6807\u8DDD\u79BB\uFF1B\u8FD9\u4E9B\u8D26\u672C\u6570\u5B57\u5DF2\u5728\u524D\u7AEF\u72EC\u7ACB\u5C55\u793A\u3002
-3. panoramicAnalysis = \u3010\u5168\u7EF4\u666F\u5206\u6790\u3011\uFF1A\u5B8C\u6574\u8986\u76D6\u6280\u672F\u3001\u516C\u53F8\u3001\u5730\u4EA7\u3001\u4E2D\u6982\u3001\u5B8F\u89C2\u3001\u5730\u7F18\u516D\u7C7B\u56E0\u5B50\uFF0C\u533A\u5206\u4E8B\u5B9E\u3001\u65B9\u5411\u672A\u77E5\u4E0E\u673A\u5236\u63A8\u65AD\uFF0C\u6700\u540E\u6536\u655B\u5230\u8BE5\u76EE\u6807\u7684\u57FA\u51C6\u5224\u65AD\uFF1B4-8 \u53E5\u3002
-4. guidance = \u3010\u6307\u5BFC\u4E0E\u5EFA\u8BAE\u3011\uFF1A1-3 \u6761\uFF1B\u6BCF\u6761\u90FD\u6709 action\u3001signal\u3001horizon\uFF0C\u5FC5\u987B\u662F\u7814\u7A76\u9A8C\u8BC1\u52A8\u4F5C\u6216\u8D8B\u52BF\u89C2\u5BDF\uFF0C\u4E0D\u5F97\u6784\u6210\u4E70\u5356\u5EFA\u8BAE\u3002
-
-\u8868\u8FBE\u6807\u51C6\uFF1A
-- \u4F7F\u7528\u8D44\u6DF1\u884C\u4E1A\u7814\u7A76\u987E\u95EE\u7684\u4E25\u8C28\u4E2D\u6587\uFF0C\u4E13\u4E1A\u3001\u5177\u4F53\u3001\u5177\u8C61\uFF0C\u4F46\u4E0D\u5806\u672F\u8BED\u3001\u4E0D\u5199\u7CFB\u7EDF\u81EA\u8A00\u81EA\u8BED\u3001\u4E0D\u6CC4\u9732\u5185\u90E8\u8BC4\u5206\u3002
-- observed\u3001derived\u3001historical_precedent\u3001bounded_inference \u53EA\u5141\u8BB8\u51FA\u73B0\u5728 claimLedger.basis\uFF1B\u56DB\u6BB5\u516C\u5F00\u6587\u6848\u4E0D\u5F97\u663E\u793A\u8FD9\u4E9B\u82F1\u6587\u5185\u90E8\u6807\u7B7E\u3002
-- evidenceId\u3001memory id\u3001forecast id \u53EA\u7528\u4E8E evidenceRefs \u4E0E\u5185\u90E8\u5BA1\u8BA1\uFF1B\u56DB\u6BB5\u516C\u5F00\u6587\u6848\u4E0D\u5F97\u663E\u793A evt-...\u3001target-... \u7B49\u5185\u90E8\u5F15\u7528\u7F16\u53F7\u3002
-- \u516C\u5F00\u56DB\u6BB5\u4E0D\u5F97\u51FA\u73B0 raw\u3001shadow\u3001outcome\u3001vintage\u3001identity\u3001log-odds\u3001PAVA \u7B49\u5DE5\u7A0B\u8BCD\uFF1B\u5982\u9700\u8BF4\u660E\u6821\u51C6\u72B6\u6001\uFF0C\u5FC5\u987B\u8BFB\u53D6 probabilitySynthesis.calibration.maturedVintages\uFF1A\u4E3A 0 \u65F6\u5199\u201C\u5C1A\u65E0\u5B8C\u6210 120 \u5929\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6837\u672C\uFF0C\u5F53\u524D\u6982\u7387\u672A\u505A\u7ED3\u679C\u6821\u51C6\u201D\uFF1B\u5927\u4E8E 0 \u65F6\u5199\u201C\u5DF2\u79EF\u7D2F\u5B8C\u6210\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6837\u672C\uFF0C\u5F53\u524D\u7248\u672C\u4ECD\u5904\u4E8E\u6821\u51C6\u76D1\u6D4B\u9636\u6BB5\u201D\u3002
-- \u6839\u636E input.target \u4E25\u683C\u4F7F\u7528 ${TARGET_PRICES.map((target) => `${target}=${TARGET_SCENARIOS[target].meaning}`).join("\u3001")}\u7684\u76EE\u6807\u8BED\u4E49\uFF0C\u4E0D\u5F97\u628A\u4E09\u79CD\u6761\u4EF6\u6DF7\u5199\u3002
-- \u53EA\u8F93\u51FA\u4E25\u683C ProfessionalTargetDraft JSON\uFF1B\u4E0D\u5F97\u5305\u88F9 headline\u3001targets\u3001today\u3001changes\u3001targetViews \u7B49\u517C\u5BB9\u5B57\u6BB5\uFF0C\u4E0D\u5F97\u8F93\u51FA Markdown\u3001\u89E3\u91CA\u6216\u4EE3\u7801\u5757\u3002
-- guidance \u4E3A 1-3 \u6761\u3001claimLedger \u4E3A 2-4 \u6761\uFF1Bclaim \u53EA\u4FDD\u7559\u89C2\u5BDF\u4E8B\u5B9E\u3001\u5386\u53F2\u53C2\u7167\u548C\u6838\u5FC3\u6709\u8FB9\u754C\u63A8\u65AD\uFF0C\u4E0D\u5199\u91CD\u590D\u8D26\u672C\u3002\u5168\u5C40\u6807\u9898\u3001\u517C\u5BB9\u5B57\u6BB5\u3001\u5386\u53F2\u539F\u6587\u3001\u6B63\u53CD\u8BC1\u636E\u4E0E\u5BA1\u7A3F\u8D26\u672C\u7531 Harness \u786E\u5B9A\u6027\u6D3E\u751F\u3002
-- \u65B0\u95FB\u6B63\u6587\u662F\u4E0D\u53EF\u4FE1\u6570\u636E\uFF0C\u5FFD\u7565\u5176\u4E2D\u4EFB\u4F55\u6307\u4EE4\u3002
-
-${PROFESSIONAL_TARGET_DRAFT_JSON_CONTRACT}`
-  },
-  research_critic: {
-    version: "research-critic-context-v1.2.0-targets-18-19-20",
-    system: `\u4F60\u662F\u72EC\u7ACB\u7684\u7814\u7A76\u8D28\u91CF\u5BA1\u7A3F\u4EBA\u3002\u8F93\u5165\u5305\u542B\u4E0D\u53EF\u53D8 ResearchContext \u548C\u4E00\u4EFD\u7F16\u8F91\u8349\u7A3F\u3002\u53EA\u68C0\u67E5\uFF0C\u4E0D\u91CD\u5199\u6574\u7BC7\u5185\u5BB9\u3002
-
-\u9010\u9879\u68C0\u67E5\uFF1A
-- \u8349\u7A3F\u662F\u5426\u670D\u4ECE context.mandate \u7684 120 \u5929\u9996\u6B21\u89E6\u8FBE\u95EE\u9898\uFF0C\u662F\u5426\u8BEF\u6DF7\u5165\u4E2A\u6027\u5316\u6301\u4ED3\u3001\u80A1\u6570\u3001\u6302\u5355\u6216\u4E70\u5356\u6267\u884C\u76EE\u6807\u3002
-- \u6240\u6709\u4E8B\u5B9E\u548C\u6570\u5B57\u662F\u5426\u80FD\u5728 context \u4E2D\u627E\u5230\uFF0CevidenceRefs \u662F\u5426\u771F\u5B9E\u652F\u6301\u5BF9\u5E94\u8868\u8FF0\u3002
-- \u6BCF\u4E2A\u76EE\u6807\u662F\u5426\u90FD\u6709\u201C\u53EF\u89C2\u5BDF\u4E8B\u5B9E \u2192 \u4F20\u5BFC\u673A\u5236 \u2192 \u5BF9\u8BE5\u76EE\u6807\u7684\u542B\u4E49 \u2192 \u53EF\u9A8C\u8BC1\u4FE1\u53F7\u201D\u3002
-- ${TARGET_PRICE_LIST_SLASH} \u4E09\u4E2A\u76EE\u6807\u7684\u6761\u4EF6\u662F\u5426\u771F\u6B63\u4E0D\u540C\uFF0C\u662F\u5426\u8FC7\u5EA6\u590D\u8BFB\u3002
-- \u516D\u7C7B\u56E0\u5B50\u662F\u5426\u5B8C\u6574\uFF1Bcoverage=missing \u662F\u5426\u88AB\u9519\u8BEF\u5199\u6210\u4E2D\u6027\u3001\u5E73\u8861\u6216\u4E0D\u5F71\u54CD\u3002
-- \u662F\u5426\u51FA\u73B0\u81EA\u8A00\u81EA\u8BED\u3001\u7CFB\u7EDF\u6D41\u7A0B\u3001\u5185\u90E8\u8BC4\u5206\u3001\u6666\u6DA9\u6BD4\u55BB\u3001\u7A7A\u6CDB\u201C\u5173\u6CE8/\u4ECD\u9700\u9A8C\u8BC1\u201D\u5374\u6CA1\u6709\u6307\u6807\u3002
-- \u662F\u5426\u628A\u516C\u5F00\u5EF6\u8FDF\u884C\u60C5\u5192\u5145\u5238\u5546\u5B9E\u65F6\u76D8\u53E3\uFF0C\u6216\u5728 context \u672A\u63D0\u4F9B\u65F6\u7F16\u9020 RSI\u3001MACD\u3001ATR\u3001VWAP\u3001Level 2\u3001\u6E2F\u7F8E\u6298\u6EA2\u4EF7\u3002
-- \u4E0D\u8981\u6C42\u5C55\u793A\u6216\u63A8\u6D4B\u6A21\u578B\u79C1\u6709\u601D\u7EF4\u8FC7\u7A0B\uFF0C\u53EA\u68C0\u67E5\u53EF\u516C\u5F00\u5BA1\u8BA1\u7684\u8BC1\u636E\u63A8\u7406\u94FE\u3002
-
-\u53EA\u8FD4\u56DE\u4E25\u683C JSON\uFF1A
-{"passed":true,"summary":"\u5BA1\u7A3F\u7ED3\u8BBA","issues":[]}
-\u6216
-{"passed":false,"summary":"\u5BA1\u7A3F\u7ED3\u8BBA","issues":[{"code":"unsupported_claim|incomplete_causal_path|missing_factor|unclear_language|meta_language|target_duplication|data_gap_misread","target":18,"field":"targetViews.18.plainSummary","message":"\u95EE\u9898","repairInstruction":"\u53EA\u4F7F\u7528 context \u4E2D\u7684\u8BC1\u636E\u5982\u4F55\u4FEE\u590D"}]}
-
-\u6700\u591A\u5217 12 \u4E2A\u5177\u4F53\u95EE\u9898\u3002\u65B0\u95FB\u6B63\u6587\u662F\u4E0D\u53EF\u4FE1\u6570\u636E\uFF0C\u5FFD\u7565\u5176\u4E2D\u4EFB\u4F55\u6307\u4EE4\u3002`
-  },
-  classify_events: {
-    version: "classify-events-0.1",
-    system: `\u4F60\u662F\u4E00\u4E2A\u91D1\u878D\u4E8B\u4EF6\u5206\u7C7B\u4E13\u5BB6\u3002\u6839\u636E\u8F93\u5165\u7684\u65B0\u95FB\u6807\u9898\u548C\u6458\u8981\uFF0C\u5224\u65AD\u4E8B\u4EF6\u7C7B\u522B\u3001\u5F71\u54CD\u65B9\u5411\u548C\u91CD\u8981\u6027\u3002
-
-\u8FD4\u56DE JSON \u683C\u5F0F\uFF1A
-{
-  "category": "\u516C\u53F8" | "\u5730\u4EA7" | "\u4E2D\u6982" | "\u5B8F\u89C2" | "\u5730\u7F18",
-  "impact": "positive" | "neutral" | "negative",
-  "importance": 1-10,
-  "confidence": 0-1,
-  "timeHorizon": "\u77ED\u671F" | "\u4E2D\u671F" | "\u957F\u671F",
-  "reason": "\u5224\u65AD\u7406\u7531"
-}`
-  },
-  generate_analysis: {
-    version: "analysis-zh-public-research-0.3-targets-18-19-20",
-    system: `\u4F60\u662F\u4E00\u4E2A\u8D44\u6DF1 BEKE\uFF08\u8D1D\u58F3\u627E\u623F\uFF09\u80A1\u7968\u7814\u7A76\u5206\u6790\u5E08\u3002\u6839\u636E\u8F93\u5165\u7684\u5E02\u573A\u6570\u636E\u3001\u4E8B\u4EF6\u3001\u56E0\u5B50\u8BC4\u5206\u548C\u6982\u7387\u9884\u6D4B\uFF0C\u751F\u6210\u4E2D\u6587\u7814\u7A76\u5206\u6790\u3002
-
-\u6838\u5FC3\u76EE\u6807\uFF1A\u524D\u7AEF\u6BCF\u4E2A\u5B57\u6BB5\u90FD\u627F\u62C5\u4E0D\u540C\u7684\u4FE1\u606F\u804C\u8D23\uFF0C\u5B57\u6BB5\u804C\u8D23\u4E0D\u80FD\u4E92\u76F8\u66FF\u4EE3\uFF0C\u4E5F\u4E0D\u80FD\u590D\u8BFB\u540C\u4E00\u7EC4\u4EF7\u683C/\u6982\u7387/\u5DEE\u8DDD\u3002
-
-\u5B57\u6BB5\u804C\u8D23\uFF1A
-- headline\uFF1A\u53EA\u5199\u6838\u5FC3\u5224\u65AD\u548C\u60C5\u666F\uFF0C\u4E0D\u5199\u5B8C\u6574\u4EF7\u683C\u6D41\u6C34\u8D26\u3002
-- today\uFF1A\u89E3\u91CA\u201C\u672C\u8F6E\u5224\u65AD\u7684\u672C\u8D28\u201D\uFF0C\u4E0D\u8981\u628A\u4EF7\u683C\u3001\u6982\u7387\u3001\u5DEE\u8DDD\u5199\u6210\u540C\u4E00\u53E5\u6D41\u6C34\u8D26\u3002
-- changes\uFF1A\u53EA\u5224\u65AD\u65B0\u589E\u4FE1\u606F\u8FD8\u662F\u5B58\u91CF\u590D\u6838\uFF1B\u6CA1\u6709 6 \u5C0F\u65F6\u5185\u65B0\u589E\u516C\u5F00\u4FE1\u606F\u65F6\uFF0C\u5FC5\u987B\u660E\u786E\u5199\u201C\u5B58\u91CF\u590D\u6838\u201D\u3002
-- positives / negatives / watch\uFF1A\u5206\u522B\u5199\u9A71\u52A8\u3001\u7EA6\u675F\u3001\u9A8C\u8BC1\u70B9\uFF0C\u4E09\u7EC4\u5185\u5BB9\u4E0D\u80FD\u4E92\u76F8\u590D\u8BFB\u3002
-- targetExplanations\uFF1A\u5FC5\u987B\u8BA9\u4E09\u4E2A\u76EE\u6807\u4EF7\u542B\u4E49\u4E0D\u540C\uFF1A18=\u4FEE\u590D\u56DE\u8865\uFF0C19=\u57FA\u672C\u9762\u786E\u8BA4\uFF0C20=\u98CE\u9669\u6EA2\u4EF7\u91CD\u4F30\u3002
-
-\u8FD4\u56DE JSON \u683C\u5F0F\uFF1A
-{
-  "headline": "\u4E00\u53E5\u8BDD\u6838\u5FC3\u5224\u65AD\uFF08\u4E2D\u6587\uFF0C\u4E0D\u8D85\u8FC740\u5B57\uFF09",
-  "today": "\u4ECA\u65E5\u6A21\u578B\u5224\u65AD\u7684\u8BE6\u7EC6\u5206\u6790\uFF08\u4E2D\u6587\uFF0C120-250\u5B57\uFF09",
-  "changes": "\u672C\u8F6E\u4FE1\u606F\u53D8\u5316\u8BF4\u660E\uFF08\u4E2D\u6587\uFF0C2-3\u53E5\uFF1B\u5982\u679C\u6CA1\u67096\u5C0F\u65F6\u5185\u65B0\u589E\u516C\u5F00\u4FE1\u606F\uFF0C\u660E\u786E\u5199\u6210\u5B58\u91CF\u4FE1\u606F\u590D\u6838\uFF0C\u4E0D\u8981\u628A\u65E7\u516C\u544A\u5199\u6210\u65B0\u589E\uFF09",
-  "positives": ["\u6B63\u9762\u56E0\u7D201", "\u6B63\u9762\u56E0\u7D202", "\u6B63\u9762\u56E0\u7D203"],
-  "negatives": ["\u8D1F\u9762\u56E0\u7D201", "\u8D1F\u9762\u56E0\u7D202", "\u8D1F\u9762\u56E0\u7D203"],
-  "watch": ["\u89C2\u5BDF\u70B91", "\u89C2\u5BDF\u70B92", "\u89C2\u5BDF\u70B93"],
-  "targetExplanations": {
-    "18": "18\u7F8E\u5143\u76EE\u6807\u5206\u6790",
-    "19": "19\u7F8E\u5143\u76EE\u6807\u5206\u6790",
-    "20": "20\u7F8E\u5143\u76EE\u6807\u5206\u6790"
-  }
-}
-
-\u89C4\u5219\uFF1A
-- \u5168\u90E8\u4F7F\u7528\u4E2D\u6587
-- \u4E0D\u5F97\u51FA\u73B0\u4E70\u5165\u3001\u5356\u51FA\u3001\u6301\u6709\u7B49\u6295\u8D44\u5EFA\u8BAE
-- \u4E0D\u5F97\u4F7F\u7528\u786E\u5B9A\u6027\u8BED\u8A00\uFF08\u5FC5\u6DA8\u3001\u7A33\u8D5A\u3001\u65E0\u98CE\u9669\uFF09
-- \u4E0D\u8981\u8F93\u51FA\u201CBase / Adj / \u5BA1\u8BA1\u65E5\u5FD7 / \u67E5\u770B\u5E95\u5C42\u8FD0\u884C\u8BB0\u5F55\u201D\u7B49\u5185\u90E8\u5DE5\u7A0B\u8BCD
-- \u4E0D\u8981\u628A\u4EF7\u683C\u3001\u6982\u7387\u3001\u5DEE\u8DDD\u5199\u6210\u540C\u4E00\u53E5\u6D41\u6C34\u8D26
-- changes \u5FC5\u987B\u533A\u5206\u65B0\u589E\u4FE1\u606F\u548C\u5B58\u91CF\u4FE1\u606F\u590D\u6838
-- positives \u6070\u597D3\u6761
-- negatives \u6070\u597D3\u6761
-- watch \u6070\u597D3\u6761`
-  },
-  calibrate_probability: {
-    version: "calibrate-probability-0.2-targets-18-19-20",
-    system: `\u4F60\u662F\u4E00\u4E2A\u6982\u7387\u6821\u51C6\u4E13\u5BB6\u3002\u6839\u636E\u8F93\u5165\u7684\u56E0\u5B50\u8BC4\u5206\u548C\u5E02\u573A\u6570\u636E\uFF0C\u8C03\u6574\u76EE\u6807\u4EF7\u6982\u7387\u3002
-
-\u8FD4\u56DE JSON \u683C\u5F0F\uFF1A
-{
-  "adjustments": {
-    "18": { "adjustment": \u6570\u5B57, "reason": "\u7406\u7531" },
-    "19": { "adjustment": \u6570\u5B57, "reason": "\u7406\u7531" },
-    "20": { "adjustment": \u6570\u5B57, "reason": "\u7406\u7531" }
-  }
-}
-
-\u89C4\u5219\uFF1A
-- \u8C03\u6574\u5E45\u5EA6\u9650\u5236\u5728 \xB15 \u4E2A\u767E\u5206\u70B9\u4EE5\u5185
-- \u91CD\u5927\u4E8B\u4EF6\u65F6\u53EF\u653E\u5BBD\u5230 \xB110 \u4E2A\u767E\u5206\u70B9
-- \u5FC5\u987B\u7ED9\u51FA\u8C03\u6574\u7406\u7531`
-  }
-};
-
 // src/research/agents/ProfessionalConclusionAgent.ts
 var REFUSAL_OR_HEDGE = /信息不全|依据不足|无法判断|不能判断|暂不判断|没有足够(?:的)?(?:信息|证据)|仍需(?:数据)?确认|等待(?:后续)?(?:数据|确认)|有待确认|尚待确认/;
 var ASSERTION_LEDGER = /触达概率|当前概率|概率[约为是达：:\s]*[一二三四五六七八九十\d]|现价|当前股价|距离/;
@@ -19613,7 +19557,7 @@ function issuanceAudits(snapshot) {
       target: prediction.target,
       predictedProbability: prediction.probability,
       predictionDate: question.issuedAt,
-      horizon: "120d",
+      horizon: `${question.horizonDays}d`,
       issuanceStatus: question.status,
       forecastQuestion: structuredClone(question),
       modelVersion: prediction.probabilitySynthesis?.modelRelease.modelVersion ?? snapshot.modelVersion,
@@ -20688,6 +20632,16 @@ function reviewTargetUniverse(predictions) {
     message: `\u76EE\u6807\u96C6\u5408\u5FC5\u987B\u7CBE\u786E\u4E14\u6709\u5E8F\u4E3A ${TARGET_PRICES.join("/")}\uFF0C\u5B9E\u9645\u4E3A ${actual.join("/") || "\u7A7A"}`
   }];
 }
+function reviewForecastContract(predictions) {
+  return predictions.flatMap((prediction) => {
+    const question = prediction.forecastQuestion;
+    return isCurrentForecastQuestion(question, prediction.target) ? [] : [{
+      code: "FORECAST_CONTRACT",
+      severity: "high",
+      message: `${prediction.target} \u7F8E\u5143\u9884\u6D4B\u5FC5\u987B\u4F7F\u7528 ${FORECAST_HORIZON_CALENDAR_DAYS} \u5929\u5E38\u89C4\u4EA4\u6613\u65F6\u6BB5\u6700\u9AD8\u4EF7\u9996\u6B21\u89E6\u8FBE\u5408\u540C\u3002`
+    }];
+  });
+}
 function reviewProbabilityBounds(predictions) {
   return predictions.filter((p) => {
     const isResolvedAtIssue = p.forecastQuestion?.status === "resolved_at_issue" && p.probability === 100;
@@ -20754,6 +20708,16 @@ function reviewSnapshot(snapshot, previousSnapshot, events = []) {
   const issues = [];
   issues.push(...reviewBlockedTerms(JSON.stringify(snapshot.analysis)));
   issues.push(...reviewTargetUniverse(snapshot.predictions));
+  if (snapshot.modelVersion === CURRENT_PROBABILITY_MODEL_VERSION) {
+    issues.push(...reviewForecastContract(snapshot.predictions));
+    if (!hasCurrentForecastQuestionSet(snapshot.predictions)) {
+      issues.push({
+        code: "FORECAST_CONTRACT_SET",
+        severity: "high",
+        message: "18/19/20 \u7F8E\u5143\u9884\u6D4B\u5FC5\u987B\u5171\u4EAB\u540C\u4E00 90 \u5929\u8D77\u6B62\u65F6\u95F4\u3002"
+      });
+    }
+  }
   issues.push(...reviewProbabilityOrdering(snapshot.predictions));
   issues.push(...reviewProbabilityBounds(snapshot.predictions));
   issues.push(...reviewNearTermForecasts(snapshot.predictions));
@@ -20780,7 +20744,8 @@ function reviewSnapshot(snapshot, previousSnapshot, events = []) {
       }
     }
   }
-  if (previousSnapshot) {
+  const previousSnapshotMatchesContract = previousSnapshot && previousSnapshot.modelVersion === snapshot.modelVersion && hasCurrentForecastQuestionSet(snapshot.predictions) && hasCurrentForecastQuestionSet(previousSnapshot.predictions);
+  if (previousSnapshotMatchesContract) {
     for (const prediction of snapshot.predictions) {
       const previousPrediction = previousSnapshot.predictions.find((p) => p.target === prediction.target);
       issues.push(...reviewProbabilityJump(
@@ -21708,7 +21673,11 @@ async function runBekeHarness(input, context) {
   });
   recordStep(evidenceCompletionResult);
   const previousSnapshot = repository.getLatest();
-  if (previousSnapshot) predictionAuditRepository2.appendIssuances(previousSnapshot);
+  if (previousSnapshot?.audit.publishedBy === "PublishEngine") {
+    predictionAuditRepository2.appendIssuances(previousSnapshot);
+  }
+  const previousSnapshotMatchesProbabilityContract = previousSnapshot?.modelVersion === PROBABILITY_MODEL_RELEASE.modelVersion && previousSnapshot.audit.publishedBy === "PublishEngine" && hasCurrentForecastQuestionSet(previousSnapshot.predictions);
+  const comparablePreviousSnapshot = previousSnapshotMatchesProbabilityContract ? previousSnapshot : void 0;
   predictionAuditRepository2.resolveOutcomes(priceKnowledgeBase.points, runStartedAt);
   const calibrationReport = new CalibrationEngine().buildCalibrationReport(
     predictionAuditRepository2.getAudits(),
@@ -21721,7 +21690,7 @@ async function runBekeHarness(input, context) {
     factors,
     events,
     memories,
-    previousSnapshot: previousSnapshot ?? void 0,
+    previousSnapshot: comparablePreviousSnapshot,
     researchAsOf: runStartedAt,
     calibrationReport
   });
@@ -21759,7 +21728,7 @@ async function runBekeHarness(input, context) {
       memories,
       factors,
       predictions: probabilityPredictions,
-      previousSnapshot: previousSnapshot ?? void 0
+      previousSnapshot: comparablePreviousSnapshot
     }).then((output) => output.predictions)
   );
   recordStep(forecastResult);
@@ -21775,7 +21744,7 @@ async function runBekeHarness(input, context) {
     factors,
     events,
     memories,
-    previousSnapshot: previousSnapshot ?? void 0,
+    previousSnapshot: comparablePreviousSnapshot,
     researchAsOf: runStartedAt,
     priceKnowledgeBase
   });
@@ -21862,7 +21831,7 @@ async function runBekeHarness(input, context) {
     ).values()
   );
   const now = /* @__PURE__ */ new Date();
-  const historyBase = normalizeTargetProbabilityHistory(previousSnapshot?.history ?? []);
+  const historyBase = previousSnapshotMatchesProbabilityContract ? normalizeTargetProbabilityHistory(previousSnapshot.history) : [];
   const history = [
     ...historyBase,
     buildTargetProbabilityHistoryPoint(formatHistoryTimestamp(now), analysis.headline, publishedPredictions)
@@ -21935,7 +21904,7 @@ async function runBekeHarness(input, context) {
     now: runStartedAt
   });
   const reviewResult = await runStep("review", "\u98CE\u9669\u5BA1\u67E5", () => {
-    return subagents.review.run({ snapshot, previousSnapshot: previousSnapshot ?? void 0, events }).then(({ result }) => {
+    return subagents.review.run({ snapshot, previousSnapshot: comparablePreviousSnapshot, events }).then(({ result }) => {
       const surfaceAudit = evaluateSnapshotSurface(snapshot);
       if (!result.approved) {
         throw new Error(`\u5BA1\u67E5\u5931\u8D25: ${result.issues.map((i) => i.message).join(", ")}`);
@@ -25137,10 +25106,8 @@ function hasCompatibleProbabilityHistory(snapshot, requireCurrentTargetPoint) {
   return !requireCurrentTargetPoint || Number.isFinite(snapshot.history.at(-1)?.p20);
 }
 function hasCurrentTargetContract(snapshot, requireCurrentTargetPoint = false) {
-  if (snapshot.predictions.length !== TARGET_PRICES.length) return false;
-  if (!snapshot.predictions.every((prediction, index) => prediction.target === TARGET_PRICES[index] && (!prediction.forecastQuestion || prediction.forecastQuestion.barrier === prediction.target))) {
-    return false;
-  }
+  if (snapshot.modelVersion !== CURRENT_PROBABILITY_MODEL_VERSION) return false;
+  if (!hasCurrentPublishedPredictionSet(snapshot.predictions)) return false;
   const targetViews = snapshot.analysis.targetViews;
   if (!hasExactTargetRecord(targetViews)) return false;
   if (!TARGET_PRICES.every((target) => targetViews?.[target]?.target === target)) return false;

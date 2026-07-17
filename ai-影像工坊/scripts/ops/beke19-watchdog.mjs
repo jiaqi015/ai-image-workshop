@@ -9,6 +9,9 @@ export const MAX_REFRESH_ATTEMPTS = 2;
 export const MAX_PREFLIGHT_ATTEMPTS = 2;
 
 const EXPECTED_TARGETS = Object.freeze([18, 19, 20]);
+const EXPECTED_MODEL_VERSION = "probability-synthesis-v3-90d-targets-18-19-20";
+const EXPECTED_HORIZON_DAYS = 90;
+const DAY_MS = 86_400_000;
 const EXPECTED_TARGET_KEYS = Object.freeze(EXPECTED_TARGETS.map(String));
 const EXPECTED_HISTORY_KEYS = new Set(EXPECTED_TARGETS.map((target) => `p${target}`));
 const MAX_READ_TIMEOUT_MS = 30_000;
@@ -83,13 +86,49 @@ function validateTargetKeys(value, label) {
 function validateTargetPublicationContract(snapshot, label, {
   allowMissingP20InStaticFallback = false,
 } = {}) {
+  if (snapshot.modelVersion !== EXPECTED_MODEL_VERSION) {
+    throw new Error(`${label} modelVersion must be ${EXPECTED_MODEL_VERSION}`);
+  }
   const predictions = requireArray(snapshot.predictions, `${label} predictions`);
+  const issuedAtValues = new Set();
+  const horizonEndValues = new Set();
   const predictionTargets = predictions.map((prediction, index) => {
     const record = requireObject(prediction, `${label} predictions[${index}]`);
+    const probability = record.probability;
+    const question = requireObject(record.forecastQuestion, `${label} predictions[${index}].forecastQuestion`);
+    const issuedAt = Date.parse(requireTimestamp(question.issuedAt, `${label} predictions[${index}] issuedAt`));
+    const horizonEnd = Date.parse(requireTimestamp(question.horizonEnd, `${label} predictions[${index}] horizonEnd`));
+    const resolvedAtIssue = question.status === "resolved_at_issue" && probability === 100;
+    if (!Number.isFinite(probability) || (!resolvedAtIssue && (probability < 5 || probability > 95))) {
+      throw new Error(`${label} predictions[${index}] probability must be within the publish range`);
+    }
+    if (
+      question.barrier !== record.target
+      || question.horizonDays !== EXPECTED_HORIZON_DAYS
+      || !String(question.questionId).endsWith(`-${record.target}-90d-first-touch`)
+      || question.priceMeasure !== "regular_session_high"
+      || question.event !== "first_touch"
+      || question.tradingCalendar !== "XNYS"
+      || question.timezone !== "America/New_York"
+      || question.corporateActionPolicy !== "split_adjusted_barrier"
+      || horizonEnd - issuedAt !== EXPECTED_HORIZON_DAYS * DAY_MS
+    ) {
+      throw new Error(`${label} predictions[${index}] must use the current 90-day first-touch contract`);
+    }
+    issuedAtValues.add(question.issuedAt);
+    horizonEndValues.add(question.horizonEnd);
     return record.target;
   });
   if (!equalOrderedValues(predictionTargets, EXPECTED_TARGETS)) {
     throw new Error(`${label} predictions targets must be exactly ${EXPECTED_TARGETS.join(",")} in order`);
+  }
+  if (issuedAtValues.size !== 1 || horizonEndValues.size !== 1) {
+    throw new Error(`${label} predictions must share one 90-day issue and end time`);
+  }
+  for (let index = 1; index < predictions.length; index += 1) {
+    if (predictions[index].probability > predictions[index - 1].probability) {
+      throw new Error(`${label} probabilities must satisfy P18 >= P19 >= P20`);
+    }
   }
 
   const analysis = requireObject(snapshot.analysis, `${label} analysis`);
