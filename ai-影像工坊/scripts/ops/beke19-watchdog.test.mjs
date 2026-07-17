@@ -14,11 +14,19 @@ import {
 const NOW = Date.parse("2026-07-15T04:00:00.000Z");
 const OLD_RUN_ID = "run-old";
 const NEW_RUN_ID = "run-new";
-const CURRENT_TARGETS = [18, 19.5, 21];
+const CURRENT_TARGETS = [18, 19.5, 21, 23, 30];
 const RETIRED_TARGETS = [18, 19, 20];
 const LEGACY_TARGETS = [17, 18, 19];
-const CURRENT_MODEL_VERSION = "probability-synthesis-v4-90d-targets-18-19p5-21";
-const CURRENT_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-v5-90d-contract";
+const CURRENT_MODEL_VERSION = "probability-synthesis-v5-90d-targets-18-19p5-21-23-30";
+const CURRENT_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v6-90d-contract";
+const CURRENT_PROMPT_TARGET_MARKER = "targets-18-19p5-21-23-30";
+const REQUIRED_ANALYSIS_STAGES = [
+  "quant",
+  "bull",
+  "bear",
+  "professional_editor",
+  "deterministic_critic",
+];
 
 function response(status, payload) {
   return new Response(payload === undefined ? undefined : JSON.stringify(payload), {
@@ -54,6 +62,23 @@ function forecastQuestion(target, issuedAt) {
   };
 }
 
+function modelGeneration(overrides = {}) {
+  return {
+    mode: "model_loop",
+    provider: "TokenPlanProvider",
+    modelId: "mimo-v2.5-pro",
+    contextId: "ctx-watchdog-test",
+    promptVersions: [
+      `quant-research-context-v1.8.0-90d-${CURRENT_PROMPT_TARGET_MARKER}`,
+      `bull-research-context-v1.5.0-90d-${CURRENT_PROMPT_TARGET_MARKER}`,
+      `bear-research-context-v1.5.0-90d-${CURRENT_PROMPT_TARGET_MARKER}`,
+      `professional-conclusion-context-v1.9.0-90d-${CURRENT_PROMPT_TARGET_MARKER}`,
+    ],
+    stages: [...REQUIRED_ANALYSIS_STAGES],
+    ...overrides,
+  };
+}
+
 function snapshotPayload({
   nextUpdateAt = "2026-07-15T03:11:00.000Z",
   runId = OLD_RUN_ID,
@@ -64,6 +89,7 @@ function snapshotPayload({
   targetViewTargets = predictionTargets,
   targetExplanationTargets = predictionTargets,
   history = [historyPoint(predictionTargets)],
+  generation = modelGeneration(),
 } = {}) {
   return {
     ok: true,
@@ -83,6 +109,7 @@ function snapshotPayload({
         analysis: {
           targetViews: keyedTargets(targetViewTargets, (target) => ({ target })),
           targetExplanations: keyedTargets(targetExplanationTargets, (target) => `${target} 美元目标说明`),
+          generation,
         },
         history,
       },
@@ -171,6 +198,13 @@ test("FORCE_REFRESH can recover from a static fallback preflight", async () => {
     response(200, snapshotPayload({
       source: "static-fallback",
       runStatus: "failed",
+      generation: {
+        mode: "deterministic_fallback",
+        provider: "PublishedProfessionalSnapshot",
+        contextId: "ctx-static-fallback",
+        promptVersions: [],
+        stages: ["professional_editor", "deterministic_critic"],
+      },
     })),
     response(200, successfulRefreshPayload()),
     response(200, successfulRefreshPayload()),
@@ -190,9 +224,67 @@ test("FORCE_REFRESH can recover from a static fallback preflight", async () => {
   assert.equal(result.runId, NEW_RUN_ID);
 });
 
+for (const invalidGenerationCase of [
+  {
+    name: "rejects a non-model analysis from server-harness",
+    generation: modelGeneration({ mode: "deterministic_fallback" }),
+    expected: /analysis\.generation mode must be model_loop/,
+  },
+  {
+    name: "rejects a server-harness analysis from a non-TokenPlan provider",
+    generation: modelGeneration({ provider: "DeterministicResearchPanel" }),
+    expected: /analysis\.generation provider must be TokenPlanProvider/,
+  },
+  {
+    name: "rejects a server-harness analysis from the wrong model",
+    generation: modelGeneration({ modelId: "mimo-v2.5-lite" }),
+    expected: /analysis\.generation modelId must be mimo-v2\.5-pro/,
+  },
+  {
+    name: "rejects analysis prompts from the retired target contract",
+    generation: modelGeneration({
+      promptVersions: ["professional-conclusion-context-v1.7.0-90d-targets-18-19p5-21"],
+    }),
+    expected: /promptVersions must all use targets-18-19p5-21-23-30/,
+  },
+  {
+    name: "rejects an incomplete model stage ledger",
+    generation: modelGeneration({
+      stages: REQUIRED_ANALYSIS_STAGES.filter((stage) => stage !== "professional_editor"),
+    }),
+    expected: /stages must include professional_editor/,
+  },
+  {
+    name: "rejects a mixed AI and deterministic target fallback publication",
+    generation: modelGeneration({
+      stages: [...REQUIRED_ANALYSIS_STAGES, "deterministic_target_fallback"],
+    }),
+    expected: /stages must not include fallback stage deterministic_target_fallback/,
+  },
+]) {
+  test(invalidGenerationCase.name, async () => {
+    await assert.rejects(
+      runBeke19Watchdog({
+        env: { BEKE19_REFRESH_TOKEN: "secret" },
+        now: () => NOW,
+        logger: createLogger(),
+        sleep: async () => {},
+        fetchImpl: async () => response(200, snapshotPayload({
+          nextUpdateAt: "2026-07-15T04:30:00.000Z",
+          generation: invalidGenerationCase.generation,
+        })),
+      }),
+      invalidGenerationCase.expected,
+    );
+  });
+}
+
 test("accepts decimal target object keys after numeric normalization", async () => {
   const payload = snapshotPayload({ nextUpdateAt: "2026-07-15T04:30:00.000Z" });
-  assert.deepEqual(Object.keys(payload.state.snapshot.analysis.targetViews), ["18", "21", "19.5"]);
+  assert.deepEqual(
+    Object.keys(payload.state.snapshot.analysis.targetViews),
+    ["18", "21", "23", "30", "19.5"],
+  );
 
   const result = await runBeke19Watchdog({
     env: { BEKE19_REFRESH_TOKEN: "secret" },
@@ -202,6 +294,38 @@ test("accepts decimal target object keys after numeric normalization", async () 
   });
 
   assert.equal(result.status, "not-due");
+});
+
+test("rejects a target view whose embedded target does not match its key", async () => {
+  const payload = snapshotPayload({ nextUpdateAt: "2026-07-15T04:30:00.000Z" });
+  payload.state.snapshot.analysis.targetViews["23"].target = 21;
+
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => response(200, payload),
+    }),
+    /preflight analysis\.targetViews\.23 target must be 23/,
+  );
+});
+
+test("rejects an empty explanation in the complete five-target map", async () => {
+  const payload = snapshotPayload({ nextUpdateAt: "2026-07-15T04:30:00.000Z" });
+  payload.state.snapshot.analysis.targetExplanations["30"] = "";
+
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => response(200, payload),
+    }),
+    /preflight analysis\.targetExplanations\.30 must be a non-empty string/,
+  );
 });
 
 test("rejects the retired 18/19/20 target contract during preflight even when the run says success", async () => {
@@ -220,12 +344,12 @@ test("rejects the retired 18/19/20 target contract during preflight even when th
         }));
       },
     }),
-    /preflight predictions targets must be exactly 18,19.5,21 in order/,
+    /preflight predictions targets must be exactly 18,19.5,21,23,30 in order/,
   );
   assert.equal(requests, MAX_PREFLIGHT_ATTEMPTS);
 });
 
-test("rejects an 18/19.5/21 publication that still carries the retired 120-day horizon", async () => {
+test("rejects a five-target publication that still carries the retired 120-day horizon", async () => {
   const payload = snapshotPayload();
   payload.state.snapshot.predictions = payload.state.snapshot.predictions.map((prediction) => ({
     ...prediction,
@@ -262,7 +386,7 @@ test("rejects the retired probability model version", async () => {
       sleep: async () => {},
       fetchImpl: async () => response(200, payload),
     }),
-    /preflight modelVersion must be probability-synthesis-v4-90d-targets-18-19p5-21/,
+    /preflight modelVersion must be probability-synthesis-v5-90d-targets-18-19p5-21-23-30/,
   );
 });
 
@@ -278,7 +402,7 @@ test("rejects a publication without the current runtime marker", async () => {
       sleep: async () => {},
       fetchImpl: async () => response(200, payload),
     }),
-    /preflight dataVersion must include research-runtime-targets-18-19p5-21-v5-90d-contract/,
+    /preflight dataVersion must include research-runtime-targets-18-19p5-21-23-30-v6-90d-contract/,
   );
 });
 
@@ -312,12 +436,12 @@ test("rejects a refresh response that publishes the retired target contract", as
         return queue.shift();
       },
     }),
-    /refresh predictions targets must be exactly 18,19.5,21 in order|reconciliation predictions targets must be exactly 18,19.5,21 in order/,
+    /refresh predictions targets must be exactly 18,19.5,21,23,30 in order|reconciliation predictions targets must be exactly 18,19.5,21,23,30 in order/,
   );
   assert.equal(postRequests, 1);
 });
 
-test("rejects a verification read whose analysis target keys drift from 18/19.5/21", async () => {
+test("rejects a verification read whose analysis target keys drift from the five-target contract", async () => {
   const queue = [
     response(200, snapshotPayload()),
     response(200, successfulRefreshPayload()),
@@ -344,7 +468,7 @@ test("rejects a verification read whose analysis target keys drift from 18/19.5/
       sleep: async () => {},
       fetchImpl: async () => queue.shift(),
     }),
-    /verification analysis\.targetViews keys must be exactly 18,19.5,21|reconciliation analysis\.targetViews keys must be exactly 18,19.5,21/,
+    /verification analysis\.targetViews keys must be exactly 18,19.5,21,23,30|reconciliation analysis\.targetViews keys must be exactly 18,19.5,21,23,30/,
   );
 });
 
@@ -360,7 +484,7 @@ test("rejects retired target keys in analysis target explanations", async () => 
         nextUpdateAt: "2026-07-15T04:30:00.000Z",
       })),
     }),
-    /preflight analysis\.targetExplanations keys must be exactly 18,19.5,21/,
+    /preflight analysis\.targetExplanations keys must be exactly 18,19.5,21,23,30/,
   );
 });
 
@@ -461,6 +585,38 @@ test("requires a finite p21 in every history point", async () => {
       })),
     }),
     /preflight history\[0\] p21 must be finite/,
+  );
+});
+
+test("requires a finite p23 in every history point", async () => {
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => response(200, snapshotPayload({
+        history: [historyPoint([18, 19.5, 21])],
+        nextUpdateAt: "2026-07-15T04:30:00.000Z",
+      })),
+    }),
+    /preflight history\[0\] p23 must be finite/,
+  );
+});
+
+test("requires a finite p30 in every history point", async () => {
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => response(200, snapshotPayload({
+        history: [historyPoint([18, 19.5, 21, 23])],
+        nextUpdateAt: "2026-07-15T04:30:00.000Z",
+      })),
+    }),
+    /preflight history\[0\] p30 must be finite/,
   );
 });
 

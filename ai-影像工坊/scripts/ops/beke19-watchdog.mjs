@@ -8,9 +8,19 @@ export const DEFAULT_READ_RETRY_DELAY_MS = 1_000;
 export const MAX_REFRESH_ATTEMPTS = 2;
 export const MAX_PREFLIGHT_ATTEMPTS = 2;
 
-const EXPECTED_TARGETS = Object.freeze([18, 19.5, 21]);
-const EXPECTED_MODEL_VERSION = "probability-synthesis-v4-90d-targets-18-19p5-21";
-const EXPECTED_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-v5-90d-contract";
+const EXPECTED_TARGETS = Object.freeze([18, 19.5, 21, 23, 30]);
+const EXPECTED_MODEL_VERSION = "probability-synthesis-v5-90d-targets-18-19p5-21-23-30";
+const EXPECTED_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v6-90d-contract";
+const EXPECTED_ANALYSIS_PROVIDER = "TokenPlanProvider";
+const EXPECTED_ANALYSIS_MODEL_ID = "mimo-v2.5-pro";
+const EXPECTED_PROMPT_TARGET_MARKER = "targets-18-19p5-21-23-30";
+const REQUIRED_ANALYSIS_STAGES = Object.freeze([
+  "quant",
+  "bull",
+  "bear",
+  "professional_editor",
+  "deterministic_critic",
+]);
 const EXPECTED_HORIZON_DAYS = 90;
 const DAY_MS = 86_400_000;
 const EXPECTED_TARGET_KEYS = Object.freeze(EXPECTED_TARGETS.map(String));
@@ -82,6 +92,66 @@ function validateTargetKeys(value, label) {
   if (!equalOrderedValues(keys, EXPECTED_TARGET_KEYS)) {
     throw new Error(`${label} keys must be exactly ${EXPECTED_TARGET_KEYS.join(",")}`);
   }
+  return targetMap;
+}
+
+function validateTargetViews(value, label) {
+  const targetViews = validateTargetKeys(value, label);
+  for (const target of EXPECTED_TARGETS) {
+    const view = requireObject(targetViews[String(target)], `${label}.${target}`);
+    if (view.target !== target) {
+      throw new Error(`${label}.${target} target must be ${target}`);
+    }
+  }
+}
+
+function validateTargetExplanations(value, label) {
+  const explanations = validateTargetKeys(value, label);
+  for (const target of EXPECTED_TARGETS) {
+    requireString(explanations[String(target)], `${label}.${target}`);
+  }
+}
+
+function validateModelGeneratedAnalysis(snapshot, label) {
+  const analysis = requireObject(snapshot.analysis, `${label} analysis`);
+  const generation = requireObject(analysis.generation, `${label} analysis.generation`);
+  if (generation.mode !== "model_loop") {
+    throw new Error(`${label} analysis.generation mode must be model_loop`);
+  }
+  if (generation.provider !== EXPECTED_ANALYSIS_PROVIDER) {
+    throw new Error(`${label} analysis.generation provider must be ${EXPECTED_ANALYSIS_PROVIDER}`);
+  }
+  if (generation.modelId !== EXPECTED_ANALYSIS_MODEL_ID) {
+    throw new Error(`${label} analysis.generation modelId must be ${EXPECTED_ANALYSIS_MODEL_ID}`);
+  }
+  requireString(generation.contextId, `${label} analysis.generation contextId`);
+
+  const promptVersions = requireArray(
+    generation.promptVersions,
+    `${label} analysis.generation promptVersions`,
+  );
+  if (
+    promptVersions.length === 0
+    || promptVersions.some((version) =>
+      typeof version !== "string" || !version.includes(EXPECTED_PROMPT_TARGET_MARKER))
+  ) {
+    throw new Error(
+      `${label} analysis.generation promptVersions must all use ${EXPECTED_PROMPT_TARGET_MARKER}`,
+    );
+  }
+
+  const stages = requireArray(generation.stages, `${label} analysis.generation stages`);
+  for (const requiredStage of REQUIRED_ANALYSIS_STAGES) {
+    if (!stages.includes(requiredStage)) {
+      throw new Error(`${label} analysis.generation stages must include ${requiredStage}`);
+    }
+  }
+  const fallbackStage = stages.find(
+    (stage) => typeof stage === "string" && /fallback/i.test(stage),
+  );
+  if (fallbackStage) {
+    throw new Error(`${label} analysis.generation stages must not include fallback stage ${fallbackStage}`);
+  }
 }
 
 function validateTargetPublicationContract(snapshot, label) {
@@ -137,8 +207,8 @@ function validateTargetPublicationContract(snapshot, label) {
   }
 
   const analysis = requireObject(snapshot.analysis, `${label} analysis`);
-  validateTargetKeys(analysis.targetViews, `${label} analysis.targetViews`);
-  validateTargetKeys(analysis.targetExplanations, `${label} analysis.targetExplanations`);
+  validateTargetViews(analysis.targetViews, `${label} analysis.targetViews`);
+  validateTargetExplanations(analysis.targetExplanations, `${label} analysis.targetExplanations`);
 
   const history = requireArray(snapshot.history, `${label} history`);
   if (history.length === 0) throw new Error(`${label} history must contain at least one point`);
@@ -190,6 +260,9 @@ function validatePublishedPayload(payload, label, {
 } = {}) {
   const publication = readPublicationEnvelope(payload, label);
   validateTargetPublicationContract(publication.snapshot, label);
+  if (publication.source !== "static-fallback") {
+    validateModelGeneratedAnalysis(publication.snapshot, label);
+  }
 
   const { runStatus } = publication;
   if (requireSuccessfulRun && runStatus !== "success") {
