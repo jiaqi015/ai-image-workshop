@@ -14,6 +14,8 @@ import {
 const NOW = Date.parse("2026-07-15T04:00:00.000Z");
 const OLD_RUN_ID = "run-old";
 const NEW_RUN_ID = "run-new";
+const CURRENT_TARGETS = [18, 19, 20];
+const LEGACY_TARGETS = [17, 18, 19];
 
 function response(status, payload) {
   return new Response(payload === undefined ? undefined : JSON.stringify(payload), {
@@ -22,12 +24,27 @@ function response(status, payload) {
   });
 }
 
+function keyedTargets(targets, valueFactory) {
+  return Object.fromEntries(targets.map((target) => [String(target), valueFactory(target)]));
+}
+
+function historyPoint(targets = CURRENT_TARGETS) {
+  return {
+    publishedAt: "2026-07-14T13:11:00.000Z",
+    ...Object.fromEntries(targets.map((target, index) => [`p${target}`, 60 - index * 12])),
+  };
+}
+
 function snapshotPayload({
   nextUpdateAt = "2026-07-15T03:11:00.000Z",
   runId = OLD_RUN_ID,
   updatedAt = "2026-07-14T13:11:00.000Z",
   source = "server-harness",
   runStatus = "success",
+  predictionTargets = CURRENT_TARGETS,
+  targetViewTargets = predictionTargets,
+  targetExplanationTargets = predictionTargets,
+  history = [historyPoint(predictionTargets)],
 } = {}) {
   return {
     ok: true,
@@ -37,6 +54,12 @@ function snapshotPayload({
         runId,
         updatedAt,
         nextUpdateAt,
+        predictions: predictionTargets.map((target) => ({ target, probability: 0.5 })),
+        analysis: {
+          targetViews: keyedTargets(targetViewTargets, (target) => ({ target })),
+          targetExplanations: keyedTargets(targetExplanationTargets, (target) => `${target} 美元目标说明`),
+        },
+        history,
       },
       run: { status: runStatus },
     },
@@ -120,7 +143,11 @@ test("FORCE_REFRESH bypasses the due-time guard for workflow_dispatch", async ()
 
 test("FORCE_REFRESH can recover from a static fallback preflight", async () => {
   const queue = [
-    response(200, snapshotPayload({ source: "static-fallback", runStatus: "failed" })),
+    response(200, snapshotPayload({
+      source: "static-fallback",
+      runStatus: "failed",
+      history: [historyPoint([18, 19])],
+    })),
     response(200, successfulRefreshPayload()),
     response(200, successfulRefreshPayload()),
   ];
@@ -137,6 +164,161 @@ test("FORCE_REFRESH can recover from a static fallback preflight", async () => {
 
   assert.equal(result.status, "published");
   assert.equal(result.runId, NEW_RUN_ID);
+});
+
+test("rejects the retired 17/18/19 target contract during preflight even when the run says success", async () => {
+  let requests = 0;
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => {
+        requests += 1;
+        return response(200, snapshotPayload({
+          predictionTargets: LEGACY_TARGETS,
+          nextUpdateAt: "2026-07-15T04:30:00.000Z",
+        }));
+      },
+    }),
+    /preflight predictions targets must be exactly 18,19,20 in order/,
+  );
+  assert.equal(requests, MAX_PREFLIGHT_ATTEMPTS);
+});
+
+test("rejects a refresh response that publishes the retired target contract", async () => {
+  let postRequests = 0;
+  const queue = [
+    response(200, snapshotPayload()),
+    response(200, snapshotPayload({
+      predictionTargets: LEGACY_TARGETS,
+      runId: NEW_RUN_ID,
+      updatedAt: "2026-07-15T04:00:01.000Z",
+    })),
+    response(200, snapshotPayload({
+      predictionTargets: LEGACY_TARGETS,
+      runId: NEW_RUN_ID,
+      updatedAt: "2026-07-15T04:00:01.000Z",
+    })),
+  ];
+
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: {
+        BEKE19_REFRESH_TOKEN: "secret",
+        BEKE19_RETRY_DELAY_MS: "0",
+      },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async (_url, options = {}) => {
+        if (options.method === "POST") postRequests += 1;
+        return queue.shift();
+      },
+    }),
+    /refresh predictions targets must be exactly 18,19,20 in order|reconciliation predictions targets must be exactly 18,19,20 in order/,
+  );
+  assert.equal(postRequests, 1);
+});
+
+test("rejects a verification read whose analysis target keys drift from 18/19/20", async () => {
+  const queue = [
+    response(200, snapshotPayload()),
+    response(200, successfulRefreshPayload()),
+    response(200, snapshotPayload({
+      runId: NEW_RUN_ID,
+      updatedAt: "2026-07-15T04:00:01.000Z",
+      targetViewTargets: LEGACY_TARGETS,
+    })),
+    response(200, snapshotPayload({
+      runId: NEW_RUN_ID,
+      updatedAt: "2026-07-15T04:00:01.000Z",
+      targetViewTargets: LEGACY_TARGETS,
+    })),
+  ];
+
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: {
+        BEKE19_REFRESH_TOKEN: "secret",
+        BEKE19_RETRY_DELAY_MS: "0",
+      },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => queue.shift(),
+    }),
+    /verification analysis\.targetViews keys must be exactly 18,19,20|reconciliation analysis\.targetViews keys must be exactly 18,19,20/,
+  );
+});
+
+test("rejects retired target keys in analysis target explanations", async () => {
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => response(200, snapshotPayload({
+        targetExplanationTargets: LEGACY_TARGETS,
+        nextUpdateAt: "2026-07-15T04:30:00.000Z",
+      })),
+    }),
+    /preflight analysis\.targetExplanations keys must be exactly 18,19,20/,
+  );
+});
+
+test("rejects reconciliation when a timed-out refresh exposes legacy history", async () => {
+  let published = false;
+  const fetchImpl = async (_url, options = {}) => {
+    if (options.method === "GET") {
+      return response(200, published
+        ? snapshotPayload({
+          runId: NEW_RUN_ID,
+          updatedAt: "2026-07-15T04:00:01.000Z",
+          history: [historyPoint(LEGACY_TARGETS)],
+        })
+        : snapshotPayload());
+    }
+    return new Promise((_resolve, reject) => {
+      options.signal.addEventListener("abort", () => {
+        published = true;
+        reject(options.signal.reason);
+      }, { once: true });
+    });
+  };
+
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: {
+        BEKE19_REFRESH_TOKEN: "secret",
+        BEKE19_POST_TIMEOUT_MS: "5",
+        BEKE19_RETRY_DELAY_MS: "0",
+      },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl,
+    }),
+    /reconciliation history must not contain p17/,
+  );
+});
+
+test("requires a finite p20 in the latest server-harness history point", async () => {
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => response(200, snapshotPayload({
+        history: [historyPoint([18, 19])],
+        nextUpdateAt: "2026-07-15T04:30:00.000Z",
+      })),
+    }),
+    /preflight latest history p20 must be finite/,
+  );
 });
 
 test("refreshes a due snapshot and verifies the newly published run", async () => {

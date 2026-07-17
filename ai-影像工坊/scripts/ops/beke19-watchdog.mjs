@@ -8,6 +8,9 @@ export const DEFAULT_READ_RETRY_DELAY_MS = 1_000;
 export const MAX_REFRESH_ATTEMPTS = 2;
 export const MAX_PREFLIGHT_ATTEMPTS = 2;
 
+const EXPECTED_TARGETS = Object.freeze([18, 19, 20]);
+const EXPECTED_TARGET_KEYS = Object.freeze(EXPECTED_TARGETS.map(String));
+const EXPECTED_HISTORY_KEYS = new Set(EXPECTED_TARGETS.map((target) => `p${target}`));
 const MAX_READ_TIMEOUT_MS = 30_000;
 const MAX_POST_TIMEOUT_MS = 300_000;
 const MAX_RETRY_DELAY_MS = 60_000;
@@ -57,7 +60,73 @@ function requireTimestamp(value, label) {
   return timestamp;
 }
 
-function validatePublishedPayload(payload, label, { requireSuccessfulRun = true } = {}) {
+function requireArray(value, label) {
+  if (!Array.isArray(value)) {
+    throw new Error(`${label} must be a JSON array`);
+  }
+  return value;
+}
+
+function equalOrderedValues(actual, expected) {
+  return actual.length === expected.length
+    && actual.every((value, index) => value === expected[index]);
+}
+
+function validateTargetKeys(value, label) {
+  const targetMap = requireObject(value, label);
+  const keys = Object.keys(targetMap);
+  if (!equalOrderedValues(keys, EXPECTED_TARGET_KEYS)) {
+    throw new Error(`${label} keys must be exactly ${EXPECTED_TARGET_KEYS.join(",")}`);
+  }
+}
+
+function validateTargetPublicationContract(snapshot, label, {
+  allowMissingP20InStaticFallback = false,
+} = {}) {
+  const predictions = requireArray(snapshot.predictions, `${label} predictions`);
+  const predictionTargets = predictions.map((prediction, index) => {
+    const record = requireObject(prediction, `${label} predictions[${index}]`);
+    return record.target;
+  });
+  if (!equalOrderedValues(predictionTargets, EXPECTED_TARGETS)) {
+    throw new Error(`${label} predictions targets must be exactly ${EXPECTED_TARGETS.join(",")} in order`);
+  }
+
+  const analysis = requireObject(snapshot.analysis, `${label} analysis`);
+  validateTargetKeys(analysis.targetViews, `${label} analysis.targetViews`);
+  validateTargetKeys(analysis.targetExplanations, `${label} analysis.targetExplanations`);
+
+  const history = requireArray(snapshot.history, `${label} history`);
+  if (history.length === 0) throw new Error(`${label} history must contain at least one point`);
+
+  for (const [index, rawPoint] of history.entries()) {
+    const point = requireObject(rawPoint, `${label} history[${index}]`);
+    if (Object.hasOwn(point, "p17")) {
+      throw new Error(`${label} history must not contain p17`);
+    }
+    const unexpectedProbabilityKey = Object.keys(point).find(
+      (key) => /^p\d+$/.test(key) && !EXPECTED_HISTORY_KEYS.has(key),
+    );
+    if (unexpectedProbabilityKey) {
+      throw new Error(`${label} history contains unsupported probability key ${unexpectedProbabilityKey}`);
+    }
+  }
+
+  const latestPoint = requireObject(history.at(-1), `${label} latest history`);
+  for (const key of ["p18", "p19"]) {
+    if (!Number.isFinite(latestPoint[key])) {
+      throw new Error(`${label} latest history ${key} must be finite`);
+    }
+  }
+  if (!allowMissingP20InStaticFallback && !Number.isFinite(latestPoint.p20)) {
+    throw new Error(`${label} latest history p20 must be finite`);
+  }
+  if (Object.hasOwn(latestPoint, "p20") && !Number.isFinite(latestPoint.p20)) {
+    throw new Error(`${label} latest history p20 must be finite`);
+  }
+}
+
+function readPublicationEnvelope(payload, label) {
   const root = requireObject(payload, label);
   if (root.ok !== true) throw new Error(`${label} ok must be true`);
 
@@ -71,12 +140,10 @@ function validatePublishedPayload(payload, label, { requireSuccessfulRun = true 
   const updatedAt = requireTimestamp(snapshot.updatedAt, `${label} updatedAt`);
   const nextUpdateAt = requireTimestamp(snapshot.nextUpdateAt, `${label} nextUpdateAt`);
   const runStatus = requireString(run.status, `${label} run status`);
-  if (requireSuccessfulRun && runStatus !== "success") {
-    throw new Error(`${label} run status must be success`);
-  }
 
   return {
     payload: root,
+    snapshot,
     runId,
     updatedAt,
     nextUpdateAt,
@@ -85,9 +152,27 @@ function validatePublishedPayload(payload, label, { requireSuccessfulRun = true 
   };
 }
 
+function validatePublishedPayload(payload, label, {
+  requireSuccessfulRun = true,
+  allowStaticFallbackHistoryGap = false,
+} = {}) {
+  const publication = readPublicationEnvelope(payload, label);
+  validateTargetPublicationContract(publication.snapshot, label, {
+    allowMissingP20InStaticFallback:
+      allowStaticFallbackHistoryGap && publication.source === "static-fallback",
+  });
+
+  const { runStatus } = publication;
+  if (requireSuccessfulRun && runStatus !== "success") {
+    throw new Error(`${label} run status must be success`);
+  }
+
+  return publication;
+}
+
 function isDefinitiveUnpublishedResponse(payload, previousRunId) {
   try {
-    const publication = validatePublishedPayload(payload, "failed refresh", { requireSuccessfulRun: false });
+    const publication = readPublicationEnvelope(payload, "failed refresh");
     return publication.runId === previousRunId
       && (publication.source !== "server-harness" || publication.runStatus !== "success");
   } catch {
@@ -213,7 +298,10 @@ export async function runBeke19Watchdog({
           label: `preflight attempt ${attempt}`,
         },
       );
-      preflight = validatePublishedPayload(preflightPayload, "preflight", { requireSuccessfulRun: false });
+      preflight = validatePublishedPayload(preflightPayload, "preflight", {
+        requireSuccessfulRun: false,
+        allowStaticFallbackHistoryGap: true,
+      });
       break;
     } catch (error) {
       preflightError = error;
