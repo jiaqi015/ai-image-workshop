@@ -15,36 +15,31 @@ var TARGET_SCENARIOS = {
     tier: "repair",
     meaning: "\u4FEE\u590D\u7EBF",
     assertion: "18 \u7F8E\u5143\u5C5E\u4E8E\u4FEE\u590D\u56DE\u8865\u7684\u53EF\u89E6\u8FBE\u57FA\u51C6\u60C5\u666F",
-    distanceSensitivity: 1.9,
-    windowOffsetDays: 45
+    distanceSensitivity: 1.9
   },
   19.5: {
     tier: "confirmation",
     meaning: "\u786E\u8BA4\u7EBF",
     assertion: "19.5 \u7F8E\u5143\u5C5E\u4E8E\u7ECF\u8425\u4E0E\u884C\u4E1A\u5171\u632F\u540E\u7684\u786E\u8BA4\u60C5\u666F",
-    distanceSensitivity: 1.8,
-    windowOffsetDays: 58
+    distanceSensitivity: 1.8
   },
   21: {
     tier: "repricing",
     meaning: "\u91CD\u4F30\u7EBF",
     assertion: "21 \u7F8E\u5143\u5C5E\u4E8E\u6761\u4EF6\u53D7\u9650\u3001\u9700\u8981\u98CE\u9669\u6EA2\u4EF7\u91CD\u4F30\u7684\u8FDB\u9636\u60C5\u666F",
-    distanceSensitivity: 1.7,
-    windowOffsetDays: 61
+    distanceSensitivity: 1.7
   },
   23: {
     tier: "expansion",
     meaning: "\u6269\u5F20\u7EBF",
     assertion: "23 \u7F8E\u5143\u5C5E\u4E8E\u76C8\u5229\u6269\u5F20\u4E0E\u5730\u4EA7\u4FEE\u590D\u5171\u540C\u786E\u8BA4\u540E\u7684\u8FDB\u9636\u60C5\u666F",
-    distanceSensitivity: 1.6,
-    windowOffsetDays: 61
+    distanceSensitivity: 1.6
   },
   30: {
     tier: "transition",
     meaning: "\u8DC3\u8FC1\u7EBF",
     assertion: "30 \u7F8E\u5143\u5C5E\u4E8E\u5468\u671F\u53CD\u8F6C\u4E0E\u4F30\u503C\u4F53\u7CFB\u8DC3\u8FC1\u5171\u540C\u53D1\u751F\u7684\u5C3E\u90E8\u60C5\u666F",
-    distanceSensitivity: 1.3,
-    windowOffsetDays: 61
+    distanceSensitivity: 1.3
   }
 };
 var TARGET_PRICE_LIST_ZH = TARGET_PRICES.join("\u3001");
@@ -634,8 +629,9 @@ var BacktestEngine = class {
 };
 
 // src/research/runtime/version.ts
-var RESEARCH_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v6-90d-contract";
+var RESEARCH_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v8-milestone-validation";
 var CURRENT_PROBABILITY_MODEL_VERSION = "probability-synthesis-v5-90d-targets-18-19p5-21-23-30";
+var CURRENT_TIMING_MODEL_VERSION = "event-milestone-validation-v2";
 
 // src/research/engines/calibration/CalibrationEngine.ts
 var MIN_OUTCOME_SAMPLE_SIZE = 50;
@@ -887,9 +883,12 @@ function hasCurrentPublishedPredictionSet(predictions) {
   if (!hasCurrentForecastQuestionSet(predictions)) return false;
   for (let index = 0; index < predictions.length; index += 1) {
     const prediction = predictions[index];
-    const resolvedAtIssue = prediction.forecastQuestion?.status === "resolved_at_issue" && prediction.probability === 100;
     if (!Number.isFinite(prediction.probability)) return false;
-    if (!resolvedAtIssue && (prediction.probability < 5 || prediction.probability > 95)) return false;
+    if (prediction.forecastQuestion?.status === "resolved_at_issue") {
+      if (prediction.probability !== 100) return false;
+    } else if (prediction.probability < 5 || prediction.probability > 95) {
+      return false;
+    }
     if (index > 0 && prediction.probability > predictions[index - 1].probability) return false;
   }
   return true;
@@ -1140,9 +1139,13 @@ function classifySignal(probability) {
   if (probability >= 25) return "\u4E2D\u6027\u504F\u7A7A";
   return "\u504F\u7A7A";
 }
-var TARGET_WINDOW_OFFSET_DAYS = Object.fromEntries(
-  TARGET_PRICES.map((target) => [target, TARGET_SCENARIOS[target].windowOffsetDays])
-);
+var LEGACY_TARGET_WINDOW_OFFSET_DAYS = {
+  18: 45,
+  19.5: 58,
+  21: 61,
+  23: 61,
+  30: 61
+};
 var DEFAULT_ISSUED_AT = "2026-07-11T00:00:00.000Z";
 var LIKELY_WINDOW_SPAN_DAYS = 30;
 var NEAR_TERM_WINDOW_SPAN_DAYS = 7;
@@ -1168,7 +1171,7 @@ function createForecastQuestion(quote2, target, researchAsOf = quote2.asOf) {
 function likelyWindowForTarget(target, issuedAt = DEFAULT_ISSUED_AT) {
   const { start, end } = boundedForecastWindow(
     new Date(issuedAt),
-    TARGET_WINDOW_OFFSET_DAYS[target],
+    LEGACY_TARGET_WINDOW_OFFSET_DAYS[target],
     LIKELY_WINDOW_SPAN_DAYS
   );
   return formatForecastLabel(start, end);
@@ -1176,7 +1179,7 @@ function likelyWindowForTarget(target, issuedAt = DEFAULT_ISSUED_AT) {
 function buildNearTermForecast(input) {
   const context = calculateForecastContext(input);
   const issuedAt = input.quote?.asOf ?? DEFAULT_ISSUED_AT;
-  const requestedOffset = TARGET_WINDOW_OFFSET_DAYS[input.target] + context.weekShift * 7;
+  const requestedOffset = LEGACY_TARGET_WINDOW_OFFSET_DAYS[input.target] + context.weekShift * 7;
   const { start, end } = boundedForecastWindow(
     new Date(issuedAt),
     requestedOffset,
@@ -1668,7 +1671,7 @@ function calculateTargetPredictions(input) {
       ...structural,
       blendedProbability: forecastQuestion.status === "resolved_at_issue" ? 100 : enforceProbabilityBounds(rawEnsembleProbability)
     };
-    const likelyWindow = likelyWindowForTarget(target, probabilityContext.researchAsOf);
+    const likelyWindow = "\u672A\u6765 90 \u5929\uFF08\u7B49\u5F85\u4E8B\u4EF6\u91CC\u7A0B\u7891\u8DEF\u5F84\u5206\u914D\uFF09";
     const relevantEvents = events.filter((event) => event.affectedTargets.includes(target));
     const positiveDrivers = [
       ...factors.filter((f) => f.direction === "positive").map((f) => f.label),
@@ -1806,19 +1809,6 @@ function calculateTargetPredictions(input) {
       previousProbability,
       probabilityChange: previousProbability === void 0 ? void 0 : probability - previousProbability,
       likelyWindow: draft.likelyWindow,
-      nearTermForecast: buildNearTermForecast({
-        target: draft.target,
-        probability,
-        likelyWindow: draft.likelyWindow,
-        positiveDrivers: draft.positiveDrivers,
-        negativeDrivers: draft.negativeDrivers,
-        quote: quote2,
-        history,
-        factors,
-        events,
-        memories,
-        previousPrediction: previousProbability === void 0 ? void 0 : { target: draft.target, probability: previousProbability }
-      }),
       distancePercent: draft.distancePercent,
       signal: classifySignal(probability),
       confidence: classifyEpistemicConfidence(targetEpistemicConfidence),
@@ -2026,14 +2016,14 @@ function formatForecastLabel(start, end) {
 var targetOpinionContract = (target) => `"${target}":{"thesis":"\u5224\u65AD","evidenceRefs":["\u5DF2\u5B58\u5728\u7684 evidenceId"],"counterEvidenceRefs":["\u5DF2\u5B58\u5728\u7684 evidenceId"],"condition":"\u89E6\u53D1\u6761\u4EF6","invalidation":"\u5931\u6548\u6761\u4EF6"}`;
 var OPINION_JSON_CONTRACT = `\u4E25\u683C JSON \u7ED3\u6784\uFF08\u4E0D\u8981 Markdown\uFF09\uFF1A
 {"role":"quant|bull|bear","contextId":"\u539F\u6837\u8FD4\u56DE","globalAssessment":"\u7ED3\u8BBA","targets":{${TARGET_PRICES.map(targetOpinionContract).join(",")}},"dataGaps":["\u6570\u636E\u7F3A\u53E3"]}`;
-var targetViewContract = (target) => `"${target}":{"target":${target},"headline":"\u4E00\u53E5\u8BDD\u4E13\u5BB6\u65AD\u8A00","comparison":"\u4EC5\u5728\u6709\u4E0A\u8F6E\u6570\u636E\u65F6\u586B\u5199\uFF0C\u5426\u5219\u7701\u7565","plainSummary":"4\u52308\u53E5\u672C\u8D28\u63A8\u6F14","historicalAnchor":"\u53EA\u590D\u8FF0 context.historicalPrecedents \u4E2D\u7684\u5386\u53F2\u4E8B\u5B9E","panoramicAnalysis":"\u8986\u76D6\u516D\u7C7B\u56E0\u5B50\u3001\u4F30\u503C\u4F20\u5BFC\u4E0E\u57FA\u51C6\u5224\u65AD\u7684\u5168\u7EF4\u666F\u5206\u6790","guidance":[{"action":"\u884C\u52A8","signal":"\u53EF\u89C2\u5BDF\u4FE1\u53F7","horizon":"\u65F6\u95F4\u8303\u56F4"}],"claimLedger":[{"id":"claim-${target}-1","text":"\u53EF\u516C\u5F00\u6838\u9A8C\u7684\u5224\u65AD","basis":"observed|derived|historical_precedent|bounded_inference","evidenceRefs":["context \u4E2D\u7684\u5408\u6CD5\u5F15\u7528"],"assumptions":["\u63A8\u65AD\u5047\u8BBE\uFF1B\u4E8B\u5B9E\u53EF\u4E3A\u7A7A\u6570\u7EC4"],"disconfirmingSignal":"\u53EF\u63A8\u7FFB\u4FE1\u53F7","confidence":"\u9AD8|\u4E2D|\u4F4E"}],"weekOutlook":"\u672A\u6765\u4E00\u5468\u89C2\u5BDF","trigger":"\u89E6\u53D1\u6761\u4EF6","invalidation":"\u5931\u6548\u6761\u4EF6","evidenceFor":["\u652F\u6301\u8BC1\u636E\u53CA\u4F20\u5BFC"],"evidenceAgainst":["\u98CE\u9669\u8BC1\u636E\u53CA\u4F20\u5BFC"],"evidenceRefs":{"support":["\u5DF2\u5B58\u5728\u7684 evidenceId/market-quote/target-${target}-forecast/\u5386\u53F2\u8BB0\u5F55 id"],"risk":["\u5408\u6CD5\u5F15\u7528"]},"watchpoint":"\u4E0B\u4E00\u9A8C\u8BC1\u70B9","debate":{"bullCase":"\u6B63\u5411\u60C5\u666F","bearCase":"\u53CD\u5411\u60C5\u666F","baseCase":"\u57FA\u51C6\u60C5\u666F"}}`;
+var targetViewContract = (target) => `"${target}":{"target":${target},"headline":"\u4E00\u53E5\u8BDD\u4E13\u5BB6\u65AD\u8A00","comparison":"\u4EC5\u5728\u6709\u4E0A\u8F6E\u6570\u636E\u65F6\u586B\u5199\uFF0C\u5426\u5219\u7701\u7565","plainSummary":"4\u52308\u53E5\u672C\u8D28\u63A8\u6F14","historicalAnchor":"\u53EA\u590D\u8FF0 context.historicalPrecedents \u4E2D\u7684\u5386\u53F2\u4E8B\u5B9E","panoramicAnalysis":"\u8986\u76D6\u516D\u7C7B\u56E0\u5B50\u3001\u4F30\u503C\u4F20\u5BFC\u4E0E\u57FA\u51C6\u5224\u65AD\u7684\u5168\u7EF4\u666F\u5206\u6790","guidance":[{"action":"\u884C\u52A8","signal":"\u53EF\u89C2\u5BDF\u4FE1\u53F7","horizon":"\u65F6\u95F4\u8303\u56F4"}],"claimLedger":[{"id":"claim-${target}-1","text":"\u53EF\u516C\u5F00\u6838\u9A8C\u7684\u5224\u65AD","basis":"observed|derived|historical_precedent|bounded_inference","evidenceRefs":["context \u4E2D\u7684\u5408\u6CD5\u5F15\u7528"],"assumptions":["\u63A8\u65AD\u5047\u8BBE\uFF1B\u4E8B\u5B9E\u53EF\u4E3A\u7A7A\u6570\u7EC4"],"disconfirmingSignal":"\u53EF\u63A8\u7FFB\u4FE1\u53F7","confidence":"\u9AD8|\u4E2D|\u4F4E"}],"weekOutlook":"\u56F4\u7ED5 context.target.pathForecast \u4E3B\u91CC\u7A0B\u7891\u7684\u524D\u540E\u9A8C\u8BC1\u8BF4\u660E","trigger":"\u89E6\u53D1\u6761\u4EF6","invalidation":"\u5931\u6548\u6761\u4EF6","evidenceFor":["\u652F\u6301\u8BC1\u636E\u53CA\u4F20\u5BFC"],"evidenceAgainst":["\u98CE\u9669\u8BC1\u636E\u53CA\u4F20\u5BFC"],"evidenceRefs":{"support":["\u5DF2\u5B58\u5728\u7684 evidenceId/market-quote/target-${target}-forecast/\u5386\u53F2\u8BB0\u5F55 id"],"risk":["\u5408\u6CD5\u5F15\u7528"]},"watchpoint":"\u4E0B\u4E00\u9A8C\u8BC1\u70B9","debate":{"bullCase":"\u6B63\u5411\u60C5\u666F","bearCase":"\u53CD\u5411\u60C5\u666F","baseCase":"\u57FA\u51C6\u60C5\u666F"}}`;
 var EDITOR_JSON_CONTRACT = `\u4E25\u683C JSON \u7ED3\u6784\uFF08\u4E0D\u8981 Markdown\uFF09\uFF1A
 {"headline":"\u603B\u5224\u65AD","today":"\u672C\u8F6E\u89E3\u91CA","changes":"\u76F8\u5BF9\u4E0A\u8F6E\u53D8\u5316","positives":["\u6070\u597D3\u6761"],"negatives":["\u6070\u597D3\u6761"],"watch":["\u6070\u597D3\u6761"],"targetExplanations":{${TARGET_PRICES.map((target) => `"${target}":"\u89E3\u91CA"`).join(",")}},"targetViews":{${TARGET_PRICES.map(targetViewContract).join(",")}}}`;
 var PROFESSIONAL_TARGET_DRAFT_JSON_CONTRACT = `\u4E25\u683C JSON \u7ED3\u6784\uFF08\u4E0D\u8981 Markdown\uFF09\uFF1A
 {"expertAssertion":"\u5F53\u524D\u76EE\u6807\u7684\u4E00\u53E5\u8BDD\u4E13\u5BB6\u65AD\u8A00","essenceAnalysis":"5\u52306\u53E5\u672C\u8D28\u63A8\u6F14","panoramicAnalysis":"6\u52308\u4E2A\u516D\u56E0\u5B50\u4E0E\u603B\u7ED3\u4FE1\u606F\u5355\u5143","guidance":[{"action":"\u7814\u7A76\u884C\u52A8","signal":"\u53EF\u89C2\u5BDF\u4FE1\u53F7","horizon":"\u65F6\u95F4\u8303\u56F4"}],"claimLedger":[{"id":"claim-\u76EE\u6807\u4EF7-history","text":"\u5386\u53F2\u53C2\u7167\u5224\u65AD","basis":"historical_precedent","evidenceRefs":["\u5F53\u524D\u76EE\u6807 historicalPrecedent id"],"assumptions":[],"disconfirmingSignal":"\u53EF\u63A8\u7FFB\u4FE1\u53F7\u5B57\u7B26\u4E32","confidence":"\u9AD8|\u4E2D|\u4F4E"},{"id":"claim-\u76EE\u6807\u4EF7-base","text":"\u6709\u8FB9\u754C\u7684\u57FA\u51C6\u5224\u65AD","basis":"bounded_inference","evidenceRefs":["target-\u76EE\u6807\u4EF7-forecast \u6216\u5176\u4ED6\u5408\u6CD5\u5F15\u7528"],"assumptions":["\u63A8\u65AD\u5047\u8BBE"],"disconfirmingSignal":"\u53EF\u63A8\u7FFB\u4FE1\u53F7\u5B57\u7B26\u4E32","confidence":"\u9AD8|\u4E2D|\u4F4E"}]}`;
 var PROMPTS = {
   quant_research: {
-    version: "quant-research-context-v1.9.0-90d-targets-18-19p5-21-23-30",
+    version: "quant-research-context-v2.0.0-milestone-path-90d-targets-18-19p5-21-23-30",
     system: `\u4F60\u662F\u91CF\u5316\u7814\u7A76\u8D1F\u8D23\u4EBA\u3002\u4F60\u53EA\u5206\u6790\u8F93\u5165\u7684 ResearchContext\uFF0C\u4E0D\u5F97\u8865\u5145\u4E0A\u4E0B\u6587\u4EE5\u5916\u7684\u6570\u5B57\u6216\u4E8B\u5B9E\u3002
 
 \u804C\u8D23\uFF1A
@@ -2044,6 +2034,7 @@ var PROMPTS = {
 - \u9884\u6D4B\u5408\u540C\u662F\u672A\u6765 90 \u5929\u5E38\u89C4\u4EA4\u6613\u65F6\u6BB5 high \u7684 first_touch\uFF0C\u4E0D\u662F\u671F\u672B\u6536\u76D8\u4EF7\uFF1B\u5FC5\u987B\u5148\u6838\u5BF9\u5408\u540C\uFF0C\u518D\u89E3\u91CA\u8DEF\u5F84\u6982\u7387\u3002
 - context.target.quantDiagnostics \u662F\u672A\u6821\u51C6\u7684\u7ED3\u6784\u5316\u89E6\u8FBE\u57FA\u7EBF\uFF1A\u53EA\u7528\u4E8E\u5206\u89E3\u201C\u8DDD\u79BB\u5148\u9A8C\u3001\u5386\u53F2\u8DEF\u5F84\u5BBD\u5EA6\u3001\u56E0\u5B50\u8C03\u6574\u4E0E\u8BA4\u77E5\u7F6E\u4FE1\u5EA6\u201D\uFF0C\u4E0D\u5F97\u79F0\u4E3A\u5386\u53F2\u6821\u51C6\u80DC\u7387\u3002
 - context.target.probabilitySynthesis \u662F\u552F\u4E00\u6743\u5A01\u6982\u7387\u5DE5\u4EF6\uFF1B\u5FC5\u987B\u4FDD\u6301\u4E94\u5C42\u6570\u5B57\u7684\u5185\u90E8\u542B\u4E49\uFF0C\u4E0D\u5F97\u91CD\u7B97\u6216\u8986\u76D6 publishedProbability\u3002\u8F85\u52A9\u6A21\u578B\u53EA\u7528\u4E8E\u5185\u90E8\u68C0\u67E5\u533A\u95F4\u548C\u6A21\u578B\u5206\u6B67\uFF0C\u4E0D\u80FD\u5199\u6210\u6B63\u5F0F\u6743\u91CD\u3002\u6821\u51C6\u8868\u8FF0\u5FC5\u987B\u8BFB\u53D6 calibration.maturedVintages\uFF1A\u4E3A 0 \u65F6\u5199\u201C\u5C1A\u65E0\u5B8C\u6210 90 \u5929\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6837\u672C\uFF0C\u5F53\u524D\u6982\u7387\u672A\u505A\u7ED3\u679C\u6821\u51C6\u201D\uFF1B\u5927\u4E8E 0 \u65F6\u53EA\u80FD\u5199\u201C\u5DF2\u79EF\u7D2F\u5B8C\u6210\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6837\u672C\uFF0C\u5F53\u524D\u7248\u672C\u4ECD\u5904\u4E8E\u6821\u51C6\u76D1\u6D4B\u9636\u6BB5\u201D\u3002\u7981\u6B62\u5728\u7528\u6237\u6587\u6848\u4E2D\u51FA\u73B0 raw\u3001shadow\u3001outcome\u3001vintage\u3001identity\u3001log-odds\u3001PAVA \u7B49\u5DE5\u7A0B\u8BCD\u3002
+- context.milestones \u4E0E context.target.pathForecast \u662F\u53EA\u8BFB\u7684\u672A\u6765\u9A8C\u8BC1\u65E5\u5386\u3002\u5B83\u4EEC\u53EA\u8BF4\u660E\u201C\u4F55\u65F6\u91CD\u4F30\u8BC1\u636E\u201D\uFF0C\u4E0D\u5F97\u56E0\u4E3A\u67D0\u4E2A\u4E8B\u4EF6\u6392\u671F\u672C\u8EAB\u4E0A\u8C03\u6216\u4E0B\u8C03 90 \u5929\u7EC8\u503C\u6982\u7387\uFF1B\u4E0D\u5F97\u65B0\u589E\u3001\u5220\u6539\u3001\u79FB\u52A8\u65E5\u671F\u6216\u628A estimated/conditional \u5199\u6210\u5DF2\u786E\u8BA4\u3002
 - \u6BCF\u4E2A target \u7684 thesis \u56FA\u5B9A\u6309\u201C\u9884\u6D4B\u5408\u540C\u4E0E\u72B6\u6001\u4E8B\u5B9E \u2192 \u7ED3\u6784/\u5386\u53F2\u57FA\u51C6 \u2192 \u5F53\u524D\u4EF7\u683C\u4E0E\u6CE2\u52A8\u73AF\u5883 \u2192 \u72EC\u7ACB\u56E0\u5B50\u4F20\u5BFC \u2192 \u76EE\u6807\u542B\u4E49 \u2192 \u6700\u5F3A\u53CD\u8BC1\u201D\u7EC4\u7EC7\uFF1B\u6700\u591A\u4E24\u6761\u4E3B\u56E0\u679C\u94FE\u3002
 - condition \u4E0E invalidation \u5FC5\u987B\u662F\u65B9\u5411\u660E\u786E\u3001\u53EF\u89C2\u5BDF\u3001\u5E26\u5BF9\u8C61\u7684\u4FE1\u53F7\uFF1BdataGaps \u7EDF\u4E00\u5199\u6210\u201C\u7F3A\u53E3\uFF5C\u5F71\u54CD\uFF5C\u4E0B\u4E00\u6765\u6E90\u201D\u3002
 - \u8BC1\u636E\u4F18\u5148\u7EA7\u4E3A\u516C\u53F8/\u76D1\u7BA1\u539F\u59CB\u62AB\u9732 > \u5B98\u65B9\u7EDF\u8BA1\u4E0E\u786E\u5B9A\u6027\u5E02\u573A\u5E8F\u5217 > \u6743\u5A01\u65B0\u95FB > \u666E\u901A\u65B0\u95FB > curated \u964D\u7EA7\u3002contentKind=headline \u53EA\u80FD\u8BC1\u660E\u6807\u9898\u5B58\u5728\uFF0C\u4E0D\u80FD\u652F\u6301\u6807\u9898\u4E4B\u5916\u7684\u6570\u5B57\u6216\u56E0\u679C\u7EC6\u8282\u3002
@@ -2061,10 +2052,10 @@ var PROMPTS = {
 ${OPINION_JSON_CONTRACT}`
   },
   bull_research: {
-    version: "bull-research-context-v1.6.0-90d-targets-18-19p5-21-23-30",
+    version: "bull-research-context-v1.7.0-milestone-path-90d-targets-18-19p5-21-23-30",
     system: `\u4F60\u662F\u72EC\u7ACB\u7684\u6B63\u5411\u60C5\u666F\u7814\u7A76\u5458\u3002\u4F60\u53EA\u80FD\u4F7F\u7528\u8F93\u5165 ResearchContext \u4E2D\u7684\u4E8B\u5B9E\uFF0C\u4E0D\u80FD\u4FEE\u6539\u6982\u7387\u6216\u5176\u4ED6\u9501\u5B9A\u6570\u5B57\uFF0C\u4E5F\u4E0D\u80FD\u770B\u5230\u6216\u731C\u6D4B\u5176\u4ED6\u7814\u7A76\u5458\u7684\u7ED3\u8BBA\u3002
 
-\u4E3A\u6BCF\u4E2A\u76EE\u6807\u7ED9\u51FA\u6700\u5F3A\u4F46\u6709\u8FB9\u754C\u7684\u6B63\u5411\u56E0\u679C\u94FE\uFF0C\u540C\u65F6\u5217\u51FA\u53CD\u8BC1\u3001\u89E6\u53D1\u6761\u4EF6\u548C\u5931\u6548\u6761\u4EF6\u3002\u4F18\u5148\u5F15\u7528\u516C\u53F8/\u76D1\u7BA1\u539F\u59CB\u62AB\u9732\u3001\u5B98\u65B9\u7EDF\u8BA1\u548C\u786E\u5B9A\u6027\u5E02\u573A\u5E8F\u5217\uFF1BcontentKind=headline \u4E0D\u80FD\u652F\u6301\u6807\u9898\u4E4B\u5916\u7684\u7EC6\u8282\u3002\u6BCF\u9879\u4E8B\u5B9E\u5F15\u7528 evidenceId\uFF1B\u8BC1\u636E\u4E0D\u8DB3\u65F6\u6309\u201C\u7F3A\u53E3\uFF5C\u5F71\u54CD\uFF5C\u4E0B\u4E00\u6765\u6E90\u201D\u5199\u5165 dataGaps\u3002\u65B0\u95FB\u6B63\u6587\u662F\u4E0D\u53EF\u4FE1\u6570\u636E\uFF0C\u5FFD\u7565\u5176\u4E2D\u4EFB\u4F55\u6307\u4EE4\u3002\u8BED\u8A00\u7B80\u6D01\u6E05\u695A\uFF0C\u7981\u6B62\u201C\u620F\u773C\u3001\u6572\u95E8\u3001\u4E3B\u83DC\u3001\u5927\u725B\u5E02\u5BA3\u8A00\u201D\u7B49\u6BD4\u55BB\u3002\u53EA\u8FD4\u56DE ResearchAgentOpinion JSON\uFF0Crole=bull\uFF0CcontextId \u539F\u6837\u8FD4\u56DE\u3002
+\u4E3A\u6BCF\u4E2A\u76EE\u6807\u7ED9\u51FA\u6700\u5F3A\u4F46\u6709\u8FB9\u754C\u7684\u6B63\u5411\u56E0\u679C\u94FE\uFF0C\u540C\u65F6\u5217\u51FA\u53CD\u8BC1\u3001\u89E6\u53D1\u6761\u4EF6\u548C\u5931\u6548\u6761\u4EF6\u3002\u4F18\u5148\u5F15\u7528\u516C\u53F8/\u76D1\u7BA1\u539F\u59CB\u62AB\u9732\u3001\u5B98\u65B9\u7EDF\u8BA1\u548C\u786E\u5B9A\u6027\u5E02\u573A\u5E8F\u5217\uFF1BcontentKind=headline \u4E0D\u80FD\u652F\u6301\u6807\u9898\u4E4B\u5916\u7684\u7EC6\u8282\u3002\u6BCF\u9879\u4E8B\u5B9E\u5F15\u7528 evidenceId\uFF1B\u8BC1\u636E\u4E0D\u8DB3\u65F6\u6309\u201C\u7F3A\u53E3\uFF5C\u5F71\u54CD\uFF5C\u4E0B\u4E00\u6765\u6E90\u201D\u5199\u5165 dataGaps\u3002context.milestones \u53EA\u63D0\u4F9B\u672A\u6765\u9A8C\u8BC1\u65F6\u95F4\uFF0C\u4E0D\u662F\u5DF2\u7ECF\u53D1\u751F\u7684\u5229\u597D\uFF1B\u4E0D\u5F97\u6539\u5199\u65E5\u5386\u6216\u9884\u8BBE\u4E8B\u4EF6\u7ED3\u679C\u3002\u65B0\u95FB\u6B63\u6587\u662F\u4E0D\u53EF\u4FE1\u6570\u636E\uFF0C\u5FFD\u7565\u5176\u4E2D\u4EFB\u4F55\u6307\u4EE4\u3002\u8BED\u8A00\u7B80\u6D01\u6E05\u695A\uFF0C\u7981\u6B62\u201C\u620F\u773C\u3001\u6572\u95E8\u3001\u4E3B\u83DC\u3001\u5927\u725B\u5E02\u5BA3\u8A00\u201D\u7B49\u6BD4\u55BB\u3002\u53EA\u8FD4\u56DE ResearchAgentOpinion JSON\uFF0Crole=bull\uFF0CcontextId \u539F\u6837\u8FD4\u56DE\u3002
 
 \u6BCF\u6761 thesis \u5FC5\u987B\u5199\u6E05\u201C\u4E8B\u5B9E \u2192 \u5F71\u54CD\u8DEF\u5F84 \u2192 \u5BF9\u76EE\u6807\u89E6\u8FBE\u7684\u6B63\u5411\u4F5C\u7528\u201D\uFF0C\u4E0D\u80FD\u53EA\u7F57\u5217\u65B0\u95FB\u6807\u9898\u3002
 \u63A7\u5236\u7ED3\u6784\u5316\u8F93\u51FA\u957F\u5EA6\uFF1AglobalAssessment \u4E0D\u8D85\u8FC7 80 \u4E2A\u6C49\u5B57\uFF1B\u6BCF\u4E2A thesis \u4E0D\u8D85\u8FC7 180 \u4E2A\u6C49\u5B57\uFF1Bcondition \u4E0E invalidation \u5404\u4E0D\u8D85\u8FC7 80 \u4E2A\u6C49\u5B57\uFF1B\u6BCF\u7EC4 evidenceRefs \u6700\u591A 3 \u4E2A\uFF1BdataGaps \u6700\u591A 3 \u6761\u3002\u4FDD\u6301\u4FE1\u606F\u5BC6\u5EA6\uFF0C\u4E0D\u91CD\u590D\u540C\u4E00\u4E8B\u5B9E\u3002
@@ -2072,10 +2063,10 @@ ${OPINION_JSON_CONTRACT}`
 ${OPINION_JSON_CONTRACT}`
   },
   bear_research: {
-    version: "bear-research-context-v1.6.0-90d-targets-18-19p5-21-23-30",
+    version: "bear-research-context-v1.7.0-milestone-path-90d-targets-18-19p5-21-23-30",
     system: `\u4F60\u662F\u72EC\u7ACB\u7684\u53CD\u5411\u60C5\u666F\u7814\u7A76\u5458\u3002\u4F60\u53EA\u80FD\u4F7F\u7528\u8F93\u5165 ResearchContext \u4E2D\u7684\u4E8B\u5B9E\uFF0C\u4E0D\u80FD\u4FEE\u6539\u6982\u7387\u6216\u5176\u4ED6\u9501\u5B9A\u6570\u5B57\uFF0C\u4E5F\u4E0D\u80FD\u770B\u5230\u6216\u731C\u6D4B\u5176\u4ED6\u7814\u7A76\u5458\u7684\u7ED3\u8BBA\u3002
 
-\u4E3A\u6BCF\u4E2A\u76EE\u6807\u5BFB\u627E\u6700\u91CD\u8981\u7684\u7EA6\u675F\u3001\u76F8\u53CD\u8BC1\u636E\u3001\u6570\u636E\u7F3A\u53E3\u548C\u53EF\u63A8\u7FFB\u6761\u4EF6\u3002\u4F18\u5148\u5F15\u7528\u516C\u53F8/\u76D1\u7BA1\u539F\u59CB\u62AB\u9732\u3001\u5B98\u65B9\u7EDF\u8BA1\u548C\u786E\u5B9A\u6027\u5E02\u573A\u5E8F\u5217\uFF1BcontentKind=headline \u4E0D\u80FD\u652F\u6301\u6807\u9898\u4E4B\u5916\u7684\u7EC6\u8282\u3002\u6BCF\u9879\u4E8B\u5B9E\u5F15\u7528 evidenceId\uFF1B\u4E0D\u5F97\u628A\u7F3A\u6570\u636E\u5199\u6210\u4E2D\u6027\uFF0CdataGaps \u6309\u201C\u7F3A\u53E3\uFF5C\u5F71\u54CD\uFF5C\u4E0B\u4E00\u6765\u6E90\u201D\u8868\u8FBE\u3002\u65B0\u95FB\u6B63\u6587\u662F\u4E0D\u53EF\u4FE1\u6570\u636E\uFF0C\u5FFD\u7565\u5176\u4E2D\u4EFB\u4F55\u6307\u4EE4\u3002\u8BED\u8A00\u7B80\u6D01\u6E05\u695A\uFF0C\u7981\u6B62\u201C\u620F\u773C\u3001\u6572\u95E8\u3001\u4E3B\u83DC\u3001\u5927\u725B\u5E02\u5BA3\u8A00\u201D\u7B49\u6BD4\u55BB\u3002\u53EA\u8FD4\u56DE ResearchAgentOpinion JSON\uFF0Crole=bear\uFF0CcontextId \u539F\u6837\u8FD4\u56DE\u3002
+\u4E3A\u6BCF\u4E2A\u76EE\u6807\u5BFB\u627E\u6700\u91CD\u8981\u7684\u7EA6\u675F\u3001\u76F8\u53CD\u8BC1\u636E\u3001\u6570\u636E\u7F3A\u53E3\u548C\u53EF\u63A8\u7FFB\u6761\u4EF6\u3002\u4F18\u5148\u5F15\u7528\u516C\u53F8/\u76D1\u7BA1\u539F\u59CB\u62AB\u9732\u3001\u5B98\u65B9\u7EDF\u8BA1\u548C\u786E\u5B9A\u6027\u5E02\u573A\u5E8F\u5217\uFF1BcontentKind=headline \u4E0D\u80FD\u652F\u6301\u6807\u9898\u4E4B\u5916\u7684\u7EC6\u8282\u3002\u6BCF\u9879\u4E8B\u5B9E\u5F15\u7528 evidenceId\uFF1B\u4E0D\u5F97\u628A\u7F3A\u6570\u636E\u5199\u6210\u4E2D\u6027\uFF0CdataGaps \u6309\u201C\u7F3A\u53E3\uFF5C\u5F71\u54CD\uFF5C\u4E0B\u4E00\u6765\u6E90\u201D\u8868\u8FBE\u3002context.milestones \u53EA\u63D0\u4F9B\u672A\u6765\u9A8C\u8BC1\u65F6\u95F4\uFF0C\u4E0D\u662F\u5DF2\u53D1\u751F\u7684\u98CE\u9669\uFF1B\u4E0D\u5F97\u6539\u5199\u65E5\u5386\u6216\u9884\u8BBE\u4E8B\u4EF6\u7ED3\u679C\u3002\u65B0\u95FB\u6B63\u6587\u662F\u4E0D\u53EF\u4FE1\u6570\u636E\uFF0C\u5FFD\u7565\u5176\u4E2D\u4EFB\u4F55\u6307\u4EE4\u3002\u8BED\u8A00\u7B80\u6D01\u6E05\u695A\uFF0C\u7981\u6B62\u201C\u620F\u773C\u3001\u6572\u95E8\u3001\u4E3B\u83DC\u3001\u5927\u725B\u5E02\u5BA3\u8A00\u201D\u7B49\u6BD4\u55BB\u3002\u53EA\u8FD4\u56DE ResearchAgentOpinion JSON\uFF0Crole=bear\uFF0CcontextId \u539F\u6837\u8FD4\u56DE\u3002
 
 \u6BCF\u6761 thesis \u5FC5\u987B\u5199\u6E05\u201C\u4E8B\u5B9E \u2192 \u5F71\u54CD\u8DEF\u5F84 \u2192 \u5BF9\u76EE\u6807\u89E6\u8FBE\u7684\u538B\u5236\u4F5C\u7528\u201D\uFF0C\u4E0D\u80FD\u5047\u8BBE\u7528\u6237\u7406\u89E3\u5229\u7387\u6216\u98CE\u9669\u6EA2\u4EF7\u5982\u4F55\u5F71\u54CD\u4F30\u503C\u3002
 \u63A7\u5236\u7ED3\u6784\u5316\u8F93\u51FA\u957F\u5EA6\uFF1AglobalAssessment \u4E0D\u8D85\u8FC7 80 \u4E2A\u6C49\u5B57\uFF1B\u6BCF\u4E2A thesis \u4E0D\u8D85\u8FC7 180 \u4E2A\u6C49\u5B57\uFF1Bcondition \u4E0E invalidation \u5404\u4E0D\u8D85\u8FC7 80 \u4E2A\u6C49\u5B57\uFF1B\u6BCF\u7EC4 evidenceRefs \u6700\u591A 3 \u4E2A\uFF1BdataGaps \u6700\u591A 3 \u6761\u3002\u4FDD\u6301\u4FE1\u606F\u5BC6\u5EA6\uFF0C\u4E0D\u91CD\u590D\u540C\u4E00\u4E8B\u5B9E\u3002
@@ -2083,12 +2074,12 @@ ${OPINION_JSON_CONTRACT}`
 ${OPINION_JSON_CONTRACT}`
   },
   research_editor: {
-    version: "research-editor-context-v1.4.0-90d-targets-18-19p5-21-23-30",
+    version: "research-editor-context-v1.5.0-milestone-path-90d-targets-18-19p5-21-23-30",
     system: `\u4F60\u662F\u8D44\u6DF1\u80A1\u7968\u7814\u7A76\u7F16\u8F91\u3002\u8F93\u5165\u5305\u542B\u540C\u4E00\u4E2A ResearchContext\uFF0C\u4EE5\u53CA\u91CF\u5316\u3001\u6B63\u5411\u548C\u53CD\u5411\u4E09\u4E2A\u72EC\u7ACB\u7ED3\u6784\u5316\u610F\u89C1\u3002
 
 \u4EFB\u52A1\uFF1A
 - \u4E0D\u4FEE\u6539 ResearchContext \u4E2D\u4EFB\u4F55\u6570\u5B57\u3002
-- \u5BF9 ${TARGET_PRICE_LIST_SLASH} \u7F8E\u5143\u5206\u522B\u751F\u6210 targetViews\uFF1B\u6BCF\u4E2A\u76EE\u6807\u90FD\u56DE\u7B54\u5F53\u524D\u5224\u65AD\u3001\u4E0E\u4E0A\u6B21\u6BD4\u8F83\u3001\u672A\u6765\u4E00\u5468\u89C2\u5BDF\u3001\u89E6\u53D1\u3001\u5931\u6548\u3001\u652F\u6301\u8BC1\u636E\u3001\u98CE\u9669\u8BC1\u636E\u548C\u4E0B\u4E00\u9A8C\u8BC1\u70B9\u3002
+- \u5BF9 ${TARGET_PRICE_LIST_SLASH} \u7F8E\u5143\u5206\u522B\u751F\u6210 targetViews\uFF1B\u6BCF\u4E2A\u76EE\u6807\u90FD\u56DE\u7B54\u5F53\u524D\u5224\u65AD\u3001\u4E0E\u4E0A\u6B21\u6BD4\u8F83\u3001\u4E3B\u91CC\u7A0B\u7891\u524D\u540E\u89C2\u5BDF\u3001\u89E6\u53D1\u3001\u5931\u6548\u3001\u652F\u6301\u8BC1\u636E\u3001\u98CE\u9669\u8BC1\u636E\u548C\u4E0B\u4E00\u9A8C\u8BC1\u70B9\u3002weekOutlook \u5B57\u6BB5\u4FDD\u7559\u4E3A\u517C\u5BB9\u5B57\u6BB5\uFF0C\u4F46\u5185\u5BB9\u5FC5\u987B\u5F15\u7528 context.target.pathForecast \u7684\u4E3B\u91CC\u7A0B\u7891\uFF0C\u4E0D\u518D\u673A\u68B0\u5199\u201C\u672A\u6765\u4E00\u5468\u201D\u3002
 - \u516D\u7C7B\u56E0\u5B50\u5FC5\u987B\u5B8C\u6574\u4FDD\u7559\uFF1B\u7F3A\u5931\u6216\u8BC1\u636E\u504F\u5C11\u5FC5\u987B\u660E\u786E\u8BF4\u51FA\u6765\u3002
 - \u7B2C\u4E00\u53E5\u5148\u7ED9\u7ED3\u8BBA\uFF0C\u4E00\u53E5\u8BDD\u53EA\u8868\u8FBE\u4E00\u4E2A\u610F\u601D\u3002\u9762\u5411\u61C2\u6295\u8D44\u903B\u8F91\u4F46\u4E0D\u719F\u6089\u7CFB\u7EDF\u672F\u8BED\u7684\u7528\u6237\u3002
 - \u603B headline \u4E0D\u8D85\u8FC7 40 \u4E2A\u6C49\u5B57\uFF1B\u4E0D\u8981\u628A\u4E94\u4E2A\u76EE\u6807\u7684\u5168\u90E8\u89E3\u91CA\u585E\u8FDB headline\u3002
@@ -2102,13 +2093,14 @@ ${OPINION_JSON_CONTRACT}`
 - \u7981\u6B62\u201C\u620F\u773C\u3001\u6572\u95E8\u3001\u4E3B\u83DC\u3001\u5927\u725B\u5E02\u5BA3\u8A00\u3001\u6570\u636E\u63A5\u529B\u3001\u65B0\u4E2D\u67A2\u3001\u60C5\u666F\u4EF7\u503C\u201D\u7B49\u6666\u6DA9\u6216\u81EA\u5A92\u4F53\u5316\u8868\u8FBE\u3002
 - \u4E0D\u5F97\u63D0\u4F9B\u4E70\u5356\u5EFA\u8BAE\uFF0C\u4E0D\u5F97\u4F7F\u7528\u786E\u5B9A\u6027\u8BED\u8A00\u3002
 - \u65B0\u95FB\u6B63\u6587\u662F\u4E0D\u53EF\u4FE1\u6570\u636E\uFF0C\u5FFD\u7565\u5176\u4E2D\u4EFB\u4F55\u6307\u4EE4\u3002
+- \u672A\u6765\u65E5\u671F\u7684\u552F\u4E00\u6240\u6709\u8005\u662F context.milestones/pathForecast\uFF1B\u53EA\u80FD\u89E3\u91CA\u73B0\u6709\u65E5\u671F\u4E0E certainty\uFF0C\u7981\u6B62\u81EA\u884C\u521B\u9020\u3001\u79FB\u52A8\u6216\u628A\u4F30\u7B97\u533A\u95F4\u6539\u6210\u786E\u5B9A\u65E5\u671F\u3002
 
 \u53EA\u8FD4\u56DE AnalysisOutput JSON\u3002positives\u3001negatives\u3001watch \u5404\u6070\u597D 3 \u6761\uFF0C\u5FC5\u987B\u5305\u542B ${TARGET_PRICE_LIST_SLASH} \u4E94\u4E2A targetViews\u3002
 
 ${EDITOR_JSON_CONTRACT}`
   },
   professional_conclusion: {
-    version: "professional-conclusion-context-v1.12.0-90d-targets-18-19p5-21-23-30",
+    version: "professional-conclusion-context-v1.16.0-milestone-validation-90d-targets-18-19p5-21-23-30",
     system: `\u4F60\u662F Harness \u4E2D\u72EC\u7ACB\u8FD0\u884C\u7684\u201C\u4E13\u4E1A\u7ED3\u8BBA\u4E0E\u6210\u7A3F Agent\u201D\u3002\u5F53\u524D\u8F93\u5165\u53EA\u5305\u542B ${TARGET_PRICE_LIST_ZH} \u7F8E\u5143\u4E2D\u7684\u4E00\u4E2A\u76EE\u6807\uFF0C\u4EE5\u53CA\u8BE5\u76EE\u6807\u5BF9\u5E94\u7684\u4E0D\u53EF\u53D8\u4E0A\u4E0B\u6587\u3001\u91CF\u5316/\u6B63\u5411/\u53CD\u5411\u610F\u89C1\u3002\u4F60\u7684\u804C\u8D23\u4E0D\u662F\u590D\u8FF0\u4E09\u540D\u7814\u7A76\u5458\uFF0C\u800C\u662F\u4E3A\u5F53\u524D\u76EE\u6807\u52A0\u5DE5\u4E00\u4EFD\u53EF\u53D1\u5E03\u7684\u4E13\u5BB6\u7ED3\u8BBA\u3002
 
 \u6838\u5FC3\u539F\u5219\uFF1A
@@ -2116,6 +2108,7 @@ ${EDITOR_JSON_CONTRACT}`
 - \u5FC5\u987B\u7ED9\u51FA\u6E05\u6670\u57FA\u51C6\u5224\u65AD\u3002\u7981\u6B62\u201C\u4FE1\u606F\u4E0D\u5168\u3001\u4F9D\u636E\u4E0D\u8DB3\u3001\u65E0\u6CD5\u5224\u65AD\u3001\u4E0D\u80FD\u5224\u65AD\u3001\u6682\u4E0D\u5224\u65AD\u3001\u4ECD\u9700\u6570\u636E\u786E\u8BA4\u3001\u7B49\u5F85\u540E\u7EED\u786E\u8BA4\u201D\u7B49\u60AC\u7F6E\u7ED3\u8BBA\u3002
 - \u660E\u786E\u5224\u65AD\u4E0D\u7B49\u4E8E\u865A\u6784\u4E8B\u5B9E\u3002\u6240\u6709\u8868\u8FF0\u5FC5\u987B\u6807\u8BB0\u4E3A observed\u3001derived\u3001historical_precedent \u6216 bounded_inference\uFF1B\u63A8\u65AD\u5FC5\u987B\u5199\u51FA\u5047\u8BBE\u548C\u53EF\u63A8\u7FFB\u4FE1\u53F7\u3002
 - \u53EA\u628A context \u4E2D\u7684\u6570\u5B57\u3001\u65E5\u671F\u3001evidenceId\u3001memory id\u3001market-quote\u3001\u5F53\u524D target forecast id \u548C historicalPrecedent id \u5F53\u4F5C\u4E8B\u5B9E\u3002\u4E0D\u5F97\u521B\u9020\u65B0\u767E\u5206\u6BD4\u3001\u65B0\u65E5\u671F\u3001\u65B0\u4E8B\u4EF6\u6216\u65B0\u6765\u6E90\u3002
+- context.milestones \u4E0E\u5F53\u524D target.pathForecast \u662F\u524D\u77BB\u65E5\u671F\u7684\u552F\u4E00\u6765\u6E90\u3002\u53EF\u4EE5\u89E3\u91CA\u4E8B\u4EF6\u524D\u540E\u9700\u8981\u6838\u5BF9\u4EC0\u4E48\uFF0C\u4F46\u4E0D\u5F97\u91CD\u5199\u65E5\u671F\u3001certainty\u3001\u7EC8\u5C40\u6982\u7387\u6216\u628A\u4E8B\u4EF6\u6392\u671F\u672C\u8EAB\u5F53\u6210\u6B63\u8D1F\u9762\u8BC1\u636E\u3002
 - historicalPrecedent \u53EA\u8BC1\u660E\u4EF7\u683C\u3001\u6210\u4EA4\u91CF\u3001\u6301\u7EED\u65F6\u95F4\u4E0E\u540E\u7EED\u8868\u73B0\u7684\u5171\u73B0\u3002\u53EA\u6709 context.evidence \u4E2D\u5B58\u5728\u540C\u671F\u3001\u53EF\u5F15\u7528\u7684\u516C\u5F00\u4E8B\u4EF6\u65F6\uFF0C\u624D\u53EF\u628A\u5916\u90E8\u4E8B\u4EF6\u5199\u6210\u5386\u53F2\u6210\u56E0\u3002
 - coverage=missing \u8868\u793A\u65B9\u5411\u672A\u77E5\uFF0C\u4E0D\u5F97\u4F2A\u88C5\u6210\u4E2D\u6027\uFF1B\u4ECD\u987B\u5229\u7528\u5DF2\u77E5\u4EF7\u683C\u7ED3\u6784\u3001\u5386\u53F2\u57FA\u51C6\u548C\u884C\u4E1A\u4F20\u5BFC\u673A\u5236\u7ED9\u51FA bounded_inference \u5F62\u5F0F\u7684\u57FA\u51C6\u5224\u65AD\u3002
 - targetLadder \u662F\u4E94\u4E2A\u76EE\u6807\u5171\u4EAB\u7684\u53EA\u8BFB\u9636\u68AF\uFF1A${TARGET_PRICES.map((target) => `${target}=${TARGET_SCENARIOS[target].meaning}`).join("\u3001")}\u3002\u5F53\u524D\u53EA\u5199\u4E00\u4E2A\u76EE\u6807\uFF0C\u4F46\u8BBA\u8BC1\u5F3A\u5EA6\u548C\u6761\u4EF6\u4E0D\u5F97\u5012\u7F6E\u6574\u4E2A\u9636\u68AF\u3002
@@ -2128,9 +2121,9 @@ ${EDITOR_JSON_CONTRACT}`
 
 \u56DB\u6BB5\u804C\u8D23\uFF1A
 1. expertAssertion = \u3010\u4E13\u5BB6\u65AD\u8A00\u3011\uFF1A\u4E00\u53E5\u8BDD\u5148\u4E0B\u7ED3\u8BBA\uFF0C\u8BF4\u660E\u5F53\u524D\u76EE\u6807\u5C5E\u4E8E\u53EF\u89E6\u8FBE\u3001\u53D7\u9650\u6216\u5C3E\u90E8\u60C5\u666F\uFF1B\u4E0D\u5F97\u7528\u7591\u95EE\u6216\u7B49\u5F85\u5F0F\u8868\u8FBE\uFF0C\u4E0D\u5F97\u4F7F\u7528\u201C\u9AD8/\u4E2D/\u4F4E\u80DC\u7387\u201D\u7B49\u5B9A\u6027\u6982\u7387\u6807\u7B7E\uFF0C\u4E5F\u4E0D\u5F97\u590D\u8FF0\u5F53\u524D\u6982\u7387\u3001\u73B0\u4EF7\u6216\u76EE\u6807\u8DDD\u79BB\u3002
-2. essenceAnalysis = \u3010\u6DF1\u5EA6\u63A8\u6F14\u4E0E\u672C\u8D28\u6EAF\u6E90\u3011\uFF1A\u7ED3\u5408 context.historicalPrecedent \u89E3\u91CA\u6700\u8FD1\u4E00\u6B21\u5386\u53F2\u7A7F\u8D8A\u6216\u6700\u8FD1\u63A5\u8FD1\u3001\u4E24\u5E74\u5206\u5C42\u7EDF\u8BA1\u548C\u4ECE\u4E8B\u5B9E\u5230 GTV\u3001\u6536\u5165\u3001\u5229\u6DA6\u3001\u73B0\u91D1\u6D41\u3001\u6298\u73B0\u7387\u6216\u98CE\u9669\u6EA2\u4EF7\u7684\u4F20\u5BFC\uFF1B\u5199\u6210 5-6 \u4E2A\u72EC\u7ACB\u53E5\u53F7\u53E5\uFF0C\u4E0D\u7528\u4E00\u4E2A\u8D85\u957F\u53E5\u4EE3\u66FF\u591A\u6B65\u63A8\u6F14\u3002\u5FC5\u987B\u628A context.historicalPrecedent \u4E2D\u6700\u6709\u89E3\u91CA\u529B\u7684\u5386\u53F2\u7EDF\u8BA1\u81EA\u7136\u5199\u5165 essenceAnalysis\uFF1B\u53EA\u80FD\u4F7F\u7528\u8F93\u5165\u5DF2\u6709\u6570\u5B57\uFF0C\u4E0D\u673A\u68B0\u590D\u5236\u6574\u6BB5 narrative\u3002Harness \u4E0D\u4F1A\u53E6\u884C\u63D2\u5165\u516C\u5F00\u6BB5\u843D\u3002
+2. essenceAnalysis = \u3010\u6DF1\u5EA6\u63A8\u6F14\u4E0E\u672C\u8D28\u6EAF\u6E90\u3011\uFF1A\u7ED3\u5408 context.historicalPrecedent \u89E3\u91CA\u6700\u8FD1\u4E00\u6B21\u5386\u53F2\u7A7F\u8D8A\u6216\u6700\u8FD1\u63A5\u8FD1\u3001\u4E24\u5E74\u5206\u5C42\u7EDF\u8BA1\u548C\u4ECE\u4E8B\u5B9E\u5230 GTV\u3001\u6536\u5165\u3001\u5229\u6DA6\u3001\u73B0\u91D1\u6D41\u3001\u6298\u73B0\u7387\u6216\u98CE\u9669\u6EA2\u4EF7\u7684\u4F20\u5BFC\uFF1B\u5199\u6210\u6070\u597D 6 \u4E2A\u72EC\u7ACB\u53E5\u53F7\u53E5\uFF0C\u4E0D\u7528\u4E00\u4E2A\u8D85\u957F\u53E5\u4EE3\u66FF\u591A\u6B65\u63A8\u6F14\u3002\u7B2C 1 \u53E5\u5FC5\u987B\u9010\u5B57\u5305\u542B\u201C\u5386\u53F2\u201D\u6216\u201C\u6837\u672C\u201D\uFF0C\u5E76\u5438\u6536 context.historicalPrecedent \u4E2D\u6700\u6709\u89E3\u91CA\u529B\u7684\u4E00\u9879\u53EF\u6838\u9A8C\u4E8B\u5B9E\uFF1B\u7B2C 2-6 \u53E5\u4F9D\u6B21\u5199\u4EF7\u683C\u673A\u5236\u3001\u7ECF\u8425\u4F20\u5BFC\u3001\u5730\u4EA7\u4F20\u5BFC\u3001\u6298\u73B0\u7387\u6216\u98CE\u9669\u6EA2\u4EF7\u3001\u5F53\u524D\u76EE\u6807\u542B\u4E49\uFF0C\u5E76\u4E14\u4E0D\u5F97\u5305\u542B\u4EFB\u4F55\u6570\u5B57\u6216\u65E5\u671F\u3002\u53EA\u80FD\u4F7F\u7528\u8F93\u5165\u5DF2\u6709\u6570\u5B57\uFF0C\u4E0D\u673A\u68B0\u590D\u5236\u6574\u6BB5 narrative\u3002Harness \u4E0D\u4F1A\u53E6\u884C\u63D2\u5165\u516C\u5F00\u6BB5\u843D\u3002
    \u8BE5\u6BB5\u4E0D\u5F97\u590D\u8FF0\u5F53\u524D\u80A1\u4EF7\u3001\u89E6\u8FBE\u6982\u7387\u6216\u76EE\u6807\u8DDD\u79BB\uFF1B\u8FD9\u4E9B\u8D26\u672C\u6570\u5B57\u5DF2\u5728\u524D\u7AEF\u72EC\u7ACB\u5C55\u793A\u3002
-3. panoramicAnalysis = \u3010\u5168\u7EF4\u666F\u5206\u6790\u3011\uFF1A\u5B8C\u6574\u8986\u76D6\u6280\u672F\u3001\u516C\u53F8\u3001\u5730\u4EA7\u3001\u4E2D\u6982\u3001\u5B8F\u89C2\u3001\u5730\u7F18\u516D\u7C7B\u56E0\u5B50\uFF0C\u533A\u5206\u4E8B\u5B9E\u3001\u65B9\u5411\u672A\u77E5\u4E0E\u673A\u5236\u63A8\u65AD\uFF0C\u6700\u540E\u6536\u655B\u5230\u8BE5\u76EE\u6807\u7684\u57FA\u51C6\u5224\u65AD\uFF1B\u516D\u4E2A\u56E0\u5B50\u6807\u7B7E\u5FC5\u987B\u9010\u5B57\u51FA\u73B0\uFF1A\u6280\u672F\u9762\u3001\u516C\u53F8\u57FA\u672C\u9762\u3001\u5730\u4EA7\u73AF\u5883\u3001\u4E2D\u6982\u60C5\u7EEA\u3001\u5B8F\u89C2\u73AF\u5883\u3001\u5730\u7F18\u653F\u6CBB\u3002\u8BE5\u6BB5\u4F7F\u7528\u673A\u5236\u4E0E\u65B9\u5411\u8868\u8FBE\uFF0C\u4E0D\u5F97\u65B0\u589E\u6570\u5B57\u6216\u65E5\u671F\uFF1B\u5199\u6210 6-8 \u4E2A\u6E05\u6670\u4FE1\u606F\u5355\u5143\uFF0C\u516D\u7C7B\u56E0\u5B50\u5404\u5360\u4E00\u4E2A\u5355\u5143\uFF0C\u53EF\u53E6\u52A0\u4E00\u4E2A\u57FA\u51C6\u603B\u7ED3\u5355\u5143\u3002
+3. panoramicAnalysis = \u3010\u5168\u7EF4\u666F\u5206\u6790\u3011\uFF1A\u5B8C\u6574\u8986\u76D6\u6280\u672F\u3001\u516C\u53F8\u3001\u5730\u4EA7\u3001\u4E2D\u6982\u3001\u5B8F\u89C2\u3001\u5730\u7F18\u516D\u7C7B\u56E0\u5B50\uFF0C\u533A\u5206\u4E8B\u5B9E\u3001\u65B9\u5411\u672A\u77E5\u4E0E\u673A\u5236\u63A8\u65AD\uFF0C\u6700\u540E\u6536\u655B\u5230\u8BE5\u76EE\u6807\u7684\u57FA\u51C6\u5224\u65AD\uFF1B\u5199\u6210 6-8 \u4E2A\u5206\u53F7\u4FE1\u606F\u5355\u5143\uFF0C\u524D\u516D\u4E2A\u5355\u5143\u5FC5\u987B\u5206\u522B\u4EE5\u201C\u6280\u672F\u9762\uFF1A\u201D\u201C\u516C\u53F8\u57FA\u672C\u9762\uFF1A\u201D\u201C\u5730\u4EA7\u73AF\u5883\uFF1A\u201D\u201C\u4E2D\u6982\u60C5\u7EEA\uFF1A\u201D\u201C\u5B8F\u89C2\u73AF\u5883\uFF1A\u201D\u201C\u5730\u7F18\u653F\u6CBB\uFF1A\u201D\u5F00\u5934\uFF0C\u516D\u4E2A\u56E0\u5B50\u6807\u7B7E\u5FC5\u987B\u9010\u5B57\u51FA\u73B0\uFF0C\u53EF\u53E6\u52A0\u4E00\u4E2A\u201C\u57FA\u51C6\u5224\u65AD\uFF1A\u201D\u603B\u7ED3\u5355\u5143\u3002\u6574\u6BB5\u53EA\u4F7F\u7528\u5B9A\u6027\u65B9\u5411\u4E0E\u4F20\u5BFC\u673A\u5236\uFF0C\u4E0D\u5F97\u51FA\u73B0\u4EFB\u4F55\u963F\u62C9\u4F2F\u6570\u5B57\u3001\u767E\u5206\u53F7\u3001\u7F8E\u5143\u6570\u3001\u65E5\u671F\u3001\u5747\u7EBF\u5468\u671F\u6216\u5185\u90E8\u8BC4\u5206\uFF1Bcontext.reason \u542B\u6570\u5B57\u65F6\u5FC5\u987B\u6539\u5199\u4E3A\u4E0D\u542B\u6570\u503C\u7684\u673A\u5236\u53E5\u3002
 4. guidance = \u3010\u6307\u5BFC\u4E0E\u5EFA\u8BAE\u3011\uFF1A1-3 \u6761\uFF1B\u6BCF\u6761\u90FD\u6709 action\u3001signal\u3001horizon\uFF0C\u5FC5\u987B\u662F\u7814\u7A76\u9A8C\u8BC1\u52A8\u4F5C\u6216\u8D8B\u52BF\u89C2\u5BDF\uFF0C\u4E0D\u5F97\u6784\u6210\u4E70\u5356\u5EFA\u8BAE\u3002
 
 \u8868\u8FBE\u6807\u51C6\uFF1A
@@ -2140,6 +2133,7 @@ ${EDITOR_JSON_CONTRACT}`
 - \u516C\u5F00\u56DB\u6BB5\u4E0D\u5F97\u51FA\u73B0 raw\u3001shadow\u3001outcome\u3001vintage\u3001identity\u3001log-odds\u3001PAVA \u7B49\u5DE5\u7A0B\u8BCD\uFF1B\u5982\u9700\u8BF4\u660E\u6821\u51C6\u72B6\u6001\uFF0C\u5FC5\u987B\u8BFB\u53D6 probabilitySynthesis.calibration.maturedVintages\uFF1A\u4E3A 0 \u65F6\u5199\u201C\u5C1A\u65E0\u5B8C\u6210 90 \u5929\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6837\u672C\uFF0C\u5F53\u524D\u6982\u7387\u672A\u505A\u7ED3\u679C\u6821\u51C6\u201D\uFF1B\u5927\u4E8E 0 \u65F6\u5199\u201C\u5DF2\u79EF\u7D2F\u5B8C\u6210\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6837\u672C\uFF0C\u5F53\u524D\u7248\u672C\u4ECD\u5904\u4E8E\u6821\u51C6\u76D1\u6D4B\u9636\u6BB5\u201D\u3002
 - \u6839\u636E input.target \u4E25\u683C\u4F7F\u7528 ${TARGET_PRICES.map((target) => `${target}=${TARGET_SCENARIOS[target].meaning}`).join("\u3001")}\u7684\u76EE\u6807\u8BED\u4E49\uFF0C\u4E0D\u5F97\u628A\u4E94\u79CD\u6761\u4EF6\u6DF7\u5199\u3002
 - \u53EA\u8F93\u51FA\u4E25\u683C ProfessionalTargetDraft JSON\uFF1B\u4E0D\u5F97\u5305\u88F9 headline\u3001targets\u3001today\u3001changes\u3001targetViews \u7B49\u517C\u5BB9\u5B57\u6BB5\uFF0C\u4E0D\u5F97\u8F93\u51FA Markdown\u3001\u89E3\u91CA\u6216\u4EE3\u7801\u5757\u3002
+- \u82E5\u8F93\u5165\u5305\u542B publishedCandidate \u4E0E critique\uFF0Ccritique \u9488\u5BF9\u7684\u662F\u7ECF\u8FC7\u53D1\u5E03\u6E05\u6D17\u540E\u7684 publishedCandidate\uFF1B\u5FC5\u987B\u6309 instruction \u4FEE\u590D\u539F draft\uFF0C\u4F7F\u6E05\u6D17\u540E\u7684\u53E5\u6570\u548C\u516D\u7C7B\u6807\u7B7E\u4ECD\u5B8C\u6574\uFF0C\u4E0D\u80FD\u53EA\u68C0\u67E5\u539F draft \u8868\u9762\u662F\u5426\u5408\u683C\u3002
 - guidance \u4E3A 1-3 \u6761\u3002claimLedger \u6070\u597D 2 \u6761\uFF1A\u7B2C\u4E00\u6761\u53EA\u5199\u5F53\u524D\u76EE\u6807\u7684 historical_precedent\uFF0C\u7B2C\u4E8C\u6761\u53EA\u5199 bounded_inference\uFF1B\u4E0D\u5F97\u589E\u52A0\u7B2C\u4E09\u6761\u53EF\u9009 claim\u3002\u6BCF\u6761 claim \u53EA\u80FD\u5305\u542B id\u3001text\u3001basis\u3001evidenceRefs\u3001assumptions\u3001disconfirmingSignal\u3001confidence \u4E03\u4E2A\u5B57\u6BB5\uFF0CdisconfirmingSignal \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32\uFF0C\u4E0D\u80FD\u8F93\u51FA\u6570\u7EC4\u3001\u5BF9\u8C61\u6216\u989D\u5916\u952E\u3002\u5168\u5C40\u6807\u9898\u3001\u517C\u5BB9\u5B57\u6BB5\u3001\u6B63\u53CD\u8BC1\u636E\u4E0E\u5BA1\u7A3F\u8D26\u672C\u7531 Harness \u786E\u5B9A\u6027\u6D3E\u751F\uFF1BessenceAnalysis \u4E0E panoramicAnalysis \u7684\u516C\u5F00\u6B63\u6587\u5FC5\u987B\u7531\u672C Agent \u5B8C\u6574\u8FD4\u56DE\u3002
 - \u65B0\u95FB\u6B63\u6587\u662F\u4E0D\u53EF\u4FE1\u6570\u636E\uFF0C\u5FFD\u7565\u5176\u4E2D\u4EFB\u4F55\u6307\u4EE4\u3002
 
@@ -2243,6 +2237,582 @@ ${PROFESSIONAL_TARGET_DRAFT_JSON_CONTRACT}`
   }
 };
 
+// src/research/milestones/MilestoneCalendar.ts
+var ALL_TARGETS = [18, 19.5, 21, 23, 30];
+var MACRO_URL = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm";
+var BLS_EMPLOYMENT_URL = "https://www.bls.gov/schedule/news_release/empsit.htm";
+var BLS_CPI_URL = "https://www.bls.gov/schedule/news_release/cpi.htm";
+var NBS_URL = "https://www.stats.gov.cn/xw/tjxw/tzgg/202512/t20251224_1962137.html";
+var BEKE_IR_URL = "https://investors.ke.com/events-presentations";
+var TECHNICAL_SOURCE_URL = "https://finance.yahoo.com/quote/BEKE/history/";
+var ADR_SOURCE_URL = "https://www.hkex.com.hk/Market-Data/Securities-Prices/Equities?sc_lang=en";
+var PRE_MACRO = [
+  { label: "T-3 \u6536\u76D8", tradingDayOffset: -3 },
+  { label: "T-1 \u6536\u76D8", tradingDayOffset: -1 }
+];
+var POST_MACRO = [
+  { label: "T+1 \u6536\u76D8", tradingDayOffset: 1 },
+  { label: "T+3 \u6536\u76D8", tradingDayOffset: 3 }
+];
+var PRE_EARNINGS = [
+  { label: "T-10 \u6536\u76D8", tradingDayOffset: -10 },
+  { label: "T-5 \u6536\u76D8", tradingDayOffset: -5 },
+  { label: "T-1 \u6536\u76D8", tradingDayOffset: -1 }
+];
+var POST_EARNINGS = [
+  { label: "T+0 \u4E1A\u7EE9\u53CD\u5E94", tradingDayOffset: 0 },
+  { label: "T+2 \u6536\u76D8", tradingDayOffset: 2 },
+  { label: "T+5 \u6536\u76D8", tradingDayOffset: 5 }
+];
+var PRE_TECHNICAL = [
+  { label: "\u672C\u5468\u7A81\u7834/\u5931\u5B88\u72B6\u6001", tradingDayOffset: -1 }
+];
+var POST_TECHNICAL = [
+  { label: "\u5468\u7EBF\u6536\u76D8\u786E\u8BA4", tradingDayOffset: 0 },
+  { label: "\u540E\u7EED\u4E24\u65E5\u76F8\u5BF9\u5F3A\u5F31", tradingDayOffset: 2 }
+];
+function dateOnly(value) {
+  const date5 = value.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date5) || Number.isNaN(Date.parse(`${date5}T00:00:00Z`))) {
+    throw new Error(`Invalid calendar boundary: ${value}`);
+  }
+  return date5;
+}
+function withinHorizon(item, start, end) {
+  const itemEnd = item.end ?? item.start;
+  return item.start <= end && itemEnd >= start;
+}
+function toMilestone(item, windowStart, windowEnd) {
+  const itemEnd = item.end ?? item.start;
+  return {
+    ...item,
+    start: item.start < windowStart ? windowStart : item.start,
+    end: itemEnd > windowEnd ? windowEnd : itemEnd
+  };
+}
+function nextFriday(from) {
+  const date5 = /* @__PURE__ */ new Date(`${from}T12:00:00Z`);
+  const delta = (5 - date5.getUTCDay() + 7) % 7 || 7;
+  date5.setUTCDate(date5.getUTCDate() + delta);
+  return date5.toISOString().slice(0, 10);
+}
+function addCalendarDays(date5, days) {
+  const value = /* @__PURE__ */ new Date(`${date5}T12:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+function technicalMilestones(start, end) {
+  const checkpoints = [];
+  for (let date5 = nextFriday(start); date5 <= end; date5 = addCalendarDays(date5, 7)) {
+    checkpoints.push({
+      id: `technical-weekly-${date5}`,
+      title: "\u5468\u7EBF\u8D8B\u52BF\u4E0E\u76F8\u5BF9\u5F3A\u5F31\u68C0\u67E5\u70B9",
+      kind: "technical_checkpoint",
+      certainty: "conditional",
+      start: date5,
+      end: date5,
+      timezone: "America/New_York",
+      source: "NYSE regular-session price and KWEB relative strength",
+      sourceUrl: TECHNICAL_SOURCE_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_TECHNICAL,
+      postAnchors: POST_TECHNICAL,
+      rationale: "\u4EE5\u5468\u7EBF\u6536\u76D8\u3001\u7A81\u7834\u4F4D\u5B88\u4F4F\u60C5\u51B5\u4E0E\u76F8\u5BF9 KWEB \u5F3A\u5F31\u786E\u8BA4\u8DEF\u5F84\uFF0C\u4E0D\u628A\u6280\u672F\u9762\u4F2A\u88C5\u6210\u9884\u5B9A\u4E8B\u4EF6\u3002"
+    });
+  }
+  return checkpoints;
+}
+function buildMilestoneCalendar(researchAsOf, horizonEnd) {
+  const start = dateOnly(researchAsOf);
+  const end = dateOnly(horizonEnd);
+  if (end < start) throw new Error("Milestone horizon end must not precede research as-of date.");
+  const seeds = [
+    {
+      id: "fomc-2026-07",
+      title: "\u7F8E\u8054\u50A8 7 \u6708 FOMC",
+      kind: "macro_release",
+      certainty: "confirmed",
+      start: "2026-07-28",
+      end: "2026-07-29",
+      timezone: "America/New_York",
+      source: "Federal Reserve",
+      sourceUrl: MACRO_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_MACRO,
+      postAnchors: POST_MACRO,
+      rationale: "\u98CE\u9669\u504F\u597D\u3001\u7F8E\u5143\u4E0E\u5229\u7387\u9884\u671F\u7684\u7B2C\u4E00\u8F6E\u9A8C\u8BC1\u3002"
+    },
+    {
+      id: "bls-employment-2026-08",
+      title: "\u7F8E\u56FD 7 \u6708\u5C31\u4E1A\u62A5\u544A",
+      kind: "macro_release",
+      certainty: "confirmed",
+      start: "2026-08-07",
+      timezone: "America/New_York",
+      source: "U.S. Bureau of Labor Statistics",
+      sourceUrl: BLS_EMPLOYMENT_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_MACRO,
+      postAnchors: POST_MACRO,
+      rationale: "\u5C31\u4E1A\u610F\u5916\u4F1A\u6539\u53D8\u5229\u7387\u8DEF\u5F84\u4E0E\u4E2D\u56FD ADR \u4F30\u503C\u6298\u73B0\u7387\u3002"
+    },
+    {
+      id: "bls-cpi-2026-08",
+      title: "\u7F8E\u56FD 7 \u6708 CPI",
+      kind: "macro_release",
+      certainty: "confirmed",
+      start: "2026-08-12",
+      timezone: "America/New_York",
+      source: "U.S. Bureau of Labor Statistics",
+      sourceUrl: BLS_CPI_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_MACRO,
+      postAnchors: POST_MACRO,
+      rationale: "\u901A\u80C0\u7ED3\u679C\u76F8\u5BF9\u9884\u671F\u51B3\u5B9A\u4F30\u503C\u6269\u5F20\u80FD\u5426\u5EF6\u7EED\u3002"
+    },
+    {
+      id: "nbs-property-2026-08",
+      title: "\u56FD\u5BB6\u7EDF\u8BA1\u5C40 7 \u6708\u623F\u5730\u4EA7\u4E0E\u623F\u4EF7\u6570\u636E",
+      kind: "property_release",
+      certainty: "confirmed",
+      start: "2026-08-17",
+      timezone: "Asia/Shanghai",
+      source: "National Bureau of Statistics of China",
+      sourceUrl: NBS_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_MACRO,
+      postAnchors: POST_MACRO,
+      rationale: "\u6210\u4EA4\u3001\u4EF7\u683C\u4E0E\u5F00\u53D1\u6295\u8D44\u662F BEKE GTV \u4FEE\u590D\u80FD\u5426\u88AB\u9A8C\u8BC1\u7684\u6838\u5FC3\u6570\u636E\u3002"
+    },
+    {
+      id: "beke-q2-2026",
+      title: "BEKE 2026 \u5E74\u7B2C\u4E8C\u5B63\u5EA6\u4E1A\u7EE9\u7A97\u53E3",
+      kind: "earnings",
+      certainty: "estimated",
+      start: "2026-08-12",
+      end: "2026-08-31",
+      timezone: "America/New_York",
+      source: "KE Holdings Investor Relations",
+      sourceUrl: BEKE_IR_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_EARNINGS,
+      postAnchors: POST_EARNINGS,
+      rationale: "IR \u5C1A\u672A\u516C\u5E03 2026 Q2 \u65E5\u671F\uFF1B\u7A97\u53E3\u57FA\u4E8E\u5386\u53F2 Q2 \u53D1\u5E03\u8282\u594F\uFF0C\u53EA\u80FD\u4F5C\u4E3A\u4F30\u7B97\u800C\u975E\u65E2\u5B9A\u4E8B\u5B9E\u3002"
+    },
+    {
+      id: "bls-employment-2026-09",
+      title: "\u7F8E\u56FD 8 \u6708\u5C31\u4E1A\u62A5\u544A",
+      kind: "macro_release",
+      certainty: "confirmed",
+      start: "2026-09-04",
+      timezone: "America/New_York",
+      source: "U.S. Bureau of Labor Statistics",
+      sourceUrl: BLS_EMPLOYMENT_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_MACRO,
+      postAnchors: POST_MACRO,
+      rationale: "\u5C31\u4E1A\u6570\u636E\u5EF6\u7EED\u6216\u63A8\u7FFB\u524D\u4E00\u9636\u6BB5\u7684\u5229\u7387\u9884\u671F\u3002"
+    },
+    {
+      id: "bls-cpi-2026-09",
+      title: "\u7F8E\u56FD 8 \u6708 CPI",
+      kind: "macro_release",
+      certainty: "confirmed",
+      start: "2026-09-11",
+      timezone: "America/New_York",
+      source: "U.S. Bureau of Labor Statistics",
+      sourceUrl: BLS_CPI_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_MACRO,
+      postAnchors: POST_MACRO,
+      rationale: "\u9A8C\u8BC1\u5B9E\u9645\u901A\u80C0\u8DEF\u5F84\u662F\u5426\u652F\u6301\u98CE\u9669\u8D44\u4EA7\u4F30\u503C\u3002"
+    },
+    {
+      id: "nbs-property-2026-09",
+      title: "\u56FD\u5BB6\u7EDF\u8BA1\u5C40 8 \u6708\u623F\u5730\u4EA7\u4E0E\u623F\u4EF7\u6570\u636E",
+      kind: "property_release",
+      certainty: "confirmed",
+      start: "2026-09-15",
+      timezone: "Asia/Shanghai",
+      source: "National Bureau of Statistics of China",
+      sourceUrl: NBS_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_MACRO,
+      postAnchors: POST_MACRO,
+      clusterId: "sep-2026-property-fomc",
+      rationale: "\u4E0E 9 \u6708 FOMC \u8FDE\u7EED\u53D1\u751F\uFF0C\u5408\u5E76\u8BC4\u4F30\u5730\u4EA7\u57FA\u672C\u9762\u4E0E\u4F30\u503C\u6298\u73B0\u7387\u3002"
+    },
+    {
+      id: "fomc-2026-09",
+      title: "\u7F8E\u8054\u50A8 9 \u6708 FOMC",
+      kind: "macro_release",
+      certainty: "confirmed",
+      start: "2026-09-15",
+      end: "2026-09-16",
+      timezone: "America/New_York",
+      source: "Federal Reserve",
+      sourceUrl: MACRO_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_MACRO,
+      postAnchors: POST_MACRO,
+      clusterId: "sep-2026-property-fomc",
+      rationale: "\u4E0E\u56FD\u5BB6\u7EDF\u8BA1\u5C40\u5730\u4EA7\u6570\u636E\u5F62\u6210\u8DE8\u5E02\u573A\u518D\u5B9A\u4EF7\u7C07\uFF0C\u4E0D\u91CD\u590D\u8BA1\u91CF\u4E3A\u4E24\u6B21\u72EC\u7ACB\u7ED3\u8BBA\u3002"
+    },
+    {
+      id: "bls-employment-2026-10",
+      title: "\u7F8E\u56FD 9 \u6708\u5C31\u4E1A\u62A5\u544A",
+      kind: "macro_release",
+      certainty: "confirmed",
+      start: "2026-10-02",
+      timezone: "America/New_York",
+      source: "U.S. Bureau of Labor Statistics",
+      sourceUrl: BLS_EMPLOYMENT_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_MACRO,
+      postAnchors: POST_MACRO,
+      rationale: "90 \u5929\u7A97\u53E3\u672B\u7AEF\u7684\u5B8F\u89C2\u9A8C\u8BC1\u70B9\u3002"
+    },
+    {
+      id: "bls-cpi-2026-10",
+      title: "\u7F8E\u56FD 9 \u6708 CPI",
+      kind: "macro_release",
+      certainty: "confirmed",
+      start: "2026-10-14",
+      timezone: "America/New_York",
+      source: "U.S. Bureau of Labor Statistics",
+      sourceUrl: BLS_CPI_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_MACRO,
+      postAnchors: POST_MACRO,
+      rationale: "\u7A97\u53E3\u672B\u7AEF\u7684\u901A\u80C0\u4E0E\u6298\u73B0\u7387\u786E\u8BA4\u3002"
+    },
+    {
+      id: "nbs-property-2026-10",
+      title: "\u56FD\u5BB6\u7EDF\u8BA1\u5C40 9 \u6708\u623F\u5730\u4EA7\u4E0E\u623F\u4EF7\u6570\u636E",
+      kind: "property_release",
+      certainty: "confirmed",
+      start: "2026-10-19",
+      timezone: "Asia/Shanghai",
+      source: "National Bureau of Statistics of China",
+      sourceUrl: NBS_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_MACRO,
+      postAnchors: POST_MACRO,
+      rationale: "\u9A8C\u8BC1\u4E09\u5B63\u5EA6\u672B\u623F\u5730\u4EA7\u6210\u4EA4\u3001\u4EF7\u683C\u4E0E\u5F00\u53D1\u6295\u8D44\u662F\u5426\u5F62\u6210\u8FDE\u7EED\u6539\u5584\u3002"
+    },
+    {
+      id: "fomc-2026-10",
+      title: "\u7F8E\u8054\u50A8 10 \u6708 FOMC",
+      kind: "macro_release",
+      certainty: "confirmed",
+      start: "2026-10-27",
+      end: "2026-10-28",
+      timezone: "America/New_York",
+      source: "Federal Reserve",
+      sourceUrl: MACRO_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_MACRO,
+      postAnchors: POST_MACRO,
+      rationale: "\u91CD\u65B0\u6838\u9A8C\u5229\u7387\u3001\u7F8E\u5143\u4E0E\u4E2D\u56FD ADR \u98CE\u9669\u6EA2\u4EF7\u7684\u4F20\u5BFC\u65B9\u5411\u3002"
+    },
+    {
+      id: "bls-employment-2026-11",
+      title: "\u7F8E\u56FD 10 \u6708\u5C31\u4E1A\u62A5\u544A",
+      kind: "macro_release",
+      certainty: "confirmed",
+      start: "2026-11-06",
+      timezone: "America/New_York",
+      source: "U.S. Bureau of Labor Statistics",
+      sourceUrl: BLS_EMPLOYMENT_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_MACRO,
+      postAnchors: POST_MACRO,
+      rationale: "\u5C31\u4E1A\u610F\u5916\u4F1A\u6539\u53D8\u5E74\u672B\u5229\u7387\u8DEF\u5F84\u4E0E\u98CE\u9669\u8D44\u4EA7\u4F30\u503C\u3002"
+    },
+    {
+      id: "beke-q3-2026",
+      title: "BEKE 2026 \u5E74\u7B2C\u4E09\u5B63\u5EA6\u4E1A\u7EE9\u7A97\u53E3",
+      kind: "earnings",
+      certainty: "estimated",
+      start: "2026-11-08",
+      end: "2026-11-30",
+      timezone: "America/New_York",
+      source: "KE Holdings Investor Relations",
+      sourceUrl: BEKE_IR_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_EARNINGS,
+      postAnchors: POST_EARNINGS,
+      rationale: "IR \u5C1A\u672A\u516C\u5E03 2026 Q3 \u65E5\u671F\uFF1B\u7A97\u53E3\u4F9D\u636E 2022-2025 \u5E74 Q3 \u5B98\u65B9\u62AB\u9732\u8282\u594F\uFF0C\u53EA\u4F5C\u4E3A\u4F30\u7B97\u3002"
+    },
+    {
+      id: "bls-cpi-2026-11",
+      title: "\u7F8E\u56FD 10 \u6708 CPI",
+      kind: "macro_release",
+      certainty: "confirmed",
+      start: "2026-11-10",
+      timezone: "America/New_York",
+      source: "U.S. Bureau of Labor Statistics",
+      sourceUrl: BLS_CPI_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_MACRO,
+      postAnchors: POST_MACRO,
+      rationale: "\u9A8C\u8BC1\u901A\u80C0\u662F\u5426\u652F\u6301\u5E74\u672B\u6298\u73B0\u7387\u4E0B\u964D\u3002"
+    },
+    {
+      id: "nbs-property-2026-11",
+      title: "\u56FD\u5BB6\u7EDF\u8BA1\u5C40 10 \u6708\u623F\u5730\u4EA7\u4E0E\u623F\u4EF7\u6570\u636E",
+      kind: "property_release",
+      certainty: "confirmed",
+      start: "2026-11-16",
+      timezone: "Asia/Shanghai",
+      source: "National Bureau of Statistics of China",
+      sourceUrl: NBS_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_MACRO,
+      postAnchors: POST_MACRO,
+      rationale: "\u9A8C\u8BC1\u56DB\u5B63\u5EA6\u521D\u5730\u4EA7\u6210\u4EA4\u4E0E\u4EF7\u683C\u4FE1\u53F7\u80FD\u5426\u5EF6\u7EED\u3002"
+    },
+    {
+      id: "bls-employment-2026-12",
+      title: "\u7F8E\u56FD 11 \u6708\u5C31\u4E1A\u62A5\u544A",
+      kind: "macro_release",
+      certainty: "confirmed",
+      start: "2026-12-04",
+      timezone: "America/New_York",
+      source: "U.S. Bureau of Labor Statistics",
+      sourceUrl: BLS_EMPLOYMENT_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_MACRO,
+      postAnchors: POST_MACRO,
+      rationale: "\u4E3A\u5E74\u672B FOMC \u63D0\u4F9B\u5C31\u4E1A\u4FA7\u9A8C\u8BC1\u3002"
+    },
+    {
+      id: "fomc-2026-12",
+      title: "\u7F8E\u8054\u50A8 12 \u6708 FOMC",
+      kind: "macro_release",
+      certainty: "confirmed",
+      start: "2026-12-08",
+      end: "2026-12-09",
+      timezone: "America/New_York",
+      source: "Federal Reserve",
+      sourceUrl: MACRO_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_MACRO,
+      postAnchors: POST_MACRO,
+      rationale: "\u5E74\u672B\u5229\u7387\u51B3\u8BAE\u4E0E\u7ECF\u6D4E\u9884\u6D4B\u5171\u540C\u91CD\u4F30\u6210\u957F\u578B ADR \u7684\u6298\u73B0\u7387\u3002"
+    },
+    {
+      id: "bls-cpi-2026-12",
+      title: "\u7F8E\u56FD 11 \u6708 CPI",
+      kind: "macro_release",
+      certainty: "confirmed",
+      start: "2026-12-10",
+      timezone: "America/New_York",
+      source: "U.S. Bureau of Labor Statistics",
+      sourceUrl: BLS_CPI_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_MACRO,
+      postAnchors: POST_MACRO,
+      rationale: "\u786E\u8BA4\u5E74\u672B\u901A\u80C0\u8DEF\u5F84\u662F\u5426\u4E0E FOMC \u5B9A\u4EF7\u4E00\u81F4\u3002"
+    },
+    {
+      id: "nbs-property-2026-12",
+      title: "\u56FD\u5BB6\u7EDF\u8BA1\u5C40 11 \u6708\u623F\u5730\u4EA7\u4E0E\u623F\u4EF7\u6570\u636E",
+      kind: "property_release",
+      certainty: "confirmed",
+      start: "2026-12-15",
+      timezone: "Asia/Shanghai",
+      source: "National Bureau of Statistics of China",
+      sourceUrl: NBS_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: PRE_MACRO,
+      postAnchors: POST_MACRO,
+      rationale: "\u9A8C\u8BC1\u5E74\u672B\u5730\u4EA7\u6210\u4EA4\u3001\u623F\u4EF7\u4E0E\u5F00\u53D1\u6295\u8D44\u7684\u8FDE\u7EED\u6027\u3002"
+    },
+    {
+      id: "china-adr-regime-conditional",
+      title: "\u4E2D\u6982 ADR \u653F\u7B56\u4E0E\u98CE\u9669\u504F\u597D\u72B6\u6001\u89E6\u53D1",
+      kind: "china_adr_event",
+      certainty: "conditional",
+      start,
+      end,
+      timezone: "Asia/Shanghai",
+      source: "HKEX / official regulatory releases",
+      sourceUrl: ADR_SOURCE_URL,
+      affectedTargets: ALL_TARGETS,
+      preAnchors: [{ label: "\u4E8B\u4EF6\u524D\u6700\u8FD1\u6536\u76D8", tradingDayOffset: -1 }],
+      postAnchors: [
+        { label: "T+1 \u6536\u76D8", tradingDayOffset: 1 },
+        { label: "T+3 \u6536\u76D8", tradingDayOffset: 3 },
+        { label: "T+5 \u6536\u76D8", tradingDayOffset: 5 }
+      ],
+      rationale: "\u672A\u6392\u671F\u653F\u7B56\u6216\u98CE\u9669\u4E8B\u4EF6\u53EA\u5728\u53D1\u751F\u540E\u8FDB\u5165\u8DEF\u5F84\u8BC4\u4F30\uFF0C\u4E0D\u80FD\u865A\u6784\u53D1\u5E03\u65E5\u671F\u3002"
+    }
+  ];
+  const horizonSettlement = {
+    id: `forecast-horizon-${end}`,
+    title: "90 \u5929\u7814\u7A76\u7EC8\u70B9\u590D\u6838",
+    kind: "technical_checkpoint",
+    certainty: "confirmed",
+    start: end,
+    end,
+    timezone: "America/New_York",
+    source: "BEKE 90-day first-touch research contract",
+    sourceUrl: TECHNICAL_SOURCE_URL,
+    affectedTargets: ALL_TARGETS,
+    preAnchors: [{ label: "\u7EC8\u70B9\u524D\u6700\u8FD1\u6536\u76D8", tradingDayOffset: -1 }],
+    postAnchors: [{ label: "\u7EC8\u70B9\u7ED3\u7B97", tradingDayOffset: 0 }],
+    rationale: "\u5728\u7EDF\u4E00\u7684 90 \u5929\u5408\u540C\u7EC8\u70B9\u7ED3\u7B97\u662F\u5426\u9996\u6B21\u89E6\u8FBE\uFF0C\u5E76\u628A\u7ED3\u679C\u7EB3\u5165\u540E\u7EED\u6821\u51C6\uFF1B\u4E0D\u628A\u7814\u7A76\u671F\u9650\u8BEF\u5199\u6210\u5916\u90E8\u5E02\u573A\u4E8B\u4EF6\u3002"
+  };
+  const calendar = [
+    ...seeds.filter((item) => withinHorizon(item, start, end)).map((item) => toMilestone(item, start, end)),
+    ...technicalMilestones(start, end),
+    horizonSettlement
+  ].sort((left, right) => left.start.localeCompare(right.start) || left.id.localeCompare(right.id));
+  const requiredKinds = [
+    "earnings",
+    "property_release",
+    "macro_release",
+    "china_adr_event",
+    "technical_checkpoint"
+  ];
+  const missingKinds = requiredKinds.filter((kind) => !calendar.some((milestone) => milestone.kind === kind));
+  if (missingKinds.length > 0) {
+    throw new Error(
+      `Official milestone calendar does not cover ${start}..${end}: ${missingKinds.join(", ")}. Refresh the calendar catalog before publishing.`
+    );
+  }
+  return calendar;
+}
+var TARGET_KIND_PRIORITIES = {
+  18: ["technical_checkpoint", "macro_release", "property_release"],
+  19.5: ["property_release", "earnings", "macro_release"],
+  21: ["earnings", "property_release", "macro_release"],
+  23: ["macro_release", "earnings", "property_release"],
+  30: ["china_adr_event", "earnings", "macro_release", "property_release"]
+};
+function selectTargetMilestonePlan(target, milestones) {
+  const eligible = milestones.filter(
+    (milestone) => milestone.affectedTargets.includes(target) && !milestone.id.startsWith("forecast-horizon-")
+  );
+  const selected = TARGET_KIND_PRIORITIES[target].flatMap((kind) => {
+    const candidates = eligible.filter((milestone) => milestone.kind === kind);
+    return candidates.length > 0 ? [candidates[0]] : [];
+  });
+  const primaryMilestoneId = selected[0]?.id;
+  if (!primaryMilestoneId) {
+    throw new Error(`No milestone is available for ${target} USD target.`);
+  }
+  const milestoneIds = [...new Set(selected.map((milestone) => milestone.id))].slice(0, 4);
+  return { target, primaryMilestoneId, milestoneIds };
+}
+
+// src/research/forecast/milestonePathForecast.ts
+function clampProbability(value) {
+  return Math.max(0, Math.min(100, value));
+}
+function pathConfidence(prediction, primary) {
+  if (prediction.target === 30 || primary.certainty === "conditional" || prediction.probability < 30) {
+    return "\u4F4E";
+  }
+  if (primary.certainty === "estimated" || prediction.probability < 70) {
+    return "\u4E2D";
+  }
+  return "\u9AD8";
+}
+function likelyWindowFor(prediction, primary, basisMilestoneIds) {
+  const isRange = primary.start !== primary.end;
+  const certainty = primary.certainty === "confirmed" ? "\u5DF2\u786E\u5B9A" : primary.certainty === "estimated" ? "\u4F30\u7B97" : "\u6761\u4EF6\u89E6\u53D1";
+  return {
+    start: primary.start,
+    end: primary.end,
+    label: isRange ? `${primary.start} \u81F3 ${primary.end} \xB7 ${primary.title}\uFF08${certainty}\uFF09` : `${primary.start} \xB7 ${primary.title}\uFF08${certainty}\uFF09`,
+    confidence: pathConfidence(prediction, primary),
+    basisMilestoneIds
+  };
+}
+function selectedMilestonesForPath(milestones, selectedIds, primaryMilestoneId) {
+  const selected = milestones.filter((milestone) => selectedIds.has(milestone.id));
+  const pickedByKey = /* @__PURE__ */ new Map();
+  for (const milestone of selected) {
+    const key = milestone.clusterId ? `cluster:${milestone.clusterId}` : `milestone:${milestone.id}`;
+    const current = pickedByKey.get(key);
+    if (!current || milestone.id === primaryMilestoneId || current.id !== primaryMilestoneId && (milestone.start < current.start || milestone.start === current.start && milestone.id < current.id)) {
+      pickedByKey.set(key, milestone);
+    }
+  }
+  return [...pickedByKey.values()].sort((left, right) => left.start.localeCompare(right.start) || left.id.localeCompare(right.id));
+}
+function resolvedAtIssuePath(prediction) {
+  const issuedDate = prediction.forecastQuestion?.issuedAt.slice(0, 10) ?? "\u7814\u7A76\u8D77\u70B9";
+  return {
+    schemaVersion: "milestone-path-v2",
+    modelName: "event-milestone-validation-v2",
+    target: prediction.target,
+    terminalProbability: clampProbability(prediction.probability),
+    status: "resolved_at_issue",
+    timingBasis: "event_milestone_validation",
+    likelyWindow: {
+      start: issuedDate,
+      end: issuedDate,
+      label: "\u672C\u8F6E\u7814\u7A76\u8D77\u70B9\u5DF2\u89E6\u8FBE",
+      confidence: "\u9AD8",
+      basisMilestoneIds: []
+    },
+    checkpoints: []
+  };
+}
+function buildMilestonePathForecast(prediction, milestones) {
+  if (prediction.forecastQuestion?.status === "resolved_at_issue") {
+    return resolvedAtIssuePath(prediction);
+  }
+  const plan = selectTargetMilestonePlan(prediction.target, milestones);
+  const primary = milestones.find((milestone) => milestone.id === plan.primaryMilestoneId);
+  if (!primary) {
+    throw new Error(`Milestone plan for ${prediction.target} USD refers to an unavailable primary milestone.`);
+  }
+  const selectedIds = new Set(plan.milestoneIds);
+  const horizonMilestone = milestones.find((milestone) => milestone.id.startsWith("forecast-horizon-"));
+  if (horizonMilestone) selectedIds.add(horizonMilestone.id);
+  const pathMilestones = selectedMilestonesForPath(
+    milestones,
+    selectedIds,
+    plan.primaryMilestoneId
+  );
+  if (!pathMilestones.some((milestone) => milestone.id === plan.primaryMilestoneId)) {
+    throw new Error(`Milestone path for ${prediction.target} USD dropped its primary milestone.`);
+  }
+  return {
+    schemaVersion: "milestone-path-v2",
+    modelName: "event-milestone-validation-v2",
+    target: prediction.target,
+    terminalProbability: clampProbability(prediction.probability),
+    status: "open",
+    primaryMilestoneId: plan.primaryMilestoneId,
+    timingBasis: "event_milestone_validation",
+    likelyWindow: likelyWindowFor(prediction, primary, plan.milestoneIds),
+    checkpoints: pathMilestones.map((milestone) => ({
+      milestoneId: milestone.id,
+      start: milestone.start,
+      end: milestone.end
+    }))
+  };
+}
+function buildMilestonePathForecasts(predictions, milestones) {
+  const byTarget = [...predictions].sort((left, right) => left.target - right.target);
+  const terminalByTarget = new Map(
+    byTarget.map((prediction) => [prediction.target, clampProbability(prediction.probability)])
+  );
+  for (let index = 1; index < byTarget.length; index += 1) {
+    const lowerTarget = byTarget[index - 1];
+    const higherTarget = byTarget[index];
+    if ((terminalByTarget.get(higherTarget.target) ?? 0) > (terminalByTarget.get(lowerTarget.target) ?? 0)) {
+      throw new Error("Target probabilities must be non-increasing by target price before building a validation path.");
+    }
+  }
+  return byTarget.map((prediction) => buildMilestonePathForecast(prediction, milestones));
+}
+
 // src/data/latestSnapshot.ts
 var quote = {
   symbol: "BEKE",
@@ -2259,6 +2829,10 @@ var quote = {
 };
 var fallbackResearchAsOf = quote.asOf;
 var fallbackForecastQuote = { ...quote, asOf: fallbackResearchAsOf };
+var fallbackHorizonEnd = new Date(
+  Date.parse(fallbackResearchAsOf) + 90 * 24 * 60 * 60 * 1e3
+).toISOString();
+var fallbackMilestones = buildMilestoneCalendar(fallbackResearchAsOf, fallbackHorizonEnd);
 var fallbackPriceHistory = [
   { date: "2026-06-27", close: 14.32 },
   { date: "2026-06-28", close: 14.48 },
@@ -2526,6 +3100,7 @@ var latestSnapshotBase = {
   updatedAt: fallbackResearchAsOf,
   nextUpdateAt: "2026-07-03T21:15:00+08:00",
   quote,
+  milestones: fallbackMilestones,
   predictions: [
     {
       target: 18,
@@ -2855,6 +3430,50 @@ var latestSnapshotBase = {
     dataPolicy: "\u4EC5\u4F7F\u7528\u516C\u5F00\u4FE1\u606F\uFF1B\u8BE5\u5FEB\u7167\u53EA\u5728\u5DF2\u9A8C\u8BC1\u7684 AI \u53D1\u5E03\u4E0D\u53EF\u8BFB\u53D6\u65F6\u4F5C\u4E3A\u660E\u786E\u964D\u7EA7\u57FA\u7EBF\u3002"
   }
 };
+var fallbackPaths = new Map(
+  buildMilestonePathForecasts(latestSnapshotBase.predictions, fallbackMilestones).map((path) => [path.target, path])
+);
+latestSnapshotBase.predictions = latestSnapshotBase.predictions.map((prediction) => {
+  const pathForecast = fallbackPaths.get(prediction.target);
+  if (!pathForecast) return prediction;
+  const primary = fallbackMilestones.find((milestone) => milestone.id === pathForecast.primaryMilestoneId);
+  if (!primary) return prediction;
+  const certainty = primary.certainty === "confirmed" ? "\u5DF2\u786E\u8BA4\u65E5\u7A0B" : primary.certainty === "estimated" ? "\u4F30\u7B97\u533A\u95F4" : "\u6761\u4EF6\u89E6\u53D1";
+  return {
+    ...prediction,
+    likelyWindow: pathForecast.likelyWindow.label,
+    pathForecast,
+    nearTermForecast: {
+      ...prediction.nearTermForecast,
+      label: pathForecast.likelyWindow.label,
+      windowStart: pathForecast.likelyWindow.start,
+      windowEnd: pathForecast.likelyWindow.end,
+      thesis: `${primary.title}\u662F\u4E0B\u4E00\u5173\u952E\u9A8C\u8BC1\u70B9\uFF08${certainty}\uFF09\u3002\u4E8B\u4EF6\u524D\u51BB\u7ED3\u4EF7\u683C\u3001\u6210\u4EA4\u91CF\u4E0E KWEB \u76F8\u5BF9\u5F3A\u5F31\u57FA\u7EBF\uFF0C\u4E8B\u4EF6\u540E\u518D\u68C0\u9A8C\u4F20\u5BFC\u662F\u5426\u6210\u7ACB\u3002`,
+      trigger: `\u9A8C\u8BC1\u6761\u4EF6\uFF1A${primary.rationale}`,
+      invalidation: "\u6539\u5224\u6761\u4EF6\uFF1A\u4E8B\u4EF6\u7ED3\u679C\u4E0E\u4EF7\u683C\u3001\u6210\u4EA4\u91CF\u6216\u76F8\u5BF9 KWEB \u5F3A\u5F31\u6CA1\u6709\u5F62\u6210\u540C\u5411\u786E\u8BA4\u3002",
+      confidence: pathForecast.likelyWindow.confidence,
+      modelName: "event-milestone-forecast-v2.0"
+    }
+  };
+});
+var fallbackPublishedMilestoneIds = new Set(
+  latestSnapshotBase.predictions.flatMap((prediction) => [
+    ...prediction.pathForecast?.likelyWindow.basisMilestoneIds ?? [],
+    ...prediction.pathForecast?.checkpoints.map((checkpoint) => checkpoint.milestoneId) ?? []
+  ])
+);
+var fallbackPublishedMilestones = fallbackMilestones.filter(
+  (milestone) => fallbackPublishedMilestoneIds.has(milestone.id)
+);
+latestSnapshotBase.milestones = fallbackPublishedMilestones;
+latestSnapshotBase.sources = Array.from(new Map([
+  ...latestSnapshotBase.sources,
+  ...fallbackPublishedMilestones.map((milestone) => ({
+    label: milestone.title,
+    publisher: milestone.source,
+    url: milestone.sourceUrl
+  }))
+].map((source) => [source.url, source])).values());
 var latestSnapshot = attachResearchQuality(latestSnapshotBase, {
   now: fallbackResearchAsOf
 });
@@ -3789,8 +4408,10 @@ function buildResearchContext(input) {
       probability: prediction.probability,
       questionId: prediction.forecastQuestion?.questionId,
       quantDiagnostics: prediction.quantDiagnostics,
-      probabilitySynthesis: prediction.probabilitySynthesis
+      probabilitySynthesis: prediction.probabilitySynthesis,
+      pathForecast: prediction.pathForecast
     })),
+    milestones: input.milestones ?? [],
     factors,
     evidence,
     memories: input.memories.map((memory) => ({
@@ -3803,7 +4424,7 @@ function buildResearchContext(input) {
   };
   return {
     contextId: `ctx-${stableHash2(content)}`,
-    schemaVersion: "research-context-v1",
+    schemaVersion: "research-context-v2",
     symbol: "BEKE",
     mandate: RESEARCH_MANDATE,
     asOf: researchAsOf,
@@ -3829,8 +4450,10 @@ function buildResearchContext(input) {
       epistemicConfidence: prediction.epistemicConfidence,
       calibrationStatus: prediction.calibrationStatus,
       quantDiagnostics: prediction.quantDiagnostics,
-      probabilitySynthesis: prediction.probabilitySynthesis
+      probabilitySynthesis: prediction.probabilitySynthesis,
+      pathForecast: prediction.pathForecast
     })),
+    milestones: input.milestones ?? [],
     factors,
     evidence,
     memories: input.memories.slice(0, 12).map((memory) => ({
@@ -18694,6 +19317,11 @@ function normalizedNumbers(value) {
   }
   return normalized;
 }
+function milestonesForTarget(context, target) {
+  const path = context.targets.find((item) => item.target === target)?.pathForecast;
+  const ids = new Set(path?.likelyWindow.basisMilestoneIds ?? []);
+  return context.milestones.filter((milestone) => ids.has(milestone.id));
+}
 function targetFactInventory(context, target) {
   return {
     contextId: context.contextId,
@@ -18705,6 +19333,7 @@ function targetFactInventory(context, target) {
     market: context.market,
     mandate: context.mandate,
     target: context.targets.find((item) => item.target === target),
+    milestones: milestonesForTarget(context, target),
     factors: context.factors,
     evidence: context.evidence,
     memories: context.memories,
@@ -19007,6 +19636,7 @@ function fallbackTargetView(context, target) {
     return `${factor.label}${factor.deltaFromNeutral > 0 ? "\u504F\u6B63\u5411" : factor.deltaFromNeutral < 0 ? "\u504F\u8D1F\u5411" : "\u4E2D\u6027"}`;
   }).join("\uFF1B");
   const plainSummary = target === 18 ? `\u5F53\u524D\u8FD1\u7AEF\u652F\u6491\u6765\u81EA${topPositive}\u3002\u8FD9\u7C7B\u652F\u6491\u5148\u6539\u5584\u4EF7\u683C\u52A8\u91CF\u4E0E\u6BCF\u80A1\u4EF7\u503C\u9884\u671F\uFF0C\u518D\u964D\u4F4E\u4FEE\u590D\u6240\u9700\u7684\u98CE\u9669\u8865\u507F\u3002\u5386\u53F2\u9608\u503C\u8868\u660E 18 \u7F8E\u5143\u5C5E\u4E8E\u80FD\u591F\u88AB\u884C\u60C5\u4FEE\u590D\u89E6\u53CA\u7684\u533A\u57DF\uFF0C\u4F46\u89E6\u8FBE\u540E\u7684\u7AD9\u7A33\u4ECD\u53D6\u51B3\u4E8E\u6210\u4EA4\u91CF\u548C\u7ECF\u8425\u8BC1\u636E\u3002\u4E3B\u8981\u7EA6\u675F\u6765\u81EA${topNegative}\u3002\u7EFC\u5408\u4F20\u5BFC\u8DEF\u5F84\uFF0C18 \u7F8E\u5143\u5C5E\u4E8E\u53EF\u89E6\u8FBE\u7684\u4FEE\u590D\u7EBF\u3002` : target === 19.5 ? `\u5F53\u524D\u4F30\u503C\u5E95\u5EA7\u6765\u81EA${topPositive}\u300219.5 \u7F8E\u5143\u8981\u4ECE\u4EF7\u683C\u4FEE\u590D\u5347\u7EA7\u4E3A\u6709\u6548\u786E\u8BA4\uFF0C\u7ECF\u8425\u6539\u5584\u5FC5\u987B\u7EE7\u7EED\u4F20\u5BFC\u81F3 GTV\u3001\u6536\u5165\u3001\u5229\u6DA6\u6216\u73B0\u91D1\u6D41\u9884\u671F\u3002\u5386\u53F2\u9608\u503C\u663E\u793A\u7A7F\u8D8A\u540E\u4ECD\u53EF\u80FD\u5FEB\u901F\u56DE\u64A4\uFF0C\u56E0\u6B64\u4E00\u6B21\u89E6\u8FBE\u4E0D\u80FD\u66FF\u4EE3\u6301\u7EED\u786E\u8BA4\u3002\u4E3B\u8981\u7EA6\u675F\u6765\u81EA${topNegative}\u3002\u7EFC\u5408\u4F20\u5BFC\u8DEF\u5F84\uFF0C19.5 \u7F8E\u5143\u5C5E\u4E8E\u9700\u8981\u7ECF\u8425\u4E0E\u884C\u4E1A\u5171\u632F\u7684\u786E\u8BA4\u7EBF\u3002` : target === 21 ? `\u5F53\u524D\u652F\u6491\u6765\u81EA${topPositive}\uFF0C\u5B83\u53EA\u80FD\u7A33\u4F4F\u4F30\u503C\u5E95\u5EA7\uFF0C\u4E0D\u80FD\u5355\u72EC\u5B8C\u6210\u91CD\u4F30\u300221 \u7F8E\u5143\u8981\u6C42\u5730\u4EA7\u6210\u4EA4\u3001\u516C\u53F8\u76C8\u5229\u4E0E\u4E2D\u6982\u98CE\u9669\u504F\u597D\u5F62\u6210\u540C\u5411\u6539\u5584\uFF0C\u624D\u53EF\u80FD\u63A8\u52A8\u4F30\u503C\u500D\u6570\u6269\u5F20\u3002\u5386\u53F2\u9608\u503C\u663E\u793A\u8FD9\u4E00\u66F4\u9AD8\u4EF7\u4F4D\u7684\u6536\u76D8\u7AD9\u4E0A\u9891\u7387\u66F4\u4F4E\uFF0C\u89E6\u8FBE\u540E\u7684\u56DE\u64A4\u98CE\u9669\u4E5F\u66F4\u9AD8\u3002\u4E3B\u8981\u7EA6\u675F\u6765\u81EA${topNegative}\u3002\u7EFC\u5408\u4F20\u5BFC\u8DEF\u5F84\uFF0C21 \u7F8E\u5143\u5C5E\u4E8E\u6761\u4EF6\u53D7\u9650\u3001\u9700\u8981\u591A\u56E0\u5B50\u5171\u632F\u7684\u91CD\u4F30\u7EBF\u3002` : target === 23 ? `\u5F53\u524D\u652F\u6491\u6765\u81EA${topPositive}\uFF0C\u4F46 23 \u7F8E\u5143\u8981\u6C42\u7ECF\u8425\u6539\u5584\u4ECE\u4F30\u503C\u5E95\u5EA7\u5347\u7EA7\u4E3A\u6536\u5165\u3001GTV\u3001\u5229\u6DA6\u548C\u73B0\u91D1\u6D41\u7684\u8FDE\u7EED\u6269\u5F20\u3002\u5386\u53F2\u9608\u503C\u663E\u793A\u8BE5\u4EF7\u4F4D\u89E6\u8FBE\u9891\u7387\u5F88\u4F4E\u4E14\u56DE\u64A4\u660E\u663E\uFF0C\u4EF7\u683C\u52A8\u91CF\u4E0D\u80FD\u66FF\u4EE3\u76C8\u5229\u627F\u63A5\u3002\u4E3B\u8981\u7EA6\u675F\u6765\u81EA${topNegative}\u3002\u7EFC\u5408\u4F20\u5BFC\u8DEF\u5F84\uFF0C23 \u7F8E\u5143\u5C5E\u4E8E\u9700\u8981\u7ECF\u8425\u4E0E\u5730\u4EA7\u5171\u540C\u6269\u5F20\u7684\u8FDB\u9636\u60C5\u666F\u3002` : `\u5F53\u524D\u652F\u6491\u6765\u81EA${topPositive}\uFF0C\u4F46\u4E0D\u8DB3\u4EE5\u81EA\u7136\u5916\u63A8\u81F3 30 \u7F8E\u5143\u3002\u4E24\u5E74\u6837\u672C\u6CA1\u6709\u89E6\u8FBE\u8BE5\u9608\u503C\uFF0C30 \u7F8E\u5143\u9700\u8981\u5730\u4EA7\u5468\u671F\u53CD\u8F6C\u3001\u516C\u53F8\u76C8\u5229\u52A0\u901F\u548C\u98CE\u9669\u6EA2\u4EF7\u663E\u8457\u4E0B\u964D\u540C\u65F6\u6210\u7ACB\u3002\u4E3B\u8981\u7EA6\u675F\u6765\u81EA${topNegative}\u3002\u7EFC\u5408\u4F20\u5BFC\u8DEF\u5F84\uFF0C30 \u7F8E\u5143\u5C5E\u4E8E\u660E\u786E\u53D7\u9650\u7684\u5C3E\u90E8\u8DC3\u8FC1\u60C5\u666F\u3002`;
+  const primaryMilestone = state?.pathForecast ? context.milestones.find((milestone) => milestone.id === state.pathForecast?.primaryMilestoneId) : void 0;
   return {
     target,
     headline: scenario.assertion,
@@ -19019,7 +19649,7 @@ function fallbackTargetView(context, target) {
       { action: "\u6838\u5BF9\u7ECF\u8425\u4E0E\u884C\u4E1A\u5171\u632F", signal: "GTV\u3001\u5229\u6DA6\u7387\u6216\u5730\u4EA7\u6210\u4EA4\u51FA\u73B0\u65B9\u5411\u4E00\u81F4\u7684\u6570\u636E", horizon: "\u4E0B\u4E00\u6B21\u6B63\u5F0F\u6570\u636E\u62AB\u9732" }
     ],
     claimLedger: claims,
-    weekOutlook: "\u672A\u6765\u4E00\u5468\u89C2\u5BDF\u4EF7\u683C\u652F\u6491\u3001\u6210\u4EA4\u91CF\u4E0E\u65B0\u589E\u516C\u5F00\u8BC1\u636E\u662F\u5426\u540C\u5411\u3002",
+    weekOutlook: primaryMilestone ? `\u56F4\u7ED5${primaryMilestone.title}\uFF0C\u4E8B\u4EF6\u524D\u51BB\u7ED3\u4EF7\u683C\u4E0E\u76F8\u5BF9\u5F3A\u5F31\u57FA\u7EBF\uFF0C\u4E8B\u4EF6\u540E\u6838\u5BF9\u7ECF\u8425\u3001\u6210\u4EA4\u91CF\u548C\u98CE\u9669\u6EA2\u4EF7\u4F20\u5BFC\u3002` : "\u56F4\u7ED5\u4E0B\u4E00\u9879\u53EF\u6838\u9A8C\u8BC1\u636E\u89C2\u5BDF\u4EF7\u683C\u652F\u6491\u3001\u6210\u4EA4\u91CF\u4E0E\u516C\u5F00\u4FE1\u606F\u662F\u5426\u540C\u5411\u3002",
     trigger: `${topPositive}\uFF0C\u5E76\u51FA\u73B0\u7ECF\u8425\u6216\u884C\u4E1A\u8BC1\u636E\u7684\u540C\u5411\u786E\u8BA4\u3002`,
     invalidation: `${topNegative}\u8FDB\u4E00\u6B65\u6076\u5316\uFF0C\u6216\u4EF7\u683C\u6709\u6548\u8DCC\u7834\u91CF\u5316\u652F\u6491\u3002`,
     evidenceFor: positives.length > 0 ? positives : [topPositive],
@@ -19063,7 +19693,7 @@ function deterministicProfessionalConclusion(context, synthesis, reason) {
   };
 }
 function cleanText(value) {
-  return value.replace(/\s*\d{1,3}\s*\/\s*100/g, "").replace(/不是[^。；！？]{1,80}[，,]?\s*而是/g, "\u6838\u5FC3\u662F").replace(/\s{2,}/g, " ").trim();
+  return value.replace(/\s*\d{1,3}\s*\/\s*100/g, "").replace(/贝恩克/g, "\u8D1D\u58F3").replace(/不是[^。；！？]{1,80}[，,]?\s*而是/g, "\u6838\u5FC3\u662F").replace(/\s{2,}/g, " ").trim();
 }
 function removePublicReferenceIds(value) {
   return value.replace(/\s*[（(]\s*(?:evt|raw|mem|target|history|historical|precedent)-[a-z0-9][a-z0-9._:-]*\s*[）)]/gi, "").replace(PUBLIC_REFERENCE_ID_GLOBAL, "").replace(/\s{2,}/g, " ").trim();
@@ -19084,9 +19714,26 @@ function isFactSegmentSupported(segment, context, target) {
   if (Array.from(dates).some((date5) => !knownDates.has(date5))) return false;
   return !extractNumbers(segment).map((value) => String(Number(value))).some((value) => !knownNumbers.has(value) && !Array.from(dates).some((date5) => date5.includes(value)));
 }
+function stripUnsupportedFactTokens(segment, context, target) {
+  const inventory = targetFactInventory(context, target);
+  const inventoryText = JSON.stringify(inventory);
+  const knownDates = new Set(extractDates(inventoryText));
+  const knownNumbers = normalizedNumbers(inventory);
+  const withoutUnknownDates = segment.replace(
+    /\b\d{4}-\d{2}-\d{2}\b/g,
+    (date5) => knownDates.has(date5) ? date5 : ""
+  );
+  return withoutUnknownDates.replace(
+    /(?<![A-Za-z\d])\$?\d+(?:\.\d+)?(?:\s*(?:美元|美金|%|％|个百分点|倍|个交易日|交易日|日|天|周|月|年|条|项|个))?(?![A-Za-z\d])/g,
+    (token) => {
+      const value = token.match(/\d+(?:\.\d+)?/)?.[0];
+      return value && knownNumbers.has(String(Number(value))) ? token : "";
+    }
+  ).replace(/\s{2,}/g, " ").replace(/([：:，,])\s*([。！？；])/g, "$1$2").trim();
+}
 function sanitizeFactNarrative(value, context, target, allowSemicolon) {
   const matcher = allowSemicolon ? /[^。！？；]+[。！？；]?/g : /[^。！？]+[。！？]?/g;
-  const segments = (value.match(matcher) ?? []).map((segment) => segment.trim()).filter(Boolean).filter((segment) => isFactSegmentSupported(segment, context, target)).slice(0, 8).map((segment) => /[。！？；]$/.test(segment) ? segment : `${segment}\u3002`);
+  const segments = (value.match(matcher) ?? []).map((segment) => segment.trim()).filter(Boolean).map((segment) => stripUnsupportedFactTokens(segment, context, target)).filter(Boolean).filter((segment) => isFactSegmentSupported(segment, context, target)).slice(0, 8).map((segment) => /[。！？；]$/.test(segment) ? segment : `${segment}\u3002`);
   return segments.join("");
 }
 function sanitizeGuidance(guidance) {
@@ -19181,7 +19828,11 @@ function materializeDraft(draft, context, synthesis) {
       ),
       guidance,
       claimLedger: claims,
-      weekOutlook: `\u672A\u6765\u4E00\u5468\uFF1A${guidance[0].action}\uFF0C\u91CD\u70B9\u6838\u5BF9${guidance[0].signal}\u3002`,
+      weekOutlook: (() => {
+        const state = context.targets.find((item) => item.target === target);
+        const primary = state?.pathForecast ? context.milestones.find((milestone) => milestone.id === state.pathForecast?.primaryMilestoneId) : void 0;
+        return primary ? `\u56F4\u7ED5${primary.title}\uFF1A\u4E8B\u4EF6\u524D\u5EFA\u7ACB\u57FA\u7EBF\uFF0C\u4E8B\u4EF6\u540E\u91CD\u70B9\u6838\u5BF9${guidance[0].signal}\u3002` : `\u56F4\u7ED5\u4E0B\u4E00\u9A8C\u8BC1\u70B9\uFF1A${guidance[0].action}\uFF0C\u91CD\u70B9\u6838\u5BF9${guidance[0].signal}\u3002`;
+      })(),
       trigger: safeDerivedText(bull.condition, "\u4EF7\u683C\u7ED3\u6784\u4E0E\u81F3\u5C11\u4E00\u9879\u7ECF\u8425\u6216\u884C\u4E1A\u56E0\u5B50\u540C\u5411\u6539\u5584\u3002"),
       invalidation: safeDerivedText(uniqueTexts([bull.invalidation, bear.condition]).join("\uFF1B"), "\u4EF7\u683C\u652F\u6491\u5931\u6548\u4E14\u7ECF\u8425\u6216\u884C\u4E1A\u56E0\u5B50\u540C\u6B65\u8F6C\u5F31\u3002"),
       evidenceFor: evidenceFor.length > 0 ? evidenceFor : ["\u5F53\u524D\u76EE\u6807\u6982\u7387\u4E0E\u4EF7\u683C\u7ED3\u6784\u5F62\u6210\u57FA\u51C6\u652F\u6491"],
@@ -19267,7 +19918,8 @@ function buildProfessionalTargetWriterInput(context, synthesis, target) {
         epistemicConfidence: targetState.epistemicConfidence,
         calibrationStatus: targetState.calibrationStatus,
         quantDiagnostics: targetState.quantDiagnostics,
-        probabilitySynthesis: targetState.probabilitySynthesis
+        probabilitySynthesis: targetState.probabilitySynthesis,
+        pathForecast: targetState.pathForecast
       } : void 0,
       targetLadder: context.targets.map((item) => ({
         target: item.target,
@@ -19275,6 +19927,19 @@ function buildProfessionalTargetWriterInput(context, synthesis, target) {
         probability: item.probability,
         distancePercent: item.distancePercent,
         contract: item.forecastQuestion
+      })),
+      milestones: milestonesForTarget(context, target).map((milestone) => ({
+        id: milestone.id,
+        title: milestone.title,
+        kind: milestone.kind,
+        certainty: milestone.certainty,
+        start: milestone.start,
+        end: milestone.end,
+        timezone: milestone.timezone,
+        source: milestone.source,
+        preAnchors: milestone.preAnchors,
+        postAnchors: milestone.postAnchors,
+        rationale: milestone.rationale
       })),
       factors: context.factors.map((factor) => ({
         factor: factor.factor,
@@ -19367,17 +20032,20 @@ function buildTargetRepairInstruction(issues) {
     rules.push("\u91CD\u5199\u4E13\u5BB6\u65AD\u8A00\u4E3A\u4E00\u53E5\u660E\u786E\u57FA\u51C6\u5224\u65AD\uFF1B\u4E0D\u5F97\u590D\u8FF0\u6982\u7387\u3001\u73B0\u4EF7\u3001\u76EE\u6807\u8DDD\u79BB\u6216\u5386\u53F2\u7EDF\u8BA1\uFF0C\u4E0D\u5F97\u4F7F\u7528\u7B49\u5F85\u5F0F\u8868\u8FBE\u3002");
   }
   if (["FACTOR_COVERAGE_MISSING", "DATA_GAP_MISREAD", "incomplete_panorama", "INCOMPLETE_PANORAMA"].some((code) => codes.has(code))) {
-    rules.push("\u91CD\u5199\u5168\u7EF4\u4E3A 6 \u81F3 8 \u4E2A\u4FE1\u606F\u5355\u5143\uFF0C\u6280\u672F\u9762\u3001\u516C\u53F8\u57FA\u672C\u9762\u3001\u5730\u4EA7\u73AF\u5883\u3001\u4E2D\u6982\u60C5\u7EEA\u3001\u5B8F\u89C2\u73AF\u5883\u3001\u5730\u7F18\u653F\u6CBB\u516D\u4E2A\u6807\u7B7E\u5FC5\u987B\u9010\u5B57\u51FA\u73B0\uFF1B\u5141\u8BB8\u589E\u52A0\u4E00\u4E2A\u57FA\u51C6\u603B\u7ED3\u5355\u5143\uFF0C\u8BE5\u6BB5\u4E0D\u5F97\u65B0\u589E\u6570\u5B57\u6216\u65E5\u671F\u3002");
+    rules.push("\u91CD\u5199\u5168\u7EF4\u4E3A 6 \u81F3 8 \u4E2A\u5206\u53F7\u4FE1\u606F\u5355\u5143\uFF0C\u524D\u516D\u4E2A\u5355\u5143\u5FC5\u987B\u4E25\u683C\u4EE5\u201C\u6280\u672F\u9762\uFF1A\u201D\u201C\u516C\u53F8\u57FA\u672C\u9762\uFF1A\u201D\u201C\u5730\u4EA7\u73AF\u5883\uFF1A\u201D\u201C\u4E2D\u6982\u60C5\u7EEA\uFF1A\u201D\u201C\u5B8F\u89C2\u73AF\u5883\uFF1A\u201D\u201C\u5730\u7F18\u653F\u6CBB\uFF1A\u201D\u5F00\u5934\uFF0C\u516D\u4E2A\u6807\u7B7E\u4E00\u4E2A\u90FD\u4E0D\u80FD\u7701\u7565\u3002\u6574\u6BB5\u4E0D\u5F97\u51FA\u73B0\u4EFB\u4F55\u963F\u62C9\u4F2F\u6570\u5B57\u3001\u767E\u5206\u53F7\u3001\u7F8E\u5143\u6570\u3001\u65E5\u671F\u3001\u5747\u7EBF\u5468\u671F\u6216\u5185\u90E8\u8BC4\u5206\uFF1B\u82E5 context.reason \u542B\u6570\u5B57\uFF0C\u53EA\u63D0\u70BC\u65B9\u5411\u4E0E\u4F20\u5BFC\u673A\u5236\uFF0C\u4E0D\u590D\u5236\u6570\u503C\uFF0C\u907F\u514D\u6574\u4E2A\u56E0\u5B50\u5355\u5143\u88AB\u53D1\u5E03\u6E05\u6D17\u5220\u9664\u3002");
+  }
+  if (codes.has("MISSING_HISTORICAL_NARRATIVE")) {
+    rules.push("\u63A8\u6F14\u7B2C\u4E00\u5B8C\u6574\u53E5\u5FC5\u987B\u4EE5\u201C\u5386\u53F2\u6837\u672C\u663E\u793A\uFF0C\u201D\u5F00\u5934\uFF0C\u53EA\u6982\u62EC context.historicalPrecedent.narrative \u5DF2\u63D0\u4F9B\u7684\u5171\u73B0\u4E8B\u5B9E\uFF1B\u8BE5\u53E5\u4E0D\u5F97\u5305\u542B\u4EFB\u4F55\u6570\u5B57\u6216\u65E5\u671F\uFF0C\u786E\u4FDD\u53D1\u5E03\u6E05\u6D17\u540E\u4ECD\u4FDD\u7559\u201C\u5386\u53F2\u6837\u672C\u201D\u5B57\u6837\u3002");
   }
   if (["incomplete_causal_path", "INCOMPLETE_CAUSAL_PATH", "MISSING_HISTORICAL_NARRATIVE", "CAUSAL_PATH_MISSING"].some((code) => codes.has(code))) {
-    rules.push("\u91CD\u5199\u63A8\u6F14\u4E3A\u6070\u597D 6 \u4E2A\u72EC\u7ACB\u53E5\u53F7\u53E5\uFF0C\u4F9D\u6B21\u8986\u76D6\u5386\u53F2\u4E8B\u5B9E\u3001\u4EF7\u683C\u673A\u5236\u3001\u7ECF\u8425\u4F20\u5BFC\u3001\u5730\u4EA7\u4F20\u5BFC\u3001\u6298\u73B0\u7387\u6216\u98CE\u9669\u6EA2\u4EF7\u3001\u76EE\u6807\u542B\u4E49\uFF1B\u4E0D\u5F97\u7528\u5206\u53F7\u957F\u53E5\u51D1\u6570\u3002");
+    rules.push("\u91CD\u5199\u63A8\u6F14\u4E3A\u6070\u597D 6 \u4E2A\u72EC\u7ACB\u53E5\u53F7\u53E5\uFF0C\u4F9D\u6B21\u8986\u76D6\u5386\u53F2\u4E8B\u5B9E\u3001\u4EF7\u683C\u673A\u5236\u3001\u7ECF\u8425\u4F20\u5BFC\u3001\u5730\u4EA7\u4F20\u5BFC\u3001\u6298\u73B0\u7387\u6216\u98CE\u9669\u6EA2\u4EF7\u3001\u76EE\u6807\u542B\u4E49\uFF1B\u4E0D\u5F97\u7528\u5206\u53F7\u957F\u53E5\u51D1\u6570\u3002\u7B2C 1 \u53E5\u5FC5\u987B\u9010\u5B57\u5305\u542B\u201C\u5386\u53F2\u201D\u6216\u201C\u6837\u672C\u201D\uFF0C\u5E76\u5438\u6536 context.historicalPrecedent.narrative \u7684\u53EF\u6838\u9A8C\u4E8B\u5B9E\uFF1B\u53EA\u5141\u8BB8\u7B2C 1 \u53E5\u4F7F\u7528 context.historicalPrecedent \u5DF2\u63D0\u4F9B\u7684\u6570\u5B57\u6216\u65E5\u671F\uFF0C\u5176\u4F59 5 \u53E5\u4E0D\u5F97\u5305\u542B\u4EFB\u4F55\u6570\u5B57\u6216\u65E5\u671F\uFF0C\u907F\u514D\u53D1\u5E03\u6E05\u6D17\u65F6\u6574\u53E5\u88AB\u5220\u9664\u3002");
   }
   if (["INVALID_GUIDANCE_HORIZON", "INCOMPLETE_GUIDANCE"].some((code) => codes.has(code))) {
     rules.push("\u5EFA\u8BAE\u65F6\u95F4\u8303\u56F4\u5FC5\u987B\u843D\u5728 90 \u4E2A\u65E5\u5386\u65E5\u6216 62 \u4E2A\u4EA4\u6613\u65E5\u5185\uFF0C\u5E76\u4FDD\u6301 action\u3001signal\u3001horizon \u5B8C\u6574\u3002");
   }
   return rules.join(" ");
 }
-var PROFESSIONAL_CONCLUSION_MAX_REPAIR_ROUNDS = 3;
+var PROFESSIONAL_CONCLUSION_MAX_REPAIR_ROUNDS = 1;
 var PROFESSIONAL_CONCLUSION_MAX_COLLECTION_RECOVERY_ROUNDS = 1;
 var PROFESSIONAL_CONCLUSION_RESERVED_EDITORIAL_ROUNDS = 1;
 var PROFESSIONAL_CONCLUSION_SAFETY_RESERVE_MS = 5e3;
@@ -19567,6 +20235,7 @@ var ProfessionalConclusionAgent = class {
         if (issues.length === 0) return draft.targets[target];
         return requestTarget(target, repairWaveDeadline, {
           draft: draft.targets[target],
+          publishedCandidate: publishable.targetViews?.[target],
           critique: { passed: false, summary: `\u5F53\u524D\u76EE\u6807\u53D1\u73B0 ${issues.length} \u4E2A\u53D1\u5E03\u95EE\u9898\u3002`, issues: issues.slice(0, 12) },
           instruction: buildTargetRepairInstruction(issues)
         }, 0.15, true);
@@ -20295,8 +20964,8 @@ function buildFrontendSurfaceContract(snapshot, prediction) {
     },
     {
       key: "near-term-forecast",
-      label: "Bold one-week forecast",
-      role: "bold-week-forecast",
+      label: prediction.pathForecast ? "Milestone timeline" : "Bold one-week forecast",
+      role: prediction.pathForecast ? "milestone-timeline" : "bold-week-forecast",
       text: prediction.nearTermForecast ? [
         prediction.nearTermForecast.label,
         prediction.nearTermForecast.thesis
@@ -20395,6 +21064,13 @@ function evaluateFrontendSurface(snapshot, prediction) {
   }
   if (boldForecast && /大胆预测[:：]/.test(boldForecast.text)) {
     findings.push("bold forecast repeats its own label inside the thesis");
+  }
+  const milestoneTimeline = surfaces.find((surface) => surface.role === "milestone-timeline");
+  if (milestoneTimeline && !/(已确认日程|估算区间|条件触发|已确定|估算)/.test(milestoneTimeline.text)) {
+    findings.push("milestone timeline does not disclose timing certainty");
+  }
+  if (milestoneTimeline && !/(事件前|事件后|收盘|验证点)/.test(milestoneTimeline.text)) {
+    findings.push("milestone timeline lacks before/after validation anchors");
   }
   const researchJudgement = surfaces.find((surface) => surface.role === "research-judgement");
   const professionalBriefs = buildResearchBriefs(snapshot, prediction);
@@ -20879,13 +21555,45 @@ var ProbabilitySubagent = class {
   }
 };
 
+// src/research/subagents/MilestoneSubagent.ts
+function addCalendarDays2(value, days) {
+  const date5 = new Date(value);
+  if (Number.isNaN(date5.getTime())) {
+    throw new Error(`Invalid milestone research timestamp: ${value}`);
+  }
+  date5.setUTCDate(date5.getUTCDate() + days);
+  return date5.toISOString();
+}
+var MilestoneSubagent = class {
+  async run(input) {
+    const horizonEnd = addCalendarDays2(
+      input.researchAsOf,
+      input.horizonDays ?? FORECAST_HORIZON_CALENDAR_DAYS
+    );
+    const milestones = buildMilestoneCalendar(input.researchAsOf, horizonEnd);
+    if (milestones.length === 0) {
+      throw new Error("Milestone calendar returned no validation points for the forecast horizon.");
+    }
+    return {
+      calendarVersion: "official-event-calendar-rolling-v2",
+      horizonEnd,
+      milestones
+    };
+  }
+};
+
 // src/research/subagents/ForecastSubagent.ts
 var ForecastSubagent = class {
   async run(input) {
+    const paths = buildMilestonePathForecasts(input.predictions, input.milestones);
+    const pathsByTarget = new Map(paths.map((path) => [path.target, path]));
     return {
-      predictions: input.predictions.map((prediction) => ({
-        ...prediction,
-        nearTermForecast: buildNearTermForecast({
+      predictions: input.predictions.map((prediction) => {
+        const pathForecast = pathsByTarget.get(prediction.target);
+        if (!pathForecast) {
+          throw new Error(`Missing milestone path for ${prediction.target} USD target.`);
+        }
+        const contextForecast = calculateForecastContext({
           target: prediction.target,
           probability: prediction.probability,
           likelyWindow: prediction.likelyWindow,
@@ -20897,8 +21605,56 @@ var ForecastSubagent = class {
           events: input.events,
           memories: input.memories,
           previousPrediction: input.previousSnapshot?.predictions.find((item) => item.target === prediction.target)
-        })
-      }))
+        });
+        if (pathForecast.status === "resolved_at_issue") {
+          return {
+            ...prediction,
+            likelyWindow: pathForecast.likelyWindow.label,
+            pathForecast,
+            nearTermForecast: {
+              label: pathForecast.likelyWindow.label,
+              windowStart: pathForecast.likelyWindow.start,
+              windowEnd: pathForecast.likelyWindow.end,
+              thesis: `${prediction.target} \u7F8E\u5143\u5728\u672C\u8F6E\u7814\u7A76\u8D77\u70B9\u5DF2\u7ECF\u89E6\u8FBE\uFF0C\u5F53\u524D\u5408\u540C\u4E0D\u518D\u5206\u914D\u672A\u6765\u89E6\u8FBE\u65F6\u95F4\uFF1B\u540E\u7EED\u91CC\u7A0B\u7891\u53EA\u7528\u4E8E\u65B0\u4E00\u8F6E\u7814\u7A76\u3002`,
+              trigger: "\u7ED3\u7B97\u6761\u4EF6\uFF1A\u7814\u7A76\u8D77\u70B9\u7684\u5E38\u89C4\u4EA4\u6613\u65F6\u6BB5\u4EF7\u683C\u5DF2\u8FBE\u5230\u76EE\u6807\u3002",
+              invalidation: "\u8BE5\u7ED3\u7B97\u72B6\u6001\u4E0D\u4F1A\u88AB\u540E\u7EED\u884C\u60C5\u53CD\u5411\u6539\u5199\u3002",
+              confidence: "\u9AD8",
+              modelName: "event-milestone-forecast-v2.0",
+              contextScore: contextForecast.contextScore,
+              contextDrivers: contextForecast.contextDrivers,
+              evidenceSummary: contextForecast.evidenceSummary
+            }
+          };
+        }
+        const primary = input.milestones.find(
+          (milestone) => milestone.id === pathForecast.primaryMilestoneId
+        );
+        if (!primary) {
+          throw new Error(`Missing primary milestone ${pathForecast.primaryMilestoneId}.`);
+        }
+        const certaintyLabel = primary.certainty === "confirmed" ? "\u5DF2\u786E\u8BA4\u65E5\u7A0B" : primary.certainty === "estimated" ? "\u4F30\u7B97\u533A\u95F4" : "\u6761\u4EF6\u89E6\u53D1";
+        return {
+          ...prediction,
+          likelyWindow: pathForecast.likelyWindow.label,
+          pathForecast,
+          nearTermForecast: {
+            label: pathForecast.likelyWindow.label,
+            windowStart: pathForecast.likelyWindow.start,
+            windowEnd: pathForecast.likelyWindow.end,
+            thesis: `${primary.title}\u662F ${prediction.target} \u7F8E\u5143\u8DEF\u5F84\u7684\u4E0B\u4E00\u5173\u952E\u9A8C\u8BC1\u70B9\uFF08${certaintyLabel}\uFF09\u3002\u4E8B\u4EF6\u524D\u6309${primary.preAnchors.map((anchor) => anchor.label).join("\u3001")}\u51BB\u7ED3\u57FA\u7EBF\uFF0C\u4E8B\u4EF6\u540E\u6309${primary.postAnchors.map((anchor) => anchor.label).join("\u3001")}\u786E\u8BA4\u4F20\u5BFC\uFF0C\u4E0D\u628A\u65E5\u7A0B\u672C\u8EAB\u9884\u8BBE\u4E3A\u5229\u597D\u3002`,
+            trigger: `\u9A8C\u8BC1\u6761\u4EF6\uFF1A${primary.rationale}`,
+            invalidation: `\u6539\u5224\u6761\u4EF6\uFF1A\u4E8B\u4EF6\u7ED3\u679C\u4E0E\u4EF7\u683C\u3001\u6210\u4EA4\u91CF\u6216\u76F8\u5BF9 KWEB \u5F3A\u5F31\u6CA1\u6709\u5F62\u6210\u540C\u5411\u786E\u8BA4\u3002`,
+            confidence: pathForecast.likelyWindow.confidence,
+            modelName: "event-milestone-forecast-v2.0",
+            contextScore: contextForecast.contextScore,
+            contextDrivers: [
+              `${primary.title}\uFF08${certaintyLabel}\uFF09`,
+              ...contextForecast.contextDrivers ?? []
+            ],
+            evidenceSummary: contextForecast.evidenceSummary
+          }
+        };
+      })
     };
   }
 };
@@ -21023,6 +21779,147 @@ var EvidenceCompletionAgent = class {
   }
 };
 
+// src/research/forecast/validateMilestoneContract.ts
+function isRecord4(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+function isDateOnly(value) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T00:00:00Z`));
+}
+function addIssue(issues, code, path, message) {
+  issues.push({ code, path, message });
+}
+function validateMilestoneContract(snapshot) {
+  const issues = [];
+  if (!isRecord4(snapshot) || !Array.isArray(snapshot.predictions) || !Array.isArray(snapshot.milestones)) {
+    addIssue(issues, "invalid_snapshot_shape", "snapshot", "Snapshot must expose predictions and milestones arrays.");
+    return { valid: false, issues };
+  }
+  const milestonesById = /* @__PURE__ */ new Map();
+  snapshot.milestones.forEach((milestone, index) => {
+    const path = `milestones[${index}]`;
+    if (!isRecord4(milestone) || typeof milestone.id !== "string" || milestone.id.length === 0) {
+      addIssue(issues, "invalid_milestone_shape", path, "Milestone must have a non-empty string id.");
+      return;
+    }
+    if (milestonesById.has(milestone.id)) {
+      addIssue(issues, "duplicate_milestone_id", `${path}.id`, `Milestone id ${milestone.id} is duplicated.`);
+      return;
+    }
+    if (!isDateOnly(milestone.start) || !isDateOnly(milestone.end)) {
+      addIssue(issues, "invalid_milestone_range", path, `Milestone ${milestone.id} must use ISO calendar dates.`);
+      return;
+    }
+    if (milestone.start > milestone.end) {
+      addIssue(issues, "invalid_milestone_range", path, `Milestone ${milestone.id} ends before it starts.`);
+      return;
+    }
+    milestonesById.set(milestone.id, milestone);
+  });
+  snapshot.predictions.forEach((prediction, predictionIndex) => {
+    const predictionPath = `predictions[${predictionIndex}]`;
+    if (!isRecord4(prediction) || !isRecord4(prediction.pathForecast)) {
+      addIssue(issues, "missing_path_forecast", `${predictionPath}.pathForecast`, "Every prediction must publish milestone-path-v2.");
+      return;
+    }
+    const path = prediction.pathForecast;
+    if (path.schemaVersion !== "milestone-path-v2" || path.modelName !== CURRENT_TIMING_MODEL_VERSION || path.timingBasis !== "event_milestone_validation") {
+      addIssue(issues, "obsolete_path_contract", `${predictionPath}.pathForecast`, "Path forecast does not use the current validation-only timing contract.");
+    }
+    if (path.target !== prediction.target) {
+      addIssue(issues, "path_target_mismatch", `${predictionPath}.pathForecast.target`, "Path target must equal its prediction target.");
+    }
+    if (path.terminalProbability !== prediction.probability) {
+      addIssue(issues, "terminal_probability_mismatch", `${predictionPath}.pathForecast.terminalProbability`, "Milestone timing must not alter the authoritative 90-day probability.");
+    }
+    if (!isRecord4(path.likelyWindow) || !Array.isArray(path.checkpoints)) {
+      addIssue(issues, "obsolete_path_contract", `${predictionPath}.pathForecast`, "Path must expose a likely window and checkpoint array.");
+      return;
+    }
+    const forecastStatus = isRecord4(prediction.forecastQuestion) ? prediction.forecastQuestion.status : void 0;
+    if (path.status !== forecastStatus) {
+      addIssue(issues, "forecast_status_mismatch", `${predictionPath}.pathForecast.status`, "Path status must match the audited forecast question.");
+    }
+    const basisIds = Array.isArray(path.likelyWindow.basisMilestoneIds) ? path.likelyWindow.basisMilestoneIds.filter((id) => typeof id === "string") : [];
+    if (path.status === "resolved_at_issue") {
+      if (prediction.probability !== 100 || path.terminalProbability !== 100) {
+        addIssue(
+          issues,
+          "resolved_probability_mismatch",
+          predictionPath,
+          "A target already touched at issue must publish 100% prediction and terminal probabilities."
+        );
+      }
+      if (path.primaryMilestoneId !== void 0 || path.checkpoints.length > 0 || basisIds.length > 0) {
+        addIssue(issues, "resolved_path_has_future_references", `${predictionPath}.pathForecast`, "A target already touched at issue cannot publish future event references.");
+      }
+      if (!isDateOnly(path.likelyWindow.start) || path.likelyWindow.start !== path.likelyWindow.end || typeof path.likelyWindow.label !== "string" || !path.likelyWindow.label.includes("\u5DF2\u89E6\u8FBE")) {
+        addIssue(issues, "invalid_resolved_window", `${predictionPath}.pathForecast.likelyWindow`, "Resolved paths must point to one issue date and state that the target was already touched.");
+      }
+      return;
+    }
+    if (path.status !== "open" || typeof path.primaryMilestoneId !== "string") {
+      addIssue(issues, "missing_primary_milestone", `${predictionPath}.pathForecast.primaryMilestoneId`, "An open path must declare one primary milestone.");
+      return;
+    }
+    const primaryId = path.primaryMilestoneId;
+    const primary = milestonesById.get(primaryId);
+    if (!primary) {
+      addIssue(issues, "unknown_milestone_reference", `${predictionPath}.pathForecast.primaryMilestoneId`, `Primary milestone ${primaryId} is not published.`);
+    }
+    for (const [basisIndex, id] of basisIds.entries()) {
+      if (!milestonesById.has(id)) {
+        addIssue(issues, "unknown_milestone_reference", `${predictionPath}.pathForecast.likelyWindow.basisMilestoneIds[${basisIndex}]`, `Basis milestone ${id} is not published.`);
+      }
+    }
+    if (!basisIds.includes(primaryId)) {
+      addIssue(issues, "primary_not_in_basis", `${predictionPath}.pathForecast.likelyWindow.basisMilestoneIds`, "The primary milestone must remain part of the stated timing basis.");
+    }
+    if (primary && (path.likelyWindow.start !== primary.start || path.likelyWindow.end !== primary.end)) {
+      addIssue(issues, "likely_window_mismatch", `${predictionPath}.pathForecast.likelyWindow`, "The likely window must use the primary milestone range.");
+    }
+    let previousStart;
+    const checkpointIds = /* @__PURE__ */ new Set();
+    path.checkpoints.forEach((checkpoint, checkpointIndex) => {
+      const checkpointPath = `${predictionPath}.pathForecast.checkpoints[${checkpointIndex}]`;
+      if (!isRecord4(checkpoint) || typeof checkpoint.milestoneId !== "string") {
+        addIssue(issues, "unknown_milestone_reference", checkpointPath, "Checkpoint must reference a published milestone.");
+        return;
+      }
+      if (checkpointIds.has(checkpoint.milestoneId)) {
+        addIssue(issues, "duplicate_checkpoint", checkpointPath, `Checkpoint ${checkpoint.milestoneId} is duplicated.`);
+      }
+      checkpointIds.add(checkpoint.milestoneId);
+      const milestone = milestonesById.get(checkpoint.milestoneId);
+      if (!milestone) {
+        addIssue(issues, "unknown_milestone_reference", `${checkpointPath}.milestoneId`, `Checkpoint milestone ${checkpoint.milestoneId} is not published.`);
+        return;
+      }
+      if (checkpoint.start !== milestone.start || checkpoint.end !== milestone.end) {
+        addIssue(issues, "checkpoint_range_mismatch", checkpointPath, `Checkpoint ${checkpoint.milestoneId} must preserve the source milestone range.`);
+      }
+      if (typeof checkpoint.start !== "string" || typeof checkpoint.end !== "string" || checkpoint.start > checkpoint.end) {
+        addIssue(issues, "checkpoint_range_mismatch", checkpointPath, `Checkpoint ${checkpoint.milestoneId} has an invalid date range.`);
+      }
+      if (previousStart && typeof checkpoint.start === "string" && checkpoint.start < previousStart) {
+        addIssue(issues, "checkpoint_order_violation", checkpointPath, "Checkpoints must be ordered chronologically.");
+      }
+      if (typeof checkpoint.start === "string") previousStart = checkpoint.start;
+    });
+    if (!checkpointIds.has(primaryId)) {
+      addIssue(issues, "primary_not_in_checkpoints", `${predictionPath}.pathForecast.checkpoints`, "The primary milestone must not be dropped during cluster deduplication.");
+    }
+    const lastCheckpoint = path.checkpoints.at(-1);
+    if (!isRecord4(lastCheckpoint) || typeof lastCheckpoint.milestoneId !== "string" || !lastCheckpoint.milestoneId.startsWith("forecast-horizon-")) {
+      addIssue(issues, "missing_horizon_checkpoint", `${predictionPath}.pathForecast.checkpoints`, "An open path must end at the explicit 90-day horizon milestone.");
+    }
+  });
+  return { valid: issues.length === 0, issues };
+}
+function hasValidMilestoneContract(snapshot) {
+  return validateMilestoneContract(snapshot).valid;
+}
+
 // src/research/engines/riskReview.ts
 var blockedTerms = [
   "\u5EFA\u8BAE\u4E70\u5165",
@@ -21100,12 +21997,15 @@ function reviewForecastContract(predictions) {
 }
 function reviewProbabilityBounds(predictions) {
   return predictions.filter((p) => {
-    const isResolvedAtIssue = p.forecastQuestion?.status === "resolved_at_issue" && p.probability === 100;
-    return !isResolvedAtIssue && (!Number.isFinite(p.probability) || p.probability < 5 || p.probability > 95);
+    if (!Number.isFinite(p.probability)) return true;
+    if (p.forecastQuestion?.status === "resolved_at_issue") {
+      return p.probability !== 100;
+    }
+    return p.probability < 5 || p.probability > 95;
   }).map((p) => ({
     code: "PROBABILITY_BOUNDS",
     severity: "high",
-    message: Number.isFinite(p.probability) ? `P${p.target} \u6982\u7387 ${p.probability}% \u8D85\u51FA 5%-95% \u8303\u56F4` : `P${p.target} \u6982\u7387\u4E0D\u662F\u6709\u9650\u6570\u503C`
+    message: p.forecastQuestion?.status === "resolved_at_issue" && Number.isFinite(p.probability) ? `P${p.target} \u5728\u7814\u7A76\u8D77\u70B9\u5DF2\u89E6\u8FBE\uFF0C\u6982\u7387\u5FC5\u987B\u4E3A 100%\uFF0C\u5B9E\u9645\u4E3A ${p.probability}%` : Number.isFinite(p.probability) ? `P${p.target} \u6982\u7387 ${p.probability}% \u8D85\u51FA 5%-95% \u8303\u56F4` : `P${p.target} \u6982\u7387\u4E0D\u662F\u6709\u9650\u6570\u503C`
   }));
 }
 function qualitySeverityToRisk(severity) {
@@ -21176,7 +22076,9 @@ function reviewSnapshot(snapshot, previousSnapshot, events = []) {
   }
   issues.push(...reviewProbabilityOrdering(snapshot.predictions));
   issues.push(...reviewProbabilityBounds(snapshot.predictions));
-  issues.push(...reviewNearTermForecasts(snapshot.predictions));
+  const dataVersion = snapshot.dataVersion ?? "";
+  const usesMilestoneRuntime = dataVersion.includes(RESEARCH_RUNTIME_VERSION) || dataVersion.includes("official-event-calendar-rolling-v2") || dataVersion.includes("official-event-calendar-2026q3-v1") || snapshot.predictions.some((prediction) => prediction.pathForecast !== void 0);
+  issues.push(...usesMilestoneRuntime ? reviewMilestoneForecasts(snapshot) : reviewNearTermForecasts(snapshot.predictions));
   issues.push(...reviewResearchQuality(snapshot));
   if (snapshot.analysis.generation?.mode === "model_loop") {
     for (const target of TARGET_PRICES) {
@@ -21305,6 +22207,208 @@ function reviewNearTermForecasts(predictions) {
         message: `P${prediction.target} \u5927\u80C6\u9884\u6D4B\u7F3A\u5C11\u4E0A\u4E0B\u6587\u6A21\u578B\u3001\u8BC1\u636E\u6458\u8981\u6216 agent debate`
       });
     }
+  }
+  return issues;
+}
+function reviewMilestoneForecasts(snapshot) {
+  const issues = [];
+  const milestones = snapshot.milestones ?? [];
+  if (milestones.length === 0) {
+    return [{
+      code: "MILESTONE_PLAN_MISSING",
+      severity: "high",
+      message: "\u5F53\u524D\u8FD0\u884C\u65F6\u7F3A\u5C11\u672A\u6765 90 \u5929\u4E8B\u4EF6\u91CC\u7A0B\u7891\u8BA1\u5212\u3002"
+    }];
+  }
+  const milestoneIds = /* @__PURE__ */ new Set();
+  const requiredKinds = /* @__PURE__ */ new Set([
+    "earnings",
+    "property_release",
+    "macro_release",
+    "technical_checkpoint",
+    "china_adr_event"
+  ]);
+  const sharedQuestion = snapshot.predictions[0]?.forecastQuestion;
+  const issuedDate = sharedQuestion?.issuedAt.slice(0, 10);
+  const horizonDate = sharedQuestion?.horizonEnd.slice(0, 10);
+  for (const milestone of milestones) {
+    if (milestoneIds.has(milestone.id)) {
+      issues.push({
+        code: "MILESTONE_TIMING_INVALID",
+        severity: "high",
+        message: `\u91CC\u7A0B\u7891 ${milestone.id} \u91CD\u590D\u3002`
+      });
+    }
+    milestoneIds.add(milestone.id);
+    requiredKinds.delete(milestone.kind);
+    const validRange = /^\d{4}-\d{2}-\d{2}$/.test(milestone.start) && /^\d{4}-\d{2}-\d{2}$/.test(milestone.end) && milestone.start <= milestone.end;
+    if (!validRange || issuedDate && milestone.start < issuedDate || horizonDate && milestone.end > horizonDate) {
+      issues.push({
+        code: "MILESTONE_TIMING_INVALID",
+        severity: "high",
+        message: `\u91CC\u7A0B\u7891 ${milestone.id} \u7684\u65F6\u95F4\u8303\u56F4\u4E0D\u5728\u5F53\u524D 90 \u5929\u7814\u7A76\u7A97\u53E3\u5185\u3002`
+      });
+    }
+    if (!milestone.source || !/^https:\/\//.test(milestone.sourceUrl)) {
+      issues.push({
+        code: "MILESTONE_PROVENANCE_MISSING",
+        severity: "high",
+        message: `\u91CC\u7A0B\u7891 ${milestone.id} \u7F3A\u5C11\u53EF\u6838\u9A8C\u6765\u6E90\u3002`
+      });
+    }
+    if (milestone.certainty === "estimated" && milestone.start === milestone.end) {
+      issues.push({
+        code: "MILESTONE_FALSE_PRECISION",
+        severity: "high",
+        message: `\u4F30\u7B97\u91CC\u7A0B\u7891 ${milestone.id} \u4E0D\u5F97\u4F2A\u88C5\u6210\u5355\u4E00\u786E\u5B9A\u65E5\u671F\u3002`
+      });
+    }
+  }
+  if (requiredKinds.size > 0) {
+    issues.push({
+      code: "MILESTONE_COVERAGE_GAP",
+      severity: "high",
+      message: `\u91CC\u7A0B\u7891\u7F3A\u5C11\u8986\u76D6\uFF1A${[...requiredKinds].join(" / ")}\u3002`
+    });
+  }
+  const paths = snapshot.predictions.map((prediction) => prediction.pathForecast);
+  if (paths.some((path) => !path)) {
+    issues.push({
+      code: "MILESTONE_CONTEXT_MISMATCH",
+      severity: "high",
+      message: "\u81F3\u5C11\u4E00\u4E2A\u76EE\u6807\u7F3A\u5C11\u4E8B\u4EF6\u8DEF\u5F84\u9884\u6D4B\u3002"
+    });
+    return issues;
+  }
+  for (const prediction of snapshot.predictions) {
+    const path = prediction.pathForecast;
+    if (path.schemaVersion !== "milestone-path-v2" || path.modelName !== CURRENT_TIMING_MODEL_VERSION || path.timingBasis !== "event_milestone_validation" || path.target !== prediction.target) {
+      issues.push({
+        code: "MILESTONE_CONTEXT_MISMATCH",
+        severity: "high",
+        message: `P${prediction.target} \u4E8B\u4EF6\u8DEF\u5F84\u6A21\u578B\u6216\u76EE\u6807\u4E0A\u4E0B\u6587\u4E0D\u5339\u914D\u3002`
+      });
+    }
+    if (path.terminalProbability !== prediction.probability) {
+      issues.push({
+        code: "PATH_TERMINAL_MISMATCH",
+        severity: "high",
+        message: `P${prediction.target} \u9A8C\u8BC1\u8DEF\u5F84\u6CA1\u6709\u955C\u50CF\u6743\u5A01 90 \u5929\u6982\u7387 ${prediction.probability}%\u3002`
+      });
+    }
+    const questionStatus = prediction.forecastQuestion?.status;
+    if (path.status !== questionStatus) {
+      issues.push({
+        code: "MILESTONE_CONTEXT_MISMATCH",
+        severity: "high",
+        message: `P${prediction.target} \u9A8C\u8BC1\u8DEF\u5F84\u72B6\u6001\u4E0E\u9996\u6B21\u89E6\u8FBE\u5408\u540C\u4E0D\u4E00\u81F4\u3002`
+      });
+    }
+    if (path.status === "resolved_at_issue") {
+      if (prediction.probability !== 100 || path.terminalProbability !== 100) {
+        issues.push({
+          code: "RESOLVED_PROBABILITY_MISMATCH",
+          severity: "high",
+          message: `P${prediction.target} \u5728\u7814\u7A76\u8D77\u70B9\u5DF2\u89E6\u8FBE\uFF0C\u4F46\u53D1\u5E03\u6982\u7387\u672A\u56FA\u5B9A\u4E3A 100%\u3002`
+        });
+      }
+      if (path.primaryMilestoneId !== void 0 || path.checkpoints.length > 0 || path.likelyWindow.basisMilestoneIds.length > 0 || path.likelyWindow.label !== "\u672C\u8F6E\u7814\u7A76\u8D77\u70B9\u5DF2\u89E6\u8FBE") {
+        issues.push({
+          code: "RESOLVED_PATH_HAS_FUTURE_WINDOW",
+          severity: "high",
+          message: `P${prediction.target} \u5728\u7814\u7A76\u8D77\u70B9\u5DF2\u89E6\u8FBE\uFF0C\u5374\u4ECD\u88AB\u5206\u914D\u672A\u6765\u9A8C\u8BC1\u7A97\u53E3\u3002`
+        });
+      }
+      if (!prediction.nearTermForecast || prediction.nearTermForecast.modelName !== "event-milestone-forecast-v2.0" || !prediction.nearTermForecast.thesis.includes("\u5DF2\u7ECF\u89E6\u8FBE")) {
+        issues.push({
+          code: "FORECAST_COPY_ANCHOR_MISMATCH",
+          severity: "high",
+          message: `P${prediction.target} \u7684\u7ED3\u7B97\u6587\u6848\u6CA1\u6709\u8BF4\u660E\u7814\u7A76\u8D77\u70B9\u5DF2\u7ECF\u89E6\u8FBE\u3002`
+        });
+      }
+      continue;
+    }
+    const primaryId = path.primaryMilestoneId;
+    const primary = primaryId ? milestones.find((milestone) => milestone.id === primaryId) : void 0;
+    if (!primaryId || !primary || !path.likelyWindow.basisMilestoneIds.includes(primaryId) || !path.checkpoints.some((checkpoint) => checkpoint.milestoneId === primaryId)) {
+      issues.push({
+        code: "PATH_ORPHAN_CHECKPOINT",
+        severity: "high",
+        message: `P${prediction.target} \u4E3B\u91CC\u7A0B\u7891\u672A\u88AB\u5171\u4EAB\u65E5\u5386\u548C\u9A8C\u8BC1\u8DEF\u5F84\u5171\u540C\u4FDD\u7559\u3002`
+      });
+    }
+    const checkpointMilestones = path.checkpoints.map((checkpoint) => ({
+      checkpoint,
+      milestone: milestones.find((milestone) => milestone.id === checkpoint.milestoneId)
+    }));
+    if (path.likelyWindow.basisMilestoneIds.some((id) => !milestoneIds.has(id)) || checkpointMilestones.some(({ milestone }) => !milestone)) {
+      issues.push({
+        code: "PATH_ORPHAN_CHECKPOINT",
+        severity: "high",
+        message: `P${prediction.target} \u9A8C\u8BC1\u8DEF\u5F84\u5F15\u7528\u4E86\u5171\u4EAB\u65E5\u5386\u4E4B\u5916\u7684\u8282\u70B9\u3002`
+      });
+    }
+    for (let index = 0; index < checkpointMilestones.length; index += 1) {
+      const { checkpoint, milestone } = checkpointMilestones[index];
+      const previous = checkpointMilestones[index - 1]?.checkpoint;
+      if (!milestone || checkpoint.start !== milestone.start || checkpoint.end !== milestone.end || checkpoint.start > checkpoint.end || previous && checkpoint.start < previous.start) {
+        issues.push({
+          code: "PATH_TIME_ORDER",
+          severity: "high",
+          message: `P${prediction.target} \u7684\u9A8C\u8BC1\u8282\u70B9\u65E5\u671F\u4E0E\u5171\u4EAB\u65E5\u5386\u4E0D\u4E00\u81F4\u6216\u987A\u5E8F\u9519\u8BEF\u3002`
+        });
+        break;
+      }
+    }
+    const finalMilestoneId = path.checkpoints.at(-1)?.milestoneId;
+    if (!finalMilestoneId?.startsWith("forecast-horizon-")) {
+      issues.push({
+        code: "PATH_HORIZON_MISSING",
+        severity: "high",
+        message: `P${prediction.target} \u9A8C\u8BC1\u8DEF\u5F84\u7F3A\u5C11 90 \u5929\u7ED3\u7B97\u8282\u70B9\u3002`
+      });
+    }
+    if (!primary || !prediction.nearTermForecast || prediction.nearTermForecast.modelName !== "event-milestone-forecast-v2.0" || !prediction.nearTermForecast.thesis.includes(primary.title)) {
+      issues.push({
+        code: "FORECAST_COPY_ANCHOR_MISMATCH",
+        severity: "high",
+        message: `P${prediction.target} \u7684\u65F6\u95F4\u6587\u6848\u6CA1\u6709\u5F15\u7528\u5176\u4E3B\u91CC\u7A0B\u7891\u3002`
+      });
+    }
+  }
+  const contractCodeMap = {
+    invalid_snapshot_shape: "MILESTONE_CONTEXT_MISMATCH",
+    invalid_milestone_shape: "MILESTONE_CONTEXT_MISMATCH",
+    duplicate_milestone_id: "MILESTONE_TIMING_INVALID",
+    invalid_milestone_range: "MILESTONE_TIMING_INVALID",
+    missing_path_forecast: "MILESTONE_CONTEXT_MISMATCH",
+    obsolete_path_contract: "MILESTONE_CONTEXT_MISMATCH",
+    path_target_mismatch: "MILESTONE_CONTEXT_MISMATCH",
+    terminal_probability_mismatch: "PATH_TERMINAL_MISMATCH",
+    forecast_status_mismatch: "MILESTONE_CONTEXT_MISMATCH",
+    resolved_probability_mismatch: "RESOLVED_PROBABILITY_MISMATCH",
+    resolved_path_has_future_references: "RESOLVED_PATH_HAS_FUTURE_WINDOW",
+    invalid_resolved_window: "RESOLVED_PATH_HAS_FUTURE_WINDOW",
+    missing_primary_milestone: "PATH_ORPHAN_CHECKPOINT",
+    unknown_milestone_reference: "PATH_ORPHAN_CHECKPOINT",
+    primary_not_in_basis: "PATH_ORPHAN_CHECKPOINT",
+    primary_not_in_checkpoints: "PATH_ORPHAN_CHECKPOINT",
+    likely_window_mismatch: "MILESTONE_CONTEXT_MISMATCH",
+    checkpoint_range_mismatch: "PATH_TIME_ORDER",
+    checkpoint_order_violation: "PATH_TIME_ORDER",
+    duplicate_checkpoint: "PATH_TIME_ORDER",
+    missing_horizon_checkpoint: "PATH_HORIZON_MISSING"
+  };
+  for (const contractIssue of validateMilestoneContract(snapshot).issues) {
+    const code = contractCodeMap[contractIssue.code];
+    if (issues.some((issue2) => issue2.code === code && issue2.message.includes(contractIssue.message))) {
+      continue;
+    }
+    issues.push({
+      code,
+      severity: "high",
+      message: contractIssue.message
+    });
   }
   return issues;
 }
@@ -21774,6 +22878,7 @@ var HarnessRecorder = class {
         memory: "retrieving_memory",
         factor: "scoring_factors",
         evidence_completion: "completing_evidence",
+        milestone: "building_milestones",
         probability: "calculating_probability",
         forecast: "forecasting_window",
         analysis: "generating_analysis",
@@ -21816,6 +22921,7 @@ var DEFAULT_STEP_POLICIES = {
   memory: { timeoutMs: 2e3, maxAttempts: 1, retryDelayMs: 0 },
   factor: { timeoutMs: 2e3, maxAttempts: 1, retryDelayMs: 0 },
   evidence_completion: { timeoutMs: 1e4, maxAttempts: 1, retryDelayMs: 0 },
+  milestone: { timeoutMs: 2e3, maxAttempts: 1, retryDelayMs: 0 },
   probability: { timeoutMs: 5e3, maxAttempts: 1, retryDelayMs: 0 },
   forecast: { timeoutMs: 5e3, maxAttempts: 1, retryDelayMs: 0 },
   analysis: { timeoutMs: 95e3, maxAttempts: 1, retryDelayMs: 0 },
@@ -21857,6 +22963,13 @@ function summarizeStepOutput(step, output) {
       const succeeded = completion.attempts.filter((attempt) => attempt.status === "success").length;
       return `\u8BC1\u636E\u8865\u5168 ${completion.passes} \u8F6E\uFF0C\u5B9A\u5411\u67E5\u8BE2 ${completion.attempts.length} \u9879\uFF08\u6210\u529F ${succeeded}\uFF09\uFF0C\u65B0\u589E\u4E8B\u4EF6 ${completion.events.length} \u6761\uFF0C\u672A\u89E3\u7F3A\u53E3 ${completion.unresolvedFactors.length} \u9879`;
     }
+    case "milestone": {
+      const calendar = output;
+      const confirmed = calendar.milestones.filter((milestone) => milestone.certainty === "confirmed").length;
+      const estimated = calendar.milestones.filter((milestone) => milestone.certainty === "estimated").length;
+      const conditional = calendar.milestones.filter((milestone) => milestone.certainty === "conditional").length;
+      return `\u91CC\u7A0B\u7891 ${calendar.milestones.length} \u9879\uFF08\u786E\u8BA4 ${confirmed} / \u4F30\u7B97 ${estimated} / \u6761\u4EF6 ${conditional}\uFF09\uFF0C\u65E5\u5386 ${calendar.calendarVersion}`;
+    }
     case "probability": {
       const probability = output;
       const predictions = probability.predictions;
@@ -21864,7 +22977,7 @@ function summarizeStepOutput(step, output) {
     }
     case "forecast": {
       const predictions = output;
-      return `\u5927\u80C6\u7A97\u53E3 ${predictions.map((prediction) => `$${prediction.target}:${prediction.nearTermForecast?.label ?? "n/a"}(ctx ${prediction.nearTermForecast?.contextScore ?? "n/a"})`).join(" / ")}`;
+      return `\u4E8B\u4EF6\u8DEF\u5F84 ${predictions.map((prediction) => `$${prediction.target}:${prediction.pathForecast?.primaryMilestoneId ?? "n/a"}\u2192${prediction.pathForecast?.terminalProbability ?? "n/a"}%`).join(" / ")}`;
     }
     case "analysis": {
       const synthesis = output;
@@ -21954,6 +23067,7 @@ async function runBekeHarness(input, context) {
       toolbox,
       eventEngine
     ),
+    milestone: context.subagents?.milestone ?? new MilestoneSubagent(),
     probability: context.subagents?.probability ?? new ProbabilitySubagent(),
     forecast: context.subagents?.forecast ?? new ForecastSubagent(),
     analysis: context.subagents?.analysis ?? new AnalysisSubagent(analysisEngine, context.llmProvider),
@@ -22128,6 +23242,20 @@ async function runBekeHarness(input, context) {
     return { ...completion, events: completion.events };
   });
   recordStep(evidenceCompletionResult);
+  const milestoneResult = await runStep(
+    "milestone",
+    "\u5EFA\u7ACB\u672A\u6765 90 \u5929\u8D22\u62A5\u3001\u5730\u4EA7\u3001\u5B8F\u89C2\u4E0E\u6280\u672F\u9A8C\u8BC1\u65E5\u5386",
+    () => subagents.milestone.run({
+      researchAsOf: runStartedAt
+    })
+  );
+  recordStep(milestoneResult);
+  if (milestoneResult.status === "failed") {
+    failRun(milestoneResult.errorMessage);
+    return { run: recorder.getRun(run.id) };
+  }
+  const milestoneCalendar = milestoneResult.output;
+  const milestones = milestoneCalendar.milestones;
   const previousSnapshot = repository.getLatest();
   if (previousSnapshot?.audit.publishedBy === "PublishEngine") {
     predictionAuditRepository2.appendIssuances(previousSnapshot);
@@ -22176,11 +23304,12 @@ async function runBekeHarness(input, context) {
   const probabilityPredictions = probabilityResult.output.predictions;
   const forecastResult = await runStep(
     "forecast",
-    "\u4E00\u5468\u7A97\u53E3\u63A8\u6F14",
+    "\u4E8B\u4EF6\u91CC\u7A0B\u7891\u8DEF\u5F84\u63A8\u6F14",
     () => subagents.forecast.run({
       quote: market.quote,
       history: market.history,
       events,
+      milestones,
       memories,
       factors,
       predictions: probabilityPredictions,
@@ -22199,6 +23328,7 @@ async function runBekeHarness(input, context) {
     predictions,
     factors,
     events,
+    milestones,
     memories,
     previousSnapshot: comparablePreviousSnapshot,
     researchAsOf: runStartedAt,
@@ -22234,6 +23364,7 @@ async function runBekeHarness(input, context) {
   }
   const analysis = conclusionResult.output;
   const publishedPredictions = predictions.map((prediction) => {
+    if (prediction.pathForecast) return prediction;
     const view = analysis.targetViews?.[prediction.target];
     if (!view || !prediction.nearTermForecast) return prediction;
     return {
@@ -22247,6 +23378,24 @@ async function runBekeHarness(input, context) {
       }
     };
   });
+  const publishedMilestoneIds = new Set(
+    publishedPredictions.flatMap((prediction) => [
+      ...prediction.pathForecast?.likelyWindow.basisMilestoneIds ?? [],
+      ...prediction.pathForecast?.checkpoints.map((checkpoint) => checkpoint.milestoneId) ?? []
+    ])
+  );
+  const requiredMilestoneKinds = [
+    "earnings",
+    "property_release",
+    "macro_release",
+    "china_adr_event",
+    "technical_checkpoint"
+  ];
+  for (const kind of requiredMilestoneKinds) {
+    const representative = milestones.find((milestone) => milestone.kind === kind);
+    if (representative) publishedMilestoneIds.add(representative.id);
+  }
+  const publishedMilestones = milestones.filter((milestone) => publishedMilestoneIds.has(milestone.id));
   const eventSourceLinks = events.flatMap((event) => event.sourceUrl ? [[
     event.sourceUrl,
     {
@@ -22255,6 +23404,14 @@ async function runBekeHarness(input, context) {
       url: event.sourceUrl
     }
   ]] : []);
+  const milestoneSourceLinks = publishedMilestones.map((milestone) => [
+    milestone.sourceUrl,
+    {
+      label: milestone.title,
+      publisher: milestone.source,
+      url: milestone.sourceUrl
+    }
+  ]);
   const rawSourceLinks = news.allItems.map((item) => [
     item.url,
     {
@@ -22268,6 +23425,7 @@ async function runBekeHarness(input, context) {
       [
         ...rawSourceLinks,
         ...eventSourceLinks,
+        ...milestoneSourceLinks,
         [
           priceKnowledgeBase.metadata.sourceUrl,
           {
@@ -22310,11 +23468,13 @@ async function runBekeHarness(input, context) {
       `official-${context.officialProvider.name}`,
       `macro-${context.macroProvider.name}`,
       `price-rag-${priceKnowledgeBase.metadata.from}_${priceKnowledgeBase.metadata.to}`,
-      `property-rag-${propertyKnowledgeBase.version}`
+      `property-rag-${propertyKnowledgeBase.version}`,
+      `milestone-${milestoneCalendar.calendarVersion}`
     ].join("+"),
     updatedAt: now.toISOString(),
     nextUpdateAt: nextRefreshWatchdogAt(now),
     quote: market.quote,
+    milestones: publishedMilestones,
     predictions: publishedPredictions,
     analysis,
     factors,
@@ -25499,6 +26659,55 @@ function toPublicRun(run) {
     steps: run.steps.map(({ output: _output, ...step }) => step)
   };
 }
+function toPublicSnapshot(snapshot) {
+  const publicTargetViews = snapshot.analysis.targetViews ? Object.fromEntries(TARGET_PRICES.map((target) => {
+    const {
+      evidenceRefs: _evidenceRefs,
+      ...publicView
+    } = snapshot.analysis.targetViews[target];
+    return [target, publicView];
+  })) : void 0;
+  return {
+    ...snapshot,
+    analysis: {
+      ...snapshot.analysis,
+      targetViews: publicTargetViews
+    },
+    predictions: snapshot.predictions.map((prediction) => {
+      const {
+        probabilitySynthesis: _probabilitySynthesis,
+        quantDiagnostics: _quantDiagnostics,
+        rawProbability: _rawProbability,
+        coherenceAdjustment: _coherenceAdjustment,
+        // The polished targetViews are the public narrative. This raw
+        // per-prediction paragraph is an internal duplicated working draft.
+        analysis: _analysis,
+        ...publicPrediction
+      } = prediction;
+      if (!publicPrediction.nearTermForecast) return publicPrediction;
+      const {
+        contextScore: _contextScore,
+        contextDrivers: _contextDrivers,
+        evidenceSummary: _evidenceSummary,
+        agentDebate: _agentDebate,
+        ...publicNearTermForecast
+      } = publicPrediction.nearTermForecast;
+      return {
+        ...publicPrediction,
+        nearTermForecast: publicNearTermForecast
+      };
+    })
+  };
+}
+function toPublicPayload(payload) {
+  return {
+    ...payload,
+    state: {
+      snapshot: toPublicSnapshot(payload.state.snapshot),
+      run: toPublicRun(payload.state.run)
+    }
+  };
+}
 function createServerLLMGateway(env = getRuntimeEnv()) {
   const apiKey = env.LLM_API_KEY;
   const baseUrl = env.LLM_BASE_URL;
@@ -25560,6 +26769,7 @@ function hasCompatibleProbabilityHistory(snapshot, requireCurrentTargetPoint) {
 function hasCurrentTargetContract(snapshot, requireCurrentTargetPoint = false) {
   if (snapshot.modelVersion !== CURRENT_PROBABILITY_MODEL_VERSION) return false;
   if (!hasCurrentPublishedPredictionSet(snapshot.predictions)) return false;
+  if (!hasValidMilestoneContract(snapshot)) return false;
   const targetViews = snapshot.analysis.targetViews;
   if (!hasCompleteTargetResearchViewRecord(targetViews)) return false;
   if (!hasExactTargetRecord(snapshot.analysis.targetExplanations)) return false;
@@ -25621,7 +26831,7 @@ function hydratePersistedState(persisted) {
 async function createBeke19SnapshotState(env = getRuntimeEnv(), options = {}) {
   const now = options.now?.() ?? /* @__PURE__ */ new Date();
   if (!options.forceRefresh && runtimeCache && runtimeCache.expiresAtMs > now.getTime() && canReuseRuntimeCache(runtimeCache.payload)) {
-    return {
+    return toPublicPayload({
       ...runtimeCache.payload,
       runtime: {
         ...runtimeCache.payload.runtime,
@@ -25631,18 +26841,18 @@ async function createBeke19SnapshotState(env = getRuntimeEnv(), options = {}) {
           expiresAt: new Date(runtimeCache.expiresAtMs).toISOString()
         }
       }
-    };
+    });
   }
-  if (runtimeInFlight) return runtimeInFlight;
+  if (runtimeInFlight) return toPublicPayload(await runtimeInFlight);
   runtimeInFlight = loadOrGenerateBeke19SnapshotState(env, options, now);
   try {
-    return await runtimeInFlight;
+    return toPublicPayload(await runtimeInFlight);
   } finally {
     runtimeInFlight = null;
   }
 }
 function publicReadPayload(payload, now, persistence, expiresAt = payload.runtime.cache.expiresAt) {
-  return {
+  return toPublicPayload({
     ...payload,
     runtime: {
       ...payload.runtime,
@@ -25653,7 +26863,7 @@ function publicReadPayload(payload, now, persistence, expiresAt = payload.runtim
         expiresAt
       }
     }
-  };
+  });
 }
 async function loadPublishedStateWithDeadline(stateStore, timeoutMs) {
   let pending = publishedReadInFlight.get(stateStore);
@@ -25736,7 +26946,7 @@ async function readPublishedBeke19SnapshotState(env = getRuntimeEnv(), options =
   const payload = {
     ok: true,
     state: {
-      snapshot: latestSnapshot,
+      snapshot: toPublicSnapshot(latestSnapshot),
       run: fallbackRun(latestSnapshot)
     },
     runtime: {
@@ -25897,7 +27107,7 @@ async function generateBeke19SnapshotState(env, options, now, stateStore) {
       const payload2 = {
         ok: true,
         state: {
-          snapshot: result.snapshot,
+          snapshot: toPublicSnapshot(result.snapshot),
           run: toPublicRun(result.run)
         },
         runtime: runtimeInfo(llmProvider, "server-harness", providers, cacheStatus, now, expiresAtMs, stateStore.name)
@@ -25917,7 +27127,7 @@ async function generateBeke19SnapshotState(env, options, now, stateStore) {
   const payload = {
     ok: true,
     state: {
-      snapshot: fallbackSnapshot,
+      snapshot: toPublicSnapshot(fallbackSnapshot),
       // Snapshot and run are one published unit. A failed refresh is runtime
       // metadata only and must not relabel the prior publication as failed.
       run: lastPublishedRun ?? (failedRun ? toPublicRun({ ...failedRun, snapshotId: fallbackSnapshot.runId }) : fallbackRun(fallbackSnapshot))
