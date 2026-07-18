@@ -18,12 +18,13 @@ const CURRENT_TARGETS = [18, 19.5, 21, 23, 30];
 const RETIRED_TARGETS = [18, 19, 20];
 const LEGACY_TARGETS = [17, 18, 19];
 const CURRENT_MODEL_VERSION = "probability-synthesis-v5-90d-targets-18-19p5-21-23-30";
-const CURRENT_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v6-90d-contract";
+const CURRENT_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v8-milestone-validation";
+const CURRENT_TIMING_MODEL_VERSION = "event-milestone-validation-v2";
 const CURRENT_PROMPT_VERSIONS = [
-  "quant-research-context-v1.9.0-90d-targets-18-19p5-21-23-30",
-  "bull-research-context-v1.6.0-90d-targets-18-19p5-21-23-30",
-  "bear-research-context-v1.6.0-90d-targets-18-19p5-21-23-30",
-  "professional-conclusion-context-v1.12.0-90d-targets-18-19p5-21-23-30",
+  "quant-research-context-v2.0.0-milestone-path-90d-targets-18-19p5-21-23-30",
+  "bull-research-context-v1.7.0-milestone-path-90d-targets-18-19p5-21-23-30",
+  "bear-research-context-v1.7.0-milestone-path-90d-targets-18-19p5-21-23-30",
+  "professional-conclusion-context-v1.16.0-milestone-validation-90d-targets-18-19p5-21-23-30",
 ];
 const REQUIRED_ANALYSIS_STAGES = [
   "quant",
@@ -67,6 +68,47 @@ function forecastQuestion(target, issuedAt) {
   };
 }
 
+function milestoneContract(issuedAt) {
+  const issueDate = issuedAt.slice(0, 10);
+  const horizonDate = new Date(Date.parse(issuedAt) + 90 * 86_400_000).toISOString().slice(0, 10);
+  const primaryId = `technical-weekly-${issueDate}`;
+  const horizonId = `forecast-horizon-${horizonDate}`;
+  return {
+    milestones: [
+      { id: primaryId, start: issueDate, end: issueDate },
+      { id: horizonId, start: horizonDate, end: horizonDate },
+    ],
+    primaryId,
+    horizonId,
+    issueDate,
+    horizonDate,
+  };
+}
+
+function pathForecast(target, probability, issuedAt) {
+  const contract = milestoneContract(issuedAt);
+  return {
+    schemaVersion: "milestone-path-v2",
+    modelName: CURRENT_TIMING_MODEL_VERSION,
+    timingBasis: "event_milestone_validation",
+    target,
+    terminalProbability: probability,
+    status: "open",
+    primaryMilestoneId: contract.primaryId,
+    likelyWindow: {
+      start: contract.issueDate,
+      end: contract.issueDate,
+      label: "周线趋势复核",
+      confidence: "中",
+      basisMilestoneIds: [contract.primaryId],
+    },
+    checkpoints: [
+      { milestoneId: contract.primaryId, start: contract.issueDate, end: contract.issueDate },
+      { milestoneId: contract.horizonId, start: contract.horizonDate, end: contract.horizonDate },
+    ],
+  };
+}
+
 function modelGeneration(overrides = {}) {
   return {
     mode: "model_loop",
@@ -91,6 +133,7 @@ function snapshotPayload({
   history = [historyPoint(predictionTargets)],
   generation = modelGeneration(),
 } = {}) {
+  const milestoneState = milestoneContract(updatedAt);
   return {
     ok: true,
     state: {
@@ -101,10 +144,12 @@ function snapshotPayload({
         dataVersion: `${CURRENT_RUNTIME_VERSION}+watchdog-test`,
         updatedAt,
         nextUpdateAt,
+        milestones: milestoneState.milestones,
         predictions: predictionTargets.map((target, index) => ({
           target,
           probability: 60 - index * 12,
           forecastQuestion: forecastQuestion(target, updatedAt),
+          pathForecast: pathForecast(target, 60 - index * 12, updatedAt),
         })),
         analysis: {
           targetViews: keyedTargets(targetViewTargets, (target) => ({ target })),
@@ -412,7 +457,52 @@ test("rejects a publication without the current runtime marker", async () => {
       sleep: async () => {},
       fetchImpl: async () => response(200, payload),
     }),
-    /preflight dataVersion must include research-runtime-targets-18-19p5-21-23-30-v6-90d-contract/,
+    /preflight dataVersion must include research-runtime-targets-18-19p5-21-23-30-v8-milestone-validation/,
+  );
+});
+
+test("rejects a publication without the current milestone timing contract", async () => {
+  const payload = snapshotPayload({ nextUpdateAt: "2026-07-15T04:30:00.000Z" });
+  payload.state.snapshot.predictions[0].pathForecast.modelName = "calendar-window-v1";
+
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => response(200, payload),
+    }),
+    /preflight predictions\[0\] pathForecast must use the current milestone timing contract/,
+  );
+});
+
+test("rejects a target marked resolved at issue below 100 percent", async () => {
+  const payload = snapshotPayload({ nextUpdateAt: "2026-07-15T04:30:00.000Z" });
+  const prediction = payload.state.snapshot.predictions[0];
+  prediction.probability = 80;
+  prediction.forecastQuestion.status = "resolved_at_issue";
+  prediction.pathForecast.status = "resolved_at_issue";
+  prediction.pathForecast.terminalProbability = 80;
+  prediction.pathForecast.primaryMilestoneId = undefined;
+  prediction.pathForecast.checkpoints = [];
+  prediction.pathForecast.likelyWindow = {
+    start: prediction.forecastQuestion.issuedAt.slice(0, 10),
+    end: prediction.forecastQuestion.issuedAt.slice(0, 10),
+    label: "本轮研究起点已触达",
+    confidence: "高",
+    basisMilestoneIds: [],
+  };
+
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => response(200, payload),
+    }),
+    /preflight predictions\[0\] resolved probability must be 100/,
   );
 });
 

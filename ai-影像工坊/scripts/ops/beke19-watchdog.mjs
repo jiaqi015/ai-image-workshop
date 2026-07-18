@@ -10,14 +10,15 @@ export const MAX_PREFLIGHT_ATTEMPTS = 2;
 
 const EXPECTED_TARGETS = Object.freeze([18, 19.5, 21, 23, 30]);
 const EXPECTED_MODEL_VERSION = "probability-synthesis-v5-90d-targets-18-19p5-21-23-30";
-const EXPECTED_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v6-90d-contract";
+const EXPECTED_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v8-milestone-validation";
+const EXPECTED_TIMING_MODEL_VERSION = "event-milestone-validation-v2";
 const EXPECTED_ANALYSIS_PROVIDER = "TokenPlanProvider";
 const EXPECTED_ANALYSIS_MODEL_ID = "mimo-v2.5-pro";
 const EXPECTED_PROMPT_VERSIONS = Object.freeze([
-  "quant-research-context-v1.9.0-90d-targets-18-19p5-21-23-30",
-  "bull-research-context-v1.6.0-90d-targets-18-19p5-21-23-30",
-  "bear-research-context-v1.6.0-90d-targets-18-19p5-21-23-30",
-  "professional-conclusion-context-v1.12.0-90d-targets-18-19p5-21-23-30",
+  "quant-research-context-v2.0.0-milestone-path-90d-targets-18-19p5-21-23-30",
+  "bull-research-context-v1.7.0-milestone-path-90d-targets-18-19p5-21-23-30",
+  "bear-research-context-v1.7.0-milestone-path-90d-targets-18-19p5-21-23-30",
+  "professional-conclusion-context-v1.16.0-milestone-validation-90d-targets-18-19p5-21-23-30",
 ]);
 const REQUIRED_ANALYSIS_STAGES = Object.freeze([
   "quant",
@@ -77,6 +78,14 @@ function requireTimestamp(value, label) {
     throw new Error(`${label} must be a valid timestamp`);
   }
   return timestamp;
+}
+
+function requireDateOnly(value, label) {
+  const date = requireString(value, label);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(`${date}T00:00:00Z`))) {
+    throw new Error(`${label} must be a valid ISO calendar date`);
+  }
+  return date;
 }
 
 function requireArray(value, label) {
@@ -163,6 +172,17 @@ function validateTargetPublicationContract(snapshot, label) {
   if (!dataVersion.split("+").includes(EXPECTED_RUNTIME_VERSION)) {
     throw new Error(`${label} dataVersion must include ${EXPECTED_RUNTIME_VERSION}`);
   }
+  const milestones = requireArray(snapshot.milestones, `${label} milestones`);
+  const milestonesById = new Map();
+  for (const [index, rawMilestone] of milestones.entries()) {
+    const milestone = requireObject(rawMilestone, `${label} milestones[${index}]`);
+    const id = requireString(milestone.id, `${label} milestones[${index}].id`);
+    const start = requireDateOnly(milestone.start, `${label} milestones[${index}].start`);
+    const end = requireDateOnly(milestone.end, `${label} milestones[${index}].end`);
+    if (start > end) throw new Error(`${label} milestones[${index}] ends before it starts`);
+    if (milestonesById.has(id)) throw new Error(`${label} milestone id ${id} must be unique`);
+    milestonesById.set(id, milestone);
+  }
   const predictions = requireArray(snapshot.predictions, `${label} predictions`);
   const issuedAtValues = new Set();
   const horizonEndValues = new Set();
@@ -172,8 +192,14 @@ function validateTargetPublicationContract(snapshot, label) {
     const question = requireObject(record.forecastQuestion, `${label} predictions[${index}].forecastQuestion`);
     const issuedAt = Date.parse(requireTimestamp(question.issuedAt, `${label} predictions[${index}] issuedAt`));
     const horizonEnd = Date.parse(requireTimestamp(question.horizonEnd, `${label} predictions[${index}] horizonEnd`));
-    const resolvedAtIssue = question.status === "resolved_at_issue" && probability === 100;
-    if (!Number.isFinite(probability) || (!resolvedAtIssue && (probability < 5 || probability > 95))) {
+    if (!Number.isFinite(probability)) {
+      throw new Error(`${label} predictions[${index}] probability must be within the publish range`);
+    }
+    if (question.status === "resolved_at_issue") {
+      if (probability !== 100) {
+        throw new Error(`${label} predictions[${index}] resolved probability must be 100`);
+      }
+    } else if (question.status !== "open" || probability < 5 || probability > 95) {
       throw new Error(`${label} predictions[${index}] probability must be within the publish range`);
     }
     if (
@@ -188,6 +214,102 @@ function validateTargetPublicationContract(snapshot, label) {
       || horizonEnd - issuedAt !== EXPECTED_HORIZON_DAYS * DAY_MS
     ) {
       throw new Error(`${label} predictions[${index}] must use the current 90-day first-touch contract`);
+    }
+
+    const path = requireObject(record.pathForecast, `${label} predictions[${index}].pathForecast`);
+    if (
+      path.schemaVersion !== "milestone-path-v2"
+      || path.modelName !== EXPECTED_TIMING_MODEL_VERSION
+      || path.timingBasis !== "event_milestone_validation"
+      || path.target !== record.target
+    ) {
+      throw new Error(`${label} predictions[${index}] pathForecast must use the current milestone timing contract`);
+    }
+    if (path.terminalProbability !== probability) {
+      throw new Error(`${label} predictions[${index}] pathForecast must mirror the terminal probability`);
+    }
+    if (path.status !== question.status) {
+      throw new Error(`${label} predictions[${index}] pathForecast status must match the forecast question`);
+    }
+    const likelyWindow = requireObject(
+      path.likelyWindow,
+      `${label} predictions[${index}].pathForecast.likelyWindow`,
+    );
+    const basisMilestoneIds = requireArray(
+      likelyWindow.basisMilestoneIds,
+      `${label} predictions[${index}].pathForecast.likelyWindow.basisMilestoneIds`,
+    );
+    const checkpoints = requireArray(
+      path.checkpoints,
+      `${label} predictions[${index}].pathForecast.checkpoints`,
+    );
+    if (path.status === "resolved_at_issue") {
+      if (
+        path.terminalProbability !== 100
+        || path.primaryMilestoneId !== undefined
+        || basisMilestoneIds.length > 0
+        || checkpoints.length > 0
+      ) {
+        throw new Error(`${label} predictions[${index}] resolved path must not reference future milestones`);
+      }
+      if (
+        requireDateOnly(likelyWindow.start, `${label} predictions[${index}].pathForecast.likelyWindow.start`)
+          !== requireDateOnly(likelyWindow.end, `${label} predictions[${index}].pathForecast.likelyWindow.end`)
+        || !requireString(
+          likelyWindow.label,
+          `${label} predictions[${index}].pathForecast.likelyWindow.label`,
+        ).includes("已触达")
+      ) {
+        throw new Error(`${label} predictions[${index}] resolved path must identify the issue date`);
+      }
+    } else {
+      const primaryId = requireString(
+        path.primaryMilestoneId,
+        `${label} predictions[${index}].pathForecast.primaryMilestoneId`,
+      );
+      const primary = milestonesById.get(primaryId);
+      if (!primary) {
+        throw new Error(`${label} predictions[${index}] pathForecast references unknown primary milestone ${primaryId}`);
+      }
+      if (!basisMilestoneIds.includes(primaryId)) {
+        throw new Error(`${label} predictions[${index}] pathForecast basis must include the primary milestone`);
+      }
+      if (likelyWindow.start !== primary.start || likelyWindow.end !== primary.end) {
+        throw new Error(`${label} predictions[${index}] pathForecast likely window must match the primary milestone`);
+      }
+      const checkpointIds = new Set();
+      for (const [checkpointIndex, rawCheckpoint] of checkpoints.entries()) {
+        const checkpoint = requireObject(
+          rawCheckpoint,
+          `${label} predictions[${index}].pathForecast.checkpoints[${checkpointIndex}]`,
+        );
+        const milestoneId = requireString(
+          checkpoint.milestoneId,
+          `${label} predictions[${index}].pathForecast.checkpoints[${checkpointIndex}].milestoneId`,
+        );
+        const milestone = milestonesById.get(milestoneId);
+        if (!milestone) {
+          throw new Error(`${label} predictions[${index}] pathForecast references unknown checkpoint ${milestoneId}`);
+        }
+        if (checkpointIds.has(milestoneId)) {
+          throw new Error(`${label} predictions[${index}] pathForecast checkpoint ${milestoneId} must be unique`);
+        }
+        checkpointIds.add(milestoneId);
+        if (checkpoint.start !== milestone.start || checkpoint.end !== milestone.end) {
+          throw new Error(`${label} predictions[${index}] pathForecast checkpoint must preserve milestone dates`);
+        }
+      }
+      if (!checkpointIds.has(primaryId)) {
+        throw new Error(`${label} predictions[${index}] pathForecast checkpoints must include the primary milestone`);
+      }
+      const terminalCheckpoint = checkpoints.at(-1);
+      if (
+        !terminalCheckpoint
+        || typeof terminalCheckpoint.milestoneId !== "string"
+        || !terminalCheckpoint.milestoneId.startsWith("forecast-horizon-")
+      ) {
+        throw new Error(`${label} predictions[${index}] pathForecast must end at the 90-day horizon`);
+      }
     }
     issuedAtValues.add(question.issuedAt);
     horizonEndValues.add(question.horizonEnd);
