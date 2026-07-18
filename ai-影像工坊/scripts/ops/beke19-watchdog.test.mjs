@@ -8,7 +8,12 @@ import {
   DEFAULT_READ_TIMEOUT_MS,
   DEFAULT_RETRY_DELAY_MS,
   MAX_PREFLIGHT_ATTEMPTS,
+  addXnysCalendarDays,
   runBeke19Watchdog,
+  xnysCalendarDayDifference,
+  xnysIssueSessionDate,
+  xnysMarketDate,
+  xnysRegularCloseMinutes,
 } from "./beke19-watchdog.mjs";
 
 const NOW = Date.parse("2026-07-15T04:00:00.000Z");
@@ -18,13 +23,13 @@ const CURRENT_TARGETS = [18, 19.5, 21, 23, 30];
 const RETIRED_TARGETS = [18, 19, 20];
 const LEGACY_TARGETS = [17, 18, 19];
 const CURRENT_MODEL_VERSION = "probability-synthesis-v5-90d-targets-18-19p5-21-23-30";
-const CURRENT_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v8-milestone-validation";
-const CURRENT_TIMING_MODEL_VERSION = "event-milestone-validation-v2";
+const CURRENT_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v9-event-confluence";
+const CURRENT_TIMING_MODEL_VERSION = "event-confluence-validation-v3";
 const CURRENT_PROMPT_VERSIONS = [
-  "quant-research-context-v2.0.0-milestone-path-90d-targets-18-19p5-21-23-30",
-  "bull-research-context-v1.7.0-milestone-path-90d-targets-18-19p5-21-23-30",
-  "bear-research-context-v1.7.0-milestone-path-90d-targets-18-19p5-21-23-30",
-  "professional-conclusion-context-v1.16.0-milestone-validation-90d-targets-18-19p5-21-23-30",
+  "quant-research-context-v2.2.0-confluence-highpoint-90d-targets-18-19p5-21-23-30",
+  "bull-research-context-v1.8.0-confluence-path-90d-targets-18-19p5-21-23-30",
+  "bear-research-context-v1.8.0-confluence-path-90d-targets-18-19p5-21-23-30",
+  "professional-conclusion-context-v1.18.0-confluence-highpoint-90d-targets-18-19p5-21-23-30",
 ];
 const REQUIRED_ANALYSIS_STAGES = [
   "quant",
@@ -56,7 +61,7 @@ function forecastQuestion(target, issuedAt) {
   return {
     questionId: `BEKE-${issuedAt}-${target}-90d-first-touch`,
     issuedAt,
-    horizonEnd: new Date(Date.parse(issuedAt) + 90 * 86_400_000).toISOString(),
+    horizonEnd: addXnysCalendarDays(issuedAt, 90),
     horizonDays: 90,
     barrier: target,
     priceMeasure: "regular_session_high",
@@ -68,44 +73,117 @@ function forecastQuestion(target, issuedAt) {
   };
 }
 
-function milestoneContract(issuedAt) {
-  const issueDate = issuedAt.slice(0, 10);
-  const horizonDate = new Date(Date.parse(issuedAt) + 90 * 86_400_000).toISOString().slice(0, 10);
-  const primaryId = `technical-weekly-${issueDate}`;
+const TARGET_CONFLUENCE_POLICIES = {
+  18: {
+    minimumSignals: 2,
+    signalKinds: ["market_absorption", "property_state", "discount_rate_adr"],
+    mandatoryKinds: ["market_absorption"],
+  },
+  19.5: {
+    minimumSignals: 3,
+    signalKinds: ["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"],
+    mandatoryKinds: ["market_absorption", "company_fundamentals"],
+  },
+  21: {
+    minimumSignals: 3,
+    signalKinds: ["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"],
+    mandatoryKinds: ["market_absorption", "company_fundamentals", "property_state"],
+  },
+  23: {
+    minimumSignals: 4,
+    signalKinds: ["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"],
+    mandatoryKinds: ["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"],
+  },
+  30: {
+    minimumSignals: 4,
+    signalKinds: ["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"],
+    mandatoryKinds: ["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"],
+  },
+};
+
+function addDays(date, days) {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+function milestoneContract(issuedAt, dateOverrides = {}) {
+  const issueDate = dateOverrides.issueDate ?? xnysIssueSessionDate(issuedAt);
+  const horizonDate = dateOverrides.horizonDate
+    ?? xnysMarketDate(addXnysCalendarDays(issuedAt, 90));
+  const setupId = `technical-setup-${issueDate}`;
+  const macroId = `macro-release-${addDays(issueDate, 7)}`;
+  const earningsId = `earnings-${addDays(issueDate, 14)}`;
+  const propertyId = `property-release-${addDays(issueDate, 21)}`;
+  const conditionalId = `adr-conditional-${issueDate}`;
+  const confirmationId = `technical-confirmation-${addDays(issueDate, 28)}`;
   const horizonId = `forecast-horizon-${horizonDate}`;
   return {
     milestones: [
-      { id: primaryId, start: issueDate, end: issueDate },
-      { id: horizonId, start: horizonDate, end: horizonDate },
+      { id: setupId, kind: "technical_checkpoint", certainty: "official_schedule", start: issueDate, end: issueDate },
+      { id: conditionalId, kind: "china_adr_event", certainty: "conditional_trigger", start: addDays(issueDate, 3), end: horizonDate },
+      { id: macroId, kind: "macro_release", certainty: "official_schedule", start: addDays(issueDate, 7), end: addDays(issueDate, 8) },
+      { id: earningsId, kind: "earnings", certainty: "historical_estimate", start: addDays(issueDate, 14), end: addDays(issueDate, 16) },
+      { id: propertyId, kind: "property_release", certainty: "official_schedule", start: addDays(issueDate, 21), end: addDays(issueDate, 21) },
+      { id: confirmationId, kind: "technical_checkpoint", certainty: "official_schedule", start: addDays(issueDate, 28), end: addDays(issueDate, 28) },
+      { id: horizonId, kind: "technical_checkpoint", certainty: "official_schedule", start: horizonDate, end: horizonDate },
     ],
-    primaryId,
+    setupId,
+    macroId,
+    earningsId,
+    propertyId,
+    conditionalId,
+    confirmationId,
     horizonId,
     issueDate,
     horizonDate,
   };
 }
 
-function pathForecast(target, probability, issuedAt) {
-  const contract = milestoneContract(issuedAt);
+function pathForecast(target, probability, issuedAt, dateOverrides) {
+  const contract = milestoneContract(issuedAt, dateOverrides);
+  const policy = TARGET_CONFLUENCE_POLICIES[target];
+  const catalystIds = target === 18
+    ? [contract.macroId, contract.propertyId]
+    : target === 30
+      ? [contract.macroId, contract.earningsId, contract.propertyId, contract.conditionalId]
+      : [contract.macroId, contract.earningsId, contract.propertyId];
+  const stages = [
+    { phase: "setup", label: "先看预期是否形成", milestoneIds: [contract.setupId] },
+    { phase: "catalyst", label: "再看多项信息是否同向", milestoneIds: catalystIds },
+    { phase: "confirmation", label: "最后看价格和资金是否承接", milestoneIds: [contract.confirmationId] },
+  ];
+  const basisMilestoneIds = stages.flatMap((stage) => stage.milestoneIds);
+  const milestoneById = new Map(contract.milestones.map((milestone) => [milestone.id, milestone]));
+  const checkpointIds = [...basisMilestoneIds, contract.horizonId]
+    .sort((left, right) => milestoneById.get(left).start.localeCompare(milestoneById.get(right).start));
   return {
-    schemaVersion: "milestone-path-v2",
+    schemaVersion: "milestone-path-v3",
     modelName: CURRENT_TIMING_MODEL_VERSION,
-    timingBasis: "event_milestone_validation",
+    timingBasis: "multi_event_confluence",
     target,
     terminalProbability: probability,
     status: "open",
-    primaryMilestoneId: contract.primaryId,
-    likelyWindow: {
+    confluenceWindow: {
       start: contract.issueDate,
-      end: contract.issueDate,
-      label: "周线趋势复核",
+      end: milestoneById.get(contract.confirmationId).end,
+      label: "多事件共振观察窗口",
       confidence: "中",
-      basisMilestoneIds: [contract.primaryId],
+      basisMilestoneIds,
     },
-    checkpoints: [
-      { milestoneId: contract.primaryId, start: contract.issueDate, end: contract.issueDate },
-      { milestoneId: contract.horizonId, start: contract.horizonDate, end: contract.horizonDate },
-    ],
+    confluenceRule: {
+      ...policy,
+      summary: `${target} 美元需要多项独立信号同向。`,
+      exhaustionSignals: [
+        "放量冲高后明显回落",
+        "相对 KWEB 强弱转负",
+        "利好兑现后新增买盘衰减",
+      ],
+    },
+    stages,
+    checkpoints: checkpointIds.map((milestoneId) => ({
+      milestoneId,
+      start: milestoneById.get(milestoneId).start,
+      end: milestoneById.get(milestoneId).end,
+    })),
   };
 }
 
@@ -132,8 +210,9 @@ function snapshotPayload({
   targetExplanationTargets = predictionTargets,
   history = [historyPoint(predictionTargets)],
   generation = modelGeneration(),
+  milestoneDateOverrides,
 } = {}) {
-  const milestoneState = milestoneContract(updatedAt);
+  const milestoneState = milestoneContract(updatedAt, milestoneDateOverrides);
   return {
     ok: true,
     state: {
@@ -149,7 +228,12 @@ function snapshotPayload({
           target,
           probability: 60 - index * 12,
           forecastQuestion: forecastQuestion(target, updatedAt),
-          pathForecast: pathForecast(target, 60 - index * 12, updatedAt),
+          pathForecast: pathForecast(
+            target,
+            60 - index * 12,
+            updatedAt,
+            milestoneDateOverrides,
+          ),
         })),
         analysis: {
           targetViews: keyedTargets(targetViewTargets, (target) => ({ target })),
@@ -351,6 +435,162 @@ test("accepts decimal target object keys after numeric normalization", async () 
   assert.equal(result.status, "not-due");
 });
 
+test("uses the completed XNYS issue session and New York horizon date across UTC midnight", async () => {
+  const issuedAt = "2026-07-25T00:30:00.000Z";
+  const payload = snapshotPayload({
+    updatedAt: issuedAt,
+    nextUpdateAt: "2026-07-25T01:30:00.000Z",
+    milestoneDateOverrides: {
+      issueDate: "2026-07-24",
+      horizonDate: "2026-10-22",
+    },
+  });
+  const prediction = payload.state.snapshot.predictions[0];
+  const milestoneById = new Map(
+    payload.state.snapshot.milestones.map((milestone) => [milestone.id, milestone]),
+  );
+  const setupId = prediction.pathForecast.stages[0].milestoneIds[0];
+  const setup = milestoneById.get(setupId);
+  const finalCheckpoint = prediction.pathForecast.checkpoints.at(-1);
+  const basisIds = prediction.pathForecast.confluenceWindow.basisMilestoneIds;
+  const stageIds = prediction.pathForecast.stages.flatMap((stage) => stage.milestoneIds);
+
+  assert.deepEqual(
+    { start: setup.start, end: setup.end },
+    { start: "2026-07-24", end: "2026-07-24" },
+  );
+  assert.deepEqual(finalCheckpoint, {
+    milestoneId: "forecast-horizon-2026-10-22",
+    start: "2026-10-22",
+    end: "2026-10-22",
+  });
+  assert.equal(new Set(basisIds).size, basisIds.length);
+  assert.equal(new Set(stageIds).size, stageIds.length);
+  assert.deepEqual([...basisIds].sort(), [...stageIds].sort());
+
+  const result = await runBeke19Watchdog({
+    env: { BEKE19_REFRESH_TOKEN: "secret" },
+    now: () => Date.parse("2026-07-25T00:31:00.000Z"),
+    logger: createLogger(),
+    fetchImpl: async () => response(200, payload),
+  });
+
+  assert.equal(result.status, "not-due");
+});
+
+test("resolves issue timestamps against the latest completed regular XNYS session", () => {
+  assert.equal(xnysIssueSessionDate("2026-07-24T19:59:00.000Z"), "2026-07-23");
+  assert.equal(xnysIssueSessionDate("2026-07-24T20:00:00.000Z"), "2026-07-24");
+  assert.equal(xnysIssueSessionDate("2026-07-25T00:30:00.000Z"), "2026-07-24");
+  assert.equal(xnysIssueSessionDate("2026-07-25T16:00:00.000Z"), "2026-07-24");
+  assert.equal(xnysIssueSessionDate("2026-07-03T21:00:00.000Z"), "2026-07-02");
+  assert.equal(xnysMarketDate("2026-10-23T00:30:00.000Z"), "2026-10-22");
+});
+
+for (const dstCase of [
+  {
+    label: "spring DST transition",
+    issuedAt: "2026-01-15T05:30:00.000Z",
+    expectedHorizonEnd: "2026-04-15T04:30:00.000Z",
+    expectedElapsed: 90 * 86_400_000 - 3_600_000,
+  },
+  {
+    label: "autumn DST transition",
+    issuedAt: "2026-09-01T04:30:00.000Z",
+    expectedHorizonEnd: "2026-11-30T05:30:00.000Z",
+    expectedElapsed: 90 * 86_400_000 + 3_600_000,
+  },
+]) {
+  test(`accepts a 90 New York calendar-day forecast across the ${dstCase.label}`, async () => {
+    const horizonEnd = addXnysCalendarDays(dstCase.issuedAt, 90);
+    assert.equal(horizonEnd, dstCase.expectedHorizonEnd);
+    assert.equal(xnysCalendarDayDifference(dstCase.issuedAt, horizonEnd), 90);
+    assert.equal(Date.parse(horizonEnd) - Date.parse(dstCase.issuedAt), dstCase.expectedElapsed);
+
+    const payload = snapshotPayload({
+      updatedAt: dstCase.issuedAt,
+      nextUpdateAt: new Date(Date.parse(dstCase.issuedAt) + 3_600_000).toISOString(),
+    });
+    const result = await runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => Date.parse(dstCase.issuedAt) + 60_000,
+      logger: createLogger(),
+      fetchImpl: async () => response(200, payload),
+    });
+
+    assert.equal(result.status, "not-due");
+  });
+}
+
+for (const disambiguationCase of [
+  {
+    label: "spring DST gap",
+    issuedAt: "2026-12-14T07:30:00.000Z",
+    expectedHorizonEnd: "2027-03-14T07:30:00.000Z",
+  },
+  {
+    label: "autumn DST overlap",
+    issuedAt: "2026-08-03T05:30:00.000Z",
+    expectedHorizonEnd: "2026-11-01T05:30:00.000Z",
+  },
+]) {
+  test(`uses compatible disambiguation for the ${disambiguationCase.label}`, async () => {
+    const horizonEnd = addXnysCalendarDays(disambiguationCase.issuedAt, 90);
+    assert.equal(horizonEnd, disambiguationCase.expectedHorizonEnd);
+    assert.equal(xnysCalendarDayDifference(disambiguationCase.issuedAt, horizonEnd), 90);
+
+    const payload = snapshotPayload({
+      updatedAt: disambiguationCase.issuedAt,
+      nextUpdateAt: new Date(Date.parse(disambiguationCase.issuedAt) + 3_600_000).toISOString(),
+    });
+    const result = await runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => Date.parse(disambiguationCase.issuedAt) + 60_000,
+      logger: createLogger(),
+      fetchImpl: async () => response(200, payload),
+    });
+
+    assert.equal(result.status, "not-due");
+  });
+}
+
+test("rejects a fixed 90-times-24-hour horizon when New York crosses DST", async () => {
+  const issuedAt = "2026-09-01T04:30:00.000Z";
+  const payload = snapshotPayload({
+    updatedAt: issuedAt,
+    nextUpdateAt: "2026-09-01T05:30:00.000Z",
+  });
+  payload.state.snapshot.predictions[0].forecastQuestion.horizonEnd = new Date(
+    Date.parse(issuedAt) + 90 * 86_400_000,
+  ).toISOString();
+
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => Date.parse(issuedAt) + 60_000,
+      logger: createLogger(),
+      fetchImpl: async () => response(200, payload),
+    }),
+    /current 90-day first-touch contract/,
+  );
+});
+
+test("uses minute-precise 13:00 XNYS closes on the three recurring early-close sessions", () => {
+  assert.equal(xnysRegularCloseMinutes("2026-11-27"), 13 * 60);
+  assert.equal(xnysIssueSessionDate("2026-11-27T17:59:59.000Z"), "2026-11-25");
+  assert.equal(xnysIssueSessionDate("2026-11-27T18:00:00.000Z"), "2026-11-27");
+
+  assert.equal(xnysRegularCloseMinutes("2025-07-03"), 13 * 60);
+  assert.equal(xnysIssueSessionDate("2025-07-03T16:59:59.000Z"), "2025-07-02");
+  assert.equal(xnysIssueSessionDate("2025-07-03T17:00:00.000Z"), "2025-07-03");
+
+  assert.equal(xnysRegularCloseMinutes("2026-12-24"), 13 * 60);
+  assert.equal(xnysIssueSessionDate("2026-12-24T17:59:59.000Z"), "2026-12-23");
+  assert.equal(xnysIssueSessionDate("2026-12-24T18:00:00.000Z"), "2026-12-24");
+
+  assert.equal(xnysRegularCloseMinutes("2026-07-03"), null);
+});
+
 test("rejects a target view whose embedded target does not match its key", async () => {
   const payload = snapshotPayload({ nextUpdateAt: "2026-07-15T04:30:00.000Z" });
   payload.state.snapshot.analysis.targetViews["23"].target = 21;
@@ -457,7 +697,7 @@ test("rejects a publication without the current runtime marker", async () => {
       sleep: async () => {},
       fetchImpl: async () => response(200, payload),
     }),
-    /preflight dataVersion must include research-runtime-targets-18-19p5-21-23-30-v8-milestone-validation/,
+    /preflight dataVersion must include research-runtime-targets-18-19p5-21-23-30-v9-event-confluence/,
   );
 });
 
@@ -484,15 +724,10 @@ test("rejects a target marked resolved at issue below 100 percent", async () => 
   prediction.forecastQuestion.status = "resolved_at_issue";
   prediction.pathForecast.status = "resolved_at_issue";
   prediction.pathForecast.terminalProbability = 80;
-  prediction.pathForecast.primaryMilestoneId = undefined;
+  delete prediction.pathForecast.confluenceWindow;
+  delete prediction.pathForecast.confluenceRule;
+  prediction.pathForecast.stages = [];
   prediction.pathForecast.checkpoints = [];
-  prediction.pathForecast.likelyWindow = {
-    start: prediction.forecastQuestion.issuedAt.slice(0, 10),
-    end: prediction.forecastQuestion.issuedAt.slice(0, 10),
-    label: "本轮研究起点已触达",
-    confidence: "高",
-    basisMilestoneIds: [],
-  };
 
   await assert.rejects(
     runBeke19Watchdog({
@@ -503,6 +738,292 @@ test("rejects a target marked resolved at issue below 100 percent", async () => 
       fetchImpl: async () => response(200, payload),
     }),
     /preflight predictions\[0\] resolved probability must be 100/,
+  );
+});
+
+test("accepts a resolved-at-issue path only when probability is 100 and no future fields remain", async () => {
+  const payload = snapshotPayload({ nextUpdateAt: "2026-07-15T04:30:00.000Z" });
+  const prediction = payload.state.snapshot.predictions[0];
+  prediction.probability = 100;
+  prediction.forecastQuestion.status = "resolved_at_issue";
+  prediction.pathForecast.status = "resolved_at_issue";
+  prediction.pathForecast.terminalProbability = 100;
+  delete prediction.pathForecast.confluenceWindow;
+  delete prediction.pathForecast.confluenceRule;
+  prediction.pathForecast.stages = [];
+  prediction.pathForecast.checkpoints = [];
+
+  const result = await runBeke19Watchdog({
+    env: { BEKE19_REFRESH_TOKEN: "secret" },
+    now: () => NOW,
+    logger: createLogger(),
+    fetchImpl: async () => response(200, payload),
+  });
+
+  assert.equal(result.status, "not-due");
+});
+
+for (const corruptPathCase of [
+  {
+    name: "rejects a target path whose minimum signal threshold is weakened",
+    corrupt(path) { path.confluenceRule.minimumSignals -= 1; },
+    expected: /confluence rule must exactly match the target policy/,
+  },
+  {
+    name: "rejects a target path whose mandatory signal set drifts",
+    corrupt(path) { path.confluenceRule.mandatoryKinds = ["market_absorption"]; },
+    expected: /confluence rule must exactly match the target policy/,
+    predictionIndex: 3,
+  },
+  {
+    name: "rejects a target path whose declared signal set drifts",
+    corrupt(path) { path.confluenceRule.signalKinds = ["market_absorption", "property_state"]; },
+    expected: /confluence rule must exactly match the target policy/,
+  },
+  {
+    name: "rejects a target path without a high-point exhaustion signal",
+    corrupt(path) { path.confluenceRule.exhaustionSignals = []; },
+    expected: /must publish 1-3 distinct exhaustion signals/,
+  },
+  {
+    name: "rejects a target path with more than three exhaustion signals",
+    corrupt(path) { path.confluenceRule.exhaustionSignals.push("额外的未版本化信号"); },
+    expected: /must publish 1-3 distinct exhaustion signals/,
+  },
+  {
+    name: "rejects confluence stages outside setup catalyst confirmation order",
+    corrupt(path) { [path.stages[0], path.stages[1]] = [path.stages[1], path.stages[0]]; },
+    expected: /must publish setup, catalyst, confirmation stages in order/,
+  },
+  {
+    name: "rejects a path with fewer than two scheduled catalysts",
+    corrupt(path) {
+      const removedIds = path.stages[1].milestoneIds.slice(1);
+      path.stages[1].milestoneIds = [path.stages[1].milestoneIds[0]];
+      path.confluenceWindow.basisMilestoneIds = path.confluenceWindow.basisMilestoneIds
+        .filter((milestoneId) => !removedIds.includes(milestoneId));
+      path.checkpoints = path.checkpoints
+        .filter((checkpoint) => !removedIds.includes(checkpoint.milestoneId));
+    },
+    expected: /must include at least two scheduled catalysts/,
+  },
+  {
+    name: "rejects a path containing an unknown stage reference",
+    corrupt(path) { path.stages[1].milestoneIds[0] = "missing-catalyst"; },
+    expected: /references unknown stage milestone missing-catalyst/,
+  },
+  {
+    name: "rejects a path whose checkpoint no longer preserves milestone dates",
+    corrupt(path) { path.checkpoints[0].start = "2026-01-01"; },
+    expected: /checkpoint must preserve milestone dates/,
+  },
+  {
+    name: "rejects an open path without the terminal horizon checkpoint",
+    corrupt(path) { path.checkpoints.pop(); },
+    expected: /must end at the 90-day horizon/,
+  },
+]) {
+  test(corruptPathCase.name, async () => {
+    const payload = snapshotPayload({ nextUpdateAt: "2026-07-15T04:30:00.000Z" });
+    const predictionIndex = corruptPathCase.predictionIndex ?? 0;
+    corruptPathCase.corrupt(payload.state.snapshot.predictions[predictionIndex].pathForecast);
+
+    await assert.rejects(
+      runBeke19Watchdog({
+        env: { BEKE19_REFRESH_TOKEN: "secret" },
+        now: () => NOW,
+        logger: createLogger(),
+        sleep: async () => {},
+        fetchImpl: async () => response(200, payload),
+      }),
+      corruptPathCase.expected,
+    );
+  });
+}
+
+test("rejects a setup stage that does not finish before the first fixed catalyst", async () => {
+  const payload = snapshotPayload({ nextUpdateAt: "2026-07-15T04:30:00.000Z" });
+  const prediction = payload.state.snapshot.predictions[0];
+  const milestoneById = new Map(
+    payload.state.snapshot.milestones.map((milestone) => [milestone.id, milestone]),
+  );
+  const setupId = prediction.pathForecast.stages[0].milestoneIds[0];
+  const firstFixedCatalyst = prediction.pathForecast.stages[1].milestoneIds
+    .map((milestoneId) => milestoneById.get(milestoneId))
+    .filter((milestone) => milestone.certainty === "official_schedule")
+    .sort((left, right) => left.start.localeCompare(right.start))[0];
+  const setupMilestone = milestoneById.get(setupId);
+  const setupCheckpoint = prediction.pathForecast.checkpoints
+    .find((checkpoint) => checkpoint.milestoneId === setupId);
+  const afterFirstFixedCatalyst = addDays(firstFixedCatalyst.start, 1);
+  setupMilestone.end = afterFirstFixedCatalyst;
+  setupCheckpoint.end = afterFirstFixedCatalyst;
+
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => response(200, payload),
+    }),
+    /setup must precede fixed catalysts/,
+  );
+});
+
+test("rejects a confirmation stage that does not start after every scheduled catalyst", async () => {
+  const payload = snapshotPayload({ nextUpdateAt: "2026-07-15T04:30:00.000Z" });
+  const prediction = payload.state.snapshot.predictions[1];
+  const milestoneById = new Map(
+    payload.state.snapshot.milestones.map((milestone) => [milestone.id, milestone]),
+  );
+  const confirmationId = prediction.pathForecast.stages[2].milestoneIds[0];
+  const lastScheduledCatalyst = prediction.pathForecast.stages[1].milestoneIds
+    .map((milestoneId) => milestoneById.get(milestoneId))
+    .filter((milestone) => milestone.certainty !== "conditional_trigger")
+    .sort((left, right) => right.end.localeCompare(left.end))[0];
+  const confirmationMilestone = milestoneById.get(confirmationId);
+  const confirmationCheckpoint = prediction.pathForecast.checkpoints
+    .find((checkpoint) => checkpoint.milestoneId === confirmationId);
+  const beforeLastScheduledCatalyst = addDays(lastScheduledCatalyst.end, -1);
+  confirmationMilestone.start = beforeLastScheduledCatalyst;
+  confirmationMilestone.end = beforeLastScheduledCatalyst;
+  confirmationCheckpoint.start = beforeLastScheduledCatalyst;
+  confirmationCheckpoint.end = beforeLastScheduledCatalyst;
+  prediction.pathForecast.confluenceWindow.end = beforeLastScheduledCatalyst;
+
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => response(200, payload),
+    }),
+    /confirmation must follow every scheduled catalyst/,
+  );
+});
+
+test("rejects a checkpoint milestone before the forecast issue date", async () => {
+  const payload = snapshotPayload({ nextUpdateAt: "2026-07-15T04:30:00.000Z" });
+  const prediction = payload.state.snapshot.predictions[0];
+  const setupId = prediction.pathForecast.stages[0].milestoneIds[0];
+  const setupMilestone = payload.state.snapshot.milestones
+    .find((milestone) => milestone.id === setupId);
+  const setupCheckpoint = prediction.pathForecast.checkpoints
+    .find((checkpoint) => checkpoint.milestoneId === setupId);
+  const beforeIssue = addDays(xnysIssueSessionDate(prediction.forecastQuestion.issuedAt), -1);
+  setupMilestone.start = beforeIssue;
+  setupMilestone.end = beforeIssue;
+  setupCheckpoint.start = beforeIssue;
+  setupCheckpoint.end = beforeIssue;
+  prediction.pathForecast.confluenceWindow.start = beforeIssue;
+
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => response(200, payload),
+    }),
+    /checkpoint must remain within the audited forecast horizon/,
+  );
+});
+
+test("rejects a checkpoint milestone after the forecast horizon", async () => {
+  const payload = snapshotPayload({ nextUpdateAt: "2026-07-15T04:30:00.000Z" });
+  const prediction = payload.state.snapshot.predictions[4];
+  const conditionalId = prediction.pathForecast.stages[1].milestoneIds
+    .find((milestoneId) => payload.state.snapshot.milestones.some(
+      (milestone) => milestone.id === milestoneId && milestone.certainty === "conditional_trigger",
+    ));
+  const conditionalMilestone = payload.state.snapshot.milestones
+    .find((milestone) => milestone.id === conditionalId);
+  const conditionalCheckpoint = prediction.pathForecast.checkpoints
+    .find((checkpoint) => checkpoint.milestoneId === conditionalId);
+  const afterHorizon = addDays(prediction.forecastQuestion.horizonEnd.slice(0, 10), 1);
+  conditionalMilestone.end = afterHorizon;
+  conditionalCheckpoint.end = afterHorizon;
+
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => response(200, payload),
+    }),
+    /checkpoint must remain within the audited forecast horizon/,
+  );
+});
+
+test("rejects a final checkpoint whose horizon milestone id is not exact", async () => {
+  const payload = snapshotPayload({ nextUpdateAt: "2026-07-15T04:30:00.000Z" });
+  const prediction = payload.state.snapshot.predictions[0];
+  const finalCheckpoint = prediction.pathForecast.checkpoints.at(-1);
+  const horizonMilestone = payload.state.snapshot.milestones
+    .find((milestone) => milestone.id === finalCheckpoint.milestoneId);
+  const wrongHorizonId = `forecast-horizon-${addDays(
+    prediction.forecastQuestion.horizonEnd.slice(0, 10),
+    -1,
+  )}`;
+  horizonMilestone.id = wrongHorizonId;
+  finalCheckpoint.milestoneId = wrongHorizonId;
+
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => response(200, payload),
+    }),
+    /final checkpoint must exactly match the audited horizon/,
+  );
+});
+
+test("rejects a final checkpoint whose dates do not exactly equal the forecast horizon", async () => {
+  const payload = snapshotPayload({ nextUpdateAt: "2026-07-15T04:30:00.000Z" });
+  const prediction = payload.state.snapshot.predictions[0];
+  const finalCheckpoint = prediction.pathForecast.checkpoints.at(-1);
+  const horizonMilestone = payload.state.snapshot.milestones
+    .find((milestone) => milestone.id === finalCheckpoint.milestoneId);
+  const wrongHorizonDate = addDays(prediction.forecastQuestion.horizonEnd.slice(0, 10), -1);
+  horizonMilestone.start = wrongHorizonDate;
+  horizonMilestone.end = wrongHorizonDate;
+  finalCheckpoint.start = wrongHorizonDate;
+  finalCheckpoint.end = wrongHorizonDate;
+
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => response(200, payload),
+    }),
+    /final checkpoint must exactly match the audited horizon/,
+  );
+});
+
+test("rejects a resolved path that retains future confluence fields", async () => {
+  const payload = snapshotPayload({ nextUpdateAt: "2026-07-15T04:30:00.000Z" });
+  const prediction = payload.state.snapshot.predictions[0];
+  prediction.probability = 100;
+  prediction.forecastQuestion.status = "resolved_at_issue";
+  prediction.pathForecast.status = "resolved_at_issue";
+  prediction.pathForecast.terminalProbability = 100;
+
+  await assert.rejects(
+    runBeke19Watchdog({
+      env: { BEKE19_REFRESH_TOKEN: "secret" },
+      now: () => NOW,
+      logger: createLogger(),
+      sleep: async () => {},
+      fetchImpl: async () => response(200, payload),
+    }),
+    /resolved path must not reference future confluence fields/,
   );
 });
 

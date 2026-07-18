@@ -10,16 +10,50 @@ export const MAX_PREFLIGHT_ATTEMPTS = 2;
 
 const EXPECTED_TARGETS = Object.freeze([18, 19.5, 21, 23, 30]);
 const EXPECTED_MODEL_VERSION = "probability-synthesis-v5-90d-targets-18-19p5-21-23-30";
-const EXPECTED_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v8-milestone-validation";
-const EXPECTED_TIMING_MODEL_VERSION = "event-milestone-validation-v2";
+const EXPECTED_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v9-event-confluence";
+const EXPECTED_TIMING_MODEL_VERSION = "event-confluence-validation-v3";
 const EXPECTED_ANALYSIS_PROVIDER = "TokenPlanProvider";
 const EXPECTED_ANALYSIS_MODEL_ID = "mimo-v2.5-pro";
 const EXPECTED_PROMPT_VERSIONS = Object.freeze([
-  "quant-research-context-v2.0.0-milestone-path-90d-targets-18-19p5-21-23-30",
-  "bull-research-context-v1.7.0-milestone-path-90d-targets-18-19p5-21-23-30",
-  "bear-research-context-v1.7.0-milestone-path-90d-targets-18-19p5-21-23-30",
-  "professional-conclusion-context-v1.16.0-milestone-validation-90d-targets-18-19p5-21-23-30",
+  "quant-research-context-v2.2.0-confluence-highpoint-90d-targets-18-19p5-21-23-30",
+  "bull-research-context-v1.8.0-confluence-path-90d-targets-18-19p5-21-23-30",
+  "bear-research-context-v1.8.0-confluence-path-90d-targets-18-19p5-21-23-30",
+  "professional-conclusion-context-v1.18.0-confluence-highpoint-90d-targets-18-19p5-21-23-30",
 ]);
+const CONFLUENCE_PHASES = Object.freeze(["setup", "catalyst", "confirmation"]);
+const CONFLUENCE_SIGNAL_KINDS = new Set([
+  "company_fundamentals",
+  "property_state",
+  "discount_rate_adr",
+  "market_absorption",
+]);
+const TARGET_CONFLUENCE_POLICIES = Object.freeze({
+  18: Object.freeze({
+    minimumSignals: 2,
+    signalKinds: Object.freeze(["market_absorption", "property_state", "discount_rate_adr"]),
+    mandatoryKinds: Object.freeze(["market_absorption"]),
+  }),
+  19.5: Object.freeze({
+    minimumSignals: 3,
+    signalKinds: Object.freeze(["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"]),
+    mandatoryKinds: Object.freeze(["market_absorption", "company_fundamentals"]),
+  }),
+  21: Object.freeze({
+    minimumSignals: 3,
+    signalKinds: Object.freeze(["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"]),
+    mandatoryKinds: Object.freeze(["market_absorption", "company_fundamentals", "property_state"]),
+  }),
+  23: Object.freeze({
+    minimumSignals: 4,
+    signalKinds: Object.freeze(["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"]),
+    mandatoryKinds: Object.freeze(["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"]),
+  }),
+  30: Object.freeze({
+    minimumSignals: 4,
+    signalKinds: Object.freeze(["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"]),
+    mandatoryKinds: Object.freeze(["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"]),
+  }),
+});
 const REQUIRED_ANALYSIS_STAGES = Object.freeze([
   "quant",
   "bull",
@@ -29,6 +63,20 @@ const REQUIRED_ANALYSIS_STAGES = Object.freeze([
 ]);
 const EXPECTED_HORIZON_DAYS = 90;
 const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
+const XNYS_TIMEZONE = "America/New_York";
+const XNYS_REGULAR_CLOSE_MINUTES = 16 * 60;
+const XNYS_EARLY_CLOSE_MINUTES = 13 * 60;
+const XNYS_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  timeZone: XNYS_TIMEZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
 const EXPECTED_TARGET_KEYS = Object.freeze(EXPECTED_TARGETS.map(String));
 const EXPECTED_HISTORY_KEYS = new Set(EXPECTED_TARGETS.map((target) => `p${target}`));
 const MAX_READ_TIMEOUT_MS = 30_000;
@@ -98,6 +146,288 @@ function requireArray(value, label) {
 function equalOrderedValues(actual, expected) {
   return actual.length === expected.length
     && actual.every((value, index) => value === expected[index]);
+}
+
+function equalDistinctValues(actual, expected) {
+  const actualSet = new Set(actual);
+  const expectedSet = new Set(expected);
+  return actualSet.size === actual.length
+    && expectedSet.size === expected.length
+    && actualSet.size === expectedSet.size
+    && [...actualSet].every((value) => expectedSet.has(value))
+    && [...expectedSet].every((value) => actualSet.has(value));
+}
+
+function isoDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function utcDate(year, month, day) {
+  return new Date(Date.UTC(year, month, day, 12));
+}
+
+function addCalendarDays(date, days) {
+  return new Date(date.getTime() + days * DAY_MS);
+}
+
+function observedFixedHoliday(year, month, day) {
+  const holiday = utcDate(year, month, day);
+  const weekday = holiday.getUTCDay();
+  if (weekday === 6) return isoDate(addCalendarDays(holiday, -1));
+  if (weekday === 0) return isoDate(addCalendarDays(holiday, 1));
+  return isoDate(holiday);
+}
+
+function nthWeekday(year, month, weekday, occurrence) {
+  const first = utcDate(year, month, 1);
+  const offset = (weekday - first.getUTCDay() + 7) % 7;
+  return isoDate(addCalendarDays(first, offset + (occurrence - 1) * 7));
+}
+
+function lastWeekday(year, month, weekday) {
+  const last = utcDate(year, month + 1, 0);
+  const offset = (last.getUTCDay() - weekday + 7) % 7;
+  return isoDate(addCalendarDays(last, -offset));
+}
+
+function goodFriday(year) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const value = h + l - 7 * m + 114;
+  const month = Math.floor(value / 31) - 1;
+  const day = (value % 31) + 1;
+  return isoDate(addCalendarDays(utcDate(year, month, day), -2));
+}
+
+function xnysHolidaysForYear(year) {
+  return new Set([
+    observedFixedHoliday(year, 0, 1),
+    nthWeekday(year, 0, 1, 3),
+    nthWeekday(year, 1, 1, 3),
+    goodFriday(year),
+    lastWeekday(year, 4, 1),
+    observedFixedHoliday(year, 5, 19),
+    observedFixedHoliday(year, 6, 4),
+    nthWeekday(year, 8, 1, 1),
+    nthWeekday(year, 10, 4, 4),
+    observedFixedHoliday(year, 11, 25),
+  ]);
+}
+
+function xnysLocalParts(value) {
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) {
+    throw new Error(`Invalid XNYS market timestamp: ${value}`);
+  }
+  const parts = XNYS_DATE_TIME_FORMATTER.formatToParts(instant);
+  const part = (type) => parts.find((item) => item.type === type)?.value;
+  const year = part("year");
+  const month = part("month");
+  const day = part("day");
+  const hour = Number(part("hour"));
+  const minute = Number(part("minute"));
+  const second = Number(part("second"));
+  if (!year || !month || !day
+    || !Number.isFinite(hour)
+    || !Number.isFinite(minute)
+    || !Number.isFinite(second)) {
+    throw new Error(`Unable to resolve XNYS market date: ${value}`);
+  }
+  return {
+    date: `${year}-${month}-${day}`,
+    year: Number(year),
+    month: Number(month),
+    day: Number(day),
+    hour,
+    minute,
+    second,
+  };
+}
+
+function xnysWallClockToInstant(parts) {
+  const desiredWallClock = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+    parts.millisecond,
+  );
+  const offsets = new Set();
+
+  // Intl exposes instant -> zone, not the inverse. Sampling around the target
+  // discovers both offsets adjacent to a DST transition.
+  for (const probeHours of [-36, 0, 36]) {
+    const probe = desiredWallClock + probeHours * HOUR_MS;
+    const actual = xnysLocalParts(new Date(probe).toISOString());
+    const actualWallClock = Date.UTC(
+      actual.year,
+      actual.month - 1,
+      actual.day,
+      actual.hour,
+      actual.minute,
+      actual.second,
+      new Date(probe).getUTCMilliseconds(),
+    );
+    offsets.add(actualWallClock - probe);
+  }
+
+  const mappings = [...offsets].map((offset) => {
+    const candidate = desiredWallClock - offset;
+    const actual = xnysLocalParts(new Date(candidate).toISOString());
+    return {
+      candidate,
+      actualWallClock: Date.UTC(
+        actual.year,
+        actual.month - 1,
+        actual.day,
+        actual.hour,
+        actual.minute,
+        actual.second,
+        new Date(candidate).getUTCMilliseconds(),
+      ),
+    };
+  });
+
+  // Temporal-compatible overlap handling: choose the earlier instant.
+  const exact = mappings
+    .filter((mapping) => mapping.actualWallClock === desiredWallClock)
+    .sort((left, right) => left.candidate - right.candidate);
+  if (exact[0]) return new Date(exact[0].candidate);
+
+  // Temporal-compatible gap handling: move forward by the DST gap while
+  // preserving minute/second, e.g. New York 02:30 -> 03:30.
+  const shiftedForward = mappings
+    .filter((mapping) => mapping.actualWallClock > desiredWallClock)
+    .sort((left, right) =>
+      (left.actualWallClock - desiredWallClock)
+      - (right.actualWallClock - desiredWallClock)
+      || left.candidate - right.candidate);
+  if (shiftedForward[0]
+    && shiftedForward[0].actualWallClock - desiredWallClock <= 2 * HOUR_MS) {
+    return new Date(shiftedForward[0].candidate);
+  }
+
+  throw new Error("Unable to map the requested New York wall-clock time to an instant.");
+}
+
+/** Adds New York calendar days while preserving the local wall-clock time. */
+export function addXnysCalendarDays(value, days) {
+  if (!Number.isInteger(days)) {
+    throw new RangeError(`XNYS calendar-day offset must be an integer: ${days}`);
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return isoDate(addCalendarDays(new Date(`${value}T12:00:00Z`), days));
+  }
+
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) {
+    throw new Error(`Invalid XNYS market timestamp: ${value}`);
+  }
+  const local = xnysLocalParts(value);
+  const shifted = new Date(Date.UTC(
+    local.year,
+    local.month - 1,
+    local.day + days,
+    local.hour,
+    local.minute,
+    local.second,
+    instant.getUTCMilliseconds(),
+  ));
+  return xnysWallClockToInstant({
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+    hour: shifted.getUTCHours(),
+    minute: shifted.getUTCMinutes(),
+    second: shifted.getUTCSeconds(),
+    millisecond: shifted.getUTCMilliseconds(),
+  }).toISOString();
+}
+
+/** Counts New York calendar-date boundaries independently of elapsed hours. */
+export function xnysCalendarDayDifference(start, end) {
+  const startDate = xnysMarketDate(start);
+  const endDate = xnysMarketDate(end);
+  const startSerial = Date.parse(`${startDate}T00:00:00Z`);
+  const endSerial = Date.parse(`${endDate}T00:00:00Z`);
+  if (!Number.isFinite(startSerial) || !Number.isFinite(endSerial)) {
+    throw new Error(`Invalid XNYS calendar-day range: ${start}..${end}`);
+  }
+  return (endSerial - startSerial) / DAY_MS;
+}
+
+export function xnysMarketDate(value) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  return xnysLocalParts(value).date;
+}
+
+export function isXnysSession(dateOnly) {
+  const date = new Date(`${dateOnly}T12:00:00Z`);
+  if (Number.isNaN(date.getTime())) return false;
+  const weekday = date.getUTCDay();
+  if (weekday === 0 || weekday === 6) return false;
+  const year = date.getUTCFullYear();
+  const holidays = new Set([
+    ...xnysHolidaysForYear(year - 1),
+    ...xnysHolidaysForYear(year),
+    ...xnysHolidaysForYear(year + 1),
+  ]);
+  return !holidays.has(dateOnly);
+}
+
+/** Returns the scheduled close as New York minutes after midnight. */
+export function xnysRegularCloseMinutes(dateOnly) {
+  if (!isXnysSession(dateOnly)) return null;
+  const year = Number(dateOnly.slice(0, 4));
+  const dayAfterThanksgiving = isoDate(addCalendarDays(
+    new Date(`${nthWeekday(year, 10, 4, 4)}T12:00:00Z`),
+    1,
+  ));
+  if (dateOnly === dayAfterThanksgiving
+    || dateOnly === `${year}-07-03`
+    || dateOnly === `${year}-12-24`) {
+    return XNYS_EARLY_CLOSE_MINUTES;
+  }
+  return XNYS_REGULAR_CLOSE_MINUTES;
+}
+
+export function previousOrSameXnysSession(dateOnly) {
+  let date = new Date(`${dateOnly}T12:00:00Z`);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Invalid XNYS calendar date: ${dateOnly}`);
+  }
+  for (let offset = 0; offset < 10; offset += 1) {
+    const candidate = isoDate(date);
+    if (isXnysSession(candidate)) return candidate;
+    date = addCalendarDays(date, -1);
+  }
+  throw new Error(`No XNYS session found on or before ${dateOnly}.`);
+}
+
+export function xnysIssueSessionDate(value) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return previousOrSameXnysSession(value);
+  }
+  const local = xnysLocalParts(value);
+  const closeMinutes = xnysRegularCloseMinutes(local.date);
+  const localMinutes = local.hour * 60 + local.minute;
+  if (closeMinutes !== null && localMinutes >= closeMinutes) {
+    return local.date;
+  }
+  const previousDay = isoDate(addCalendarDays(new Date(`${local.date}T12:00:00Z`), -1));
+  return previousOrSameXnysSession(previousDay);
 }
 
 function validateTargetKeys(value, label) {
@@ -177,6 +507,8 @@ function validateTargetPublicationContract(snapshot, label) {
   for (const [index, rawMilestone] of milestones.entries()) {
     const milestone = requireObject(rawMilestone, `${label} milestones[${index}]`);
     const id = requireString(milestone.id, `${label} milestones[${index}].id`);
+    requireString(milestone.kind, `${label} milestones[${index}].kind`);
+    requireString(milestone.certainty, `${label} milestones[${index}].certainty`);
     const start = requireDateOnly(milestone.start, `${label} milestones[${index}].start`);
     const end = requireDateOnly(milestone.end, `${label} milestones[${index}].end`);
     if (start > end) throw new Error(`${label} milestones[${index}] ends before it starts`);
@@ -184,14 +516,38 @@ function validateTargetPublicationContract(snapshot, label) {
     milestonesById.set(id, milestone);
   }
   const predictions = requireArray(snapshot.predictions, `${label} predictions`);
+  const declaredPredictionTargets = predictions.map((prediction, index) =>
+    requireObject(prediction, `${label} predictions[${index}]`).target
+  );
+  if (!equalOrderedValues(declaredPredictionTargets, EXPECTED_TARGETS)) {
+    throw new Error(`${label} predictions targets must be exactly ${EXPECTED_TARGETS.join(",")} in order`);
+  }
   const issuedAtValues = new Set();
   const horizonEndValues = new Set();
   const predictionTargets = predictions.map((prediction, index) => {
     const record = requireObject(prediction, `${label} predictions[${index}]`);
     const probability = record.probability;
     const question = requireObject(record.forecastQuestion, `${label} predictions[${index}].forecastQuestion`);
-    const issuedAt = Date.parse(requireTimestamp(question.issuedAt, `${label} predictions[${index}] issuedAt`));
-    const horizonEnd = Date.parse(requireTimestamp(question.horizonEnd, `${label} predictions[${index}] horizonEnd`));
+    const issuedAtTimestamp = requireTimestamp(question.issuedAt, `${label} predictions[${index}] issuedAt`);
+    const horizonEndTimestamp = requireTimestamp(question.horizonEnd, `${label} predictions[${index}] horizonEnd`);
+    const issuedAt = Date.parse(issuedAtTimestamp);
+    const horizonEnd = Date.parse(horizonEndTimestamp);
+    const forecastIssuedDate = xnysIssueSessionDate(issuedAtTimestamp);
+    const forecastHorizonDate = xnysMarketDate(horizonEndTimestamp);
+    let expectedHorizonEnd;
+    let localCalendarDays;
+    try {
+      expectedHorizonEnd = Date.parse(addXnysCalendarDays(
+        issuedAtTimestamp,
+        EXPECTED_HORIZON_DAYS,
+      ));
+      localCalendarDays = xnysCalendarDayDifference(
+        issuedAtTimestamp,
+        horizonEndTimestamp,
+      );
+    } catch {
+      throw new Error(`${label} predictions[${index}] must use the current 90-day first-touch contract`);
+    }
     if (!Number.isFinite(probability)) {
       throw new Error(`${label} predictions[${index}] probability must be within the publish range`);
     }
@@ -211,16 +567,17 @@ function validateTargetPublicationContract(snapshot, label) {
       || question.tradingCalendar !== "XNYS"
       || question.timezone !== "America/New_York"
       || question.corporateActionPolicy !== "split_adjusted_barrier"
-      || horizonEnd - issuedAt !== EXPECTED_HORIZON_DAYS * DAY_MS
+      || localCalendarDays !== EXPECTED_HORIZON_DAYS
+      || horizonEnd !== expectedHorizonEnd
     ) {
       throw new Error(`${label} predictions[${index}] must use the current 90-day first-touch contract`);
     }
 
     const path = requireObject(record.pathForecast, `${label} predictions[${index}].pathForecast`);
     if (
-      path.schemaVersion !== "milestone-path-v2"
+      path.schemaVersion !== "milestone-path-v3"
       || path.modelName !== EXPECTED_TIMING_MODEL_VERSION
-      || path.timingBasis !== "event_milestone_validation"
+      || path.timingBasis !== "multi_event_confluence"
       || path.target !== record.target
     ) {
       throw new Error(`${label} predictions[${index}] pathForecast must use the current milestone timing contract`);
@@ -231,14 +588,7 @@ function validateTargetPublicationContract(snapshot, label) {
     if (path.status !== question.status) {
       throw new Error(`${label} predictions[${index}] pathForecast status must match the forecast question`);
     }
-    const likelyWindow = requireObject(
-      path.likelyWindow,
-      `${label} predictions[${index}].pathForecast.likelyWindow`,
-    );
-    const basisMilestoneIds = requireArray(
-      likelyWindow.basisMilestoneIds,
-      `${label} predictions[${index}].pathForecast.likelyWindow.basisMilestoneIds`,
-    );
+    const stages = requireArray(path.stages, `${label} predictions[${index}].pathForecast.stages`);
     const checkpoints = requireArray(
       path.checkpoints,
       `${label} predictions[${index}].pathForecast.checkpoints`,
@@ -246,38 +596,190 @@ function validateTargetPublicationContract(snapshot, label) {
     if (path.status === "resolved_at_issue") {
       if (
         path.terminalProbability !== 100
-        || path.primaryMilestoneId !== undefined
-        || basisMilestoneIds.length > 0
+        || path.confluenceWindow !== undefined
+        || path.confluenceRule !== undefined
+        || stages.length > 0
         || checkpoints.length > 0
       ) {
-        throw new Error(`${label} predictions[${index}] resolved path must not reference future milestones`);
-      }
-      if (
-        requireDateOnly(likelyWindow.start, `${label} predictions[${index}].pathForecast.likelyWindow.start`)
-          !== requireDateOnly(likelyWindow.end, `${label} predictions[${index}].pathForecast.likelyWindow.end`)
-        || !requireString(
-          likelyWindow.label,
-          `${label} predictions[${index}].pathForecast.likelyWindow.label`,
-        ).includes("已触达")
-      ) {
-        throw new Error(`${label} predictions[${index}] resolved path must identify the issue date`);
+        throw new Error(`${label} predictions[${index}] resolved path must not reference future confluence fields`);
       }
     } else {
-      const primaryId = requireString(
-        path.primaryMilestoneId,
-        `${label} predictions[${index}].pathForecast.primaryMilestoneId`,
+      const window = requireObject(
+        path.confluenceWindow,
+        `${label} predictions[${index}].pathForecast.confluenceWindow`,
       );
-      const primary = milestonesById.get(primaryId);
-      if (!primary) {
-        throw new Error(`${label} predictions[${index}] pathForecast references unknown primary milestone ${primaryId}`);
+      const rule = requireObject(
+        path.confluenceRule,
+        `${label} predictions[${index}].pathForecast.confluenceRule`,
+      );
+      const basisMilestoneIds = requireArray(
+        window.basisMilestoneIds,
+        `${label} predictions[${index}].pathForecast.confluenceWindow.basisMilestoneIds`,
+      ).map((milestoneId, basisIndex) => requireString(
+        milestoneId,
+        `${label} predictions[${index}].pathForecast.confluenceWindow.basisMilestoneIds[${basisIndex}]`,
+      ));
+      const signalKinds = requireArray(
+        rule.signalKinds,
+        `${label} predictions[${index}].pathForecast.confluenceRule.signalKinds`,
+      ).map((signal, signalIndex) => requireString(
+        signal,
+        `${label} predictions[${index}].pathForecast.confluenceRule.signalKinds[${signalIndex}]`,
+      ));
+      const mandatoryKinds = requireArray(
+        rule.mandatoryKinds,
+        `${label} predictions[${index}].pathForecast.confluenceRule.mandatoryKinds`,
+      ).map((signal, signalIndex) => requireString(
+        signal,
+        `${label} predictions[${index}].pathForecast.confluenceRule.mandatoryKinds[${signalIndex}]`,
+      ));
+      const exhaustionSignals = requireArray(
+        rule.exhaustionSignals,
+        `${label} predictions[${index}].pathForecast.confluenceRule.exhaustionSignals`,
+      ).map((signal, signalIndex) => requireString(
+        signal,
+        `${label} predictions[${index}].pathForecast.confluenceRule.exhaustionSignals[${signalIndex}]`,
+      ));
+      requireString(rule.summary, `${label} predictions[${index}].pathForecast.confluenceRule.summary`);
+
+      const policy = TARGET_CONFLUENCE_POLICIES[record.target];
+      if (
+        !policy
+        || rule.minimumSignals !== policy.minimumSignals
+        || !equalDistinctValues(signalKinds, policy.signalKinds)
+        || !equalDistinctValues(mandatoryKinds, policy.mandatoryKinds)
+      ) {
+        throw new Error(`${label} predictions[${index}] pathForecast confluence rule must exactly match the target policy`);
       }
-      if (!basisMilestoneIds.includes(primaryId)) {
-        throw new Error(`${label} predictions[${index}] pathForecast basis must include the primary milestone`);
+      if (signalKinds.some((signal) => !CONFLUENCE_SIGNAL_KINDS.has(signal))) {
+        throw new Error(`${label} predictions[${index}] pathForecast contains an unknown confluence signal`);
       }
-      if (likelyWindow.start !== primary.start || likelyWindow.end !== primary.end) {
-        throw new Error(`${label} predictions[${index}] pathForecast likely window must match the primary milestone`);
+      if (
+        exhaustionSignals.length < 1
+        || exhaustionSignals.length > 3
+        || new Set(exhaustionSignals).size !== exhaustionSignals.length
+      ) {
+        throw new Error(`${label} predictions[${index}] pathForecast must publish 1-3 distinct exhaustion signals`);
       }
+
+      if (
+        stages.length !== CONFLUENCE_PHASES.length
+        || stages.some((rawStage, stageIndex) => {
+          const stage = requireObject(
+            rawStage,
+            `${label} predictions[${index}].pathForecast.stages[${stageIndex}]`,
+          );
+          requireString(stage.label, `${label} predictions[${index}].pathForecast.stages[${stageIndex}].label`);
+          const milestoneIds = requireArray(
+            stage.milestoneIds,
+            `${label} predictions[${index}].pathForecast.stages[${stageIndex}].milestoneIds`,
+          );
+          return stage.phase !== CONFLUENCE_PHASES[stageIndex] || milestoneIds.length === 0;
+        })
+      ) {
+        throw new Error(`${label} predictions[${index}] pathForecast must publish setup, catalyst, confirmation stages in order`);
+      }
+
+      const normalizedStages = stages.map((rawStage, stageIndex) => {
+        const stage = requireObject(rawStage, `${label} predictions[${index}].pathForecast.stages[${stageIndex}]`);
+        return {
+          phase: stage.phase,
+          milestoneIds: requireArray(
+            stage.milestoneIds,
+            `${label} predictions[${index}].pathForecast.stages[${stageIndex}].milestoneIds`,
+          ).map((milestoneId, milestoneIndex) => requireString(
+            milestoneId,
+            `${label} predictions[${index}].pathForecast.stages[${stageIndex}].milestoneIds[${milestoneIndex}]`,
+          )),
+        };
+      });
+      const stageMilestoneIds = normalizedStages.flatMap((stage) => stage.milestoneIds);
+      for (const milestoneId of basisMilestoneIds) {
+        if (!milestonesById.has(milestoneId)) {
+          throw new Error(`${label} predictions[${index}] pathForecast references unknown basis milestone ${milestoneId}`);
+        }
+      }
+      for (const milestoneId of stageMilestoneIds) {
+        if (!milestonesById.has(milestoneId)) {
+          throw new Error(`${label} predictions[${index}] pathForecast references unknown stage milestone ${milestoneId}`);
+        }
+        if (!basisMilestoneIds.includes(milestoneId)) {
+          throw new Error(`${label} predictions[${index}] pathForecast stage references must remain in the confluence basis`);
+        }
+      }
+      if (!equalDistinctValues(stageMilestoneIds, basisMilestoneIds)) {
+        throw new Error(`${label} predictions[${index}] pathForecast confluence basis must exactly match its stages`);
+      }
+
+      const setupMilestones = normalizedStages[0].milestoneIds.map((id) => milestonesById.get(id));
+      const catalystMilestones = normalizedStages[1].milestoneIds.map((id) => milestonesById.get(id));
+      const confirmationMilestones = normalizedStages[2].milestoneIds.map((id) => milestonesById.get(id));
+      const scheduledCatalysts = catalystMilestones.filter(
+        (milestone) => milestone.certainty !== "conditional_trigger",
+      );
+      if (scheduledCatalysts.length < 2) {
+        throw new Error(`${label} predictions[${index}] pathForecast must include at least two scheduled catalysts`);
+      }
+      const fixedCatalysts = scheduledCatalysts.filter(
+        (milestone) => milestone.certainty === "official_schedule",
+      );
+      const setupEnd = setupMilestones.map((milestone) => milestone.end).sort().at(-1);
+      const firstFixedCatalystStart = fixedCatalysts.map((milestone) => milestone.start).sort()[0];
+      const lastScheduledCatalystEnd = scheduledCatalysts.map((milestone) => milestone.end).sort().at(-1);
+      const confirmationStart = confirmationMilestones.map((milestone) => milestone.start).sort()[0];
+      if (
+        !setupEnd
+        || !firstFixedCatalystStart
+        || !lastScheduledCatalystEnd
+        || !confirmationStart
+        || setupEnd >= firstFixedCatalystStart
+        || confirmationStart <= lastScheduledCatalystEnd
+      ) {
+        throw new Error(`${label} predictions[${index}] pathForecast setup must precede fixed catalysts and confirmation must follow every scheduled catalyst`);
+      }
+
+      const representedSignals = new Set();
+      if (
+        setupMilestones.some((milestone) => milestone.kind === "technical_checkpoint")
+        && confirmationMilestones.some((milestone) => milestone.kind === "technical_checkpoint")
+      ) representedSignals.add("market_absorption");
+      if (scheduledCatalysts.some((milestone) => milestone.kind === "earnings")) {
+        representedSignals.add("company_fundamentals");
+      }
+      if (scheduledCatalysts.some((milestone) => milestone.kind === "property_release")) {
+        representedSignals.add("property_state");
+      }
+      if (scheduledCatalysts.some((milestone) =>
+        milestone.kind === "macro_release" || milestone.kind === "china_adr_event"
+      )) representedSignals.add("discount_rate_adr");
+      if (signalKinds.some((signal) => !representedSignals.has(signal))) {
+        throw new Error(`${label} predictions[${index}] pathForecast stages must represent every declared signal`);
+      }
+
+      const windowStart = requireDateOnly(
+        window.start,
+        `${label} predictions[${index}].pathForecast.confluenceWindow.start`,
+      );
+      const windowEnd = requireDateOnly(
+        window.end,
+        `${label} predictions[${index}].pathForecast.confluenceWindow.end`,
+      );
+      requireString(window.label, `${label} predictions[${index}].pathForecast.confluenceWindow.label`);
+      if (!["低", "中", "高"].includes(window.confidence)) {
+        throw new Error(`${label} predictions[${index}] pathForecast confluence window confidence is invalid`);
+      }
+      const expectedWindowStart = setupMilestones.map((milestone) => milestone.start).sort()[0];
+      const expectedWindowEnd = confirmationMilestones.map((milestone) => milestone.end).sort().at(-1);
+      if (
+        windowStart >= windowEnd
+        || windowStart !== expectedWindowStart
+        || windowEnd !== expectedWindowEnd
+      ) {
+        throw new Error(`${label} predictions[${index}] pathForecast confluence window must span setup through confirmation`);
+      }
+
       const checkpointIds = new Set();
+      let previousCheckpointStart;
       for (const [checkpointIndex, rawCheckpoint] of checkpoints.entries()) {
         const checkpoint = requireObject(
           rawCheckpoint,
@@ -298,9 +800,16 @@ function validateTargetPublicationContract(snapshot, label) {
         if (checkpoint.start !== milestone.start || checkpoint.end !== milestone.end) {
           throw new Error(`${label} predictions[${index}] pathForecast checkpoint must preserve milestone dates`);
         }
+        if (milestone.start < forecastIssuedDate || milestone.end > forecastHorizonDate) {
+          throw new Error(`${label} predictions[${index}] pathForecast checkpoint must remain within the audited forecast horizon`);
+        }
+        if (previousCheckpointStart && checkpoint.start < previousCheckpointStart) {
+          throw new Error(`${label} predictions[${index}] pathForecast checkpoints must be chronological`);
+        }
+        previousCheckpointStart = checkpoint.start;
       }
-      if (!checkpointIds.has(primaryId)) {
-        throw new Error(`${label} predictions[${index}] pathForecast checkpoints must include the primary milestone`);
+      if (stageMilestoneIds.some((milestoneId) => !checkpointIds.has(milestoneId))) {
+        throw new Error(`${label} predictions[${index}] pathForecast checkpoints must include every stage milestone`);
       }
       const terminalCheckpoint = checkpoints.at(-1);
       if (
@@ -309,6 +818,14 @@ function validateTargetPublicationContract(snapshot, label) {
         || !terminalCheckpoint.milestoneId.startsWith("forecast-horizon-")
       ) {
         throw new Error(`${label} predictions[${index}] pathForecast must end at the 90-day horizon`);
+      }
+      const expectedHorizonId = `forecast-horizon-${forecastHorizonDate}`;
+      if (
+        terminalCheckpoint.milestoneId !== expectedHorizonId
+        || terminalCheckpoint.start !== forecastHorizonDate
+        || terminalCheckpoint.end !== forecastHorizonDate
+      ) {
+        throw new Error(`${label} predictions[${index}] pathForecast final checkpoint must exactly match the audited horizon`);
       }
     }
     issuedAtValues.add(question.issuedAt);

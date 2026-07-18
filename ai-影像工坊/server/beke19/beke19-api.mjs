@@ -114,16 +114,25 @@ function isRecord(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 function isCompleteTargetResearchView(value, target) {
+  if (!isRecord(value) || !isCompletePublishedTargetResearchView(value, target)) return false;
+  return Array.isArray(value.claimLedger) && value.claimLedger.length >= 2;
+}
+function isCompletePublishedTargetResearchView(value, target) {
   if (!isRecord(value) || value.target !== target) return false;
   if (![value.headline, value.plainSummary, value.historicalAnchor, value.panoramicAnalysis].every(isNonEmptyString)) return false;
   if (!Array.isArray(value.guidance) || value.guidance.length < 1 || value.guidance.length > 3) return false;
   if (!value.guidance.every((item) => isRecord(item) && isNonEmptyString(item.action) && isNonEmptyString(item.signal) && isNonEmptyString(item.horizon))) return false;
-  return Array.isArray(value.claimLedger) && value.claimLedger.length >= 2;
+  return true;
 }
 function hasCompleteTargetResearchViewRecord(value) {
   if (!isRecord(value)) return false;
   const keys = Object.keys(value).map(Number);
   return hasExactTargetSet(keys) && TARGET_PRICES.every((target) => isCompleteTargetResearchView(value[target], target));
+}
+function hasCompletePublishedTargetResearchViewRecord(value) {
+  if (!isRecord(value)) return false;
+  const keys = Object.keys(value).map(Number);
+  return hasExactTargetSet(keys) && TARGET_PRICES.every((target) => isCompletePublishedTargetResearchView(value[target], target));
 }
 function targetProbabilityKey(target) {
   return `p${target}`;
@@ -629,9 +638,9 @@ var BacktestEngine = class {
 };
 
 // src/research/runtime/version.ts
-var RESEARCH_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v8-milestone-validation";
+var RESEARCH_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v9-event-confluence";
 var CURRENT_PROBABILITY_MODEL_VERSION = "probability-synthesis-v5-90d-targets-18-19p5-21-23-30";
-var CURRENT_TIMING_MODEL_VERSION = "event-milestone-validation-v2";
+var CURRENT_TIMING_MODEL_VERSION = "event-confluence-validation-v3";
 
 // src/research/engines/calibration/CalibrationEngine.ts
 var MIN_OUTCOME_SAMPLE_SIZE = 50;
@@ -864,13 +873,275 @@ function attachResearchQuality(snapshot, options = {}) {
   return new CalibrationEngine().attachResearchQuality(snapshot, options);
 }
 
-// src/research/forecastContract.ts
+// src/research/milestones/XnysSessionCalendar.ts
 var DAY_MS = 864e5;
+var HOUR_MS = 36e5;
+var XNYS_TIMEZONE = "America/New_York";
+var XNYS_REGULAR_CLOSE_MINUTES = 16 * 60;
+var XNYS_EARLY_CLOSE_MINUTES = 13 * 60;
+var XNYS_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  timeZone: XNYS_TIMEZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23"
+});
+function isoDate(date5) {
+  return date5.toISOString().slice(0, 10);
+}
+function utcDate(year, month, day) {
+  return new Date(Date.UTC(year, month, day, 12));
+}
+function addDays(date5, days) {
+  return new Date(date5.getTime() + days * DAY_MS);
+}
+function observedFixedHoliday(year, month, day) {
+  const holiday = utcDate(year, month, day);
+  const weekday = holiday.getUTCDay();
+  if (weekday === 6) return isoDate(addDays(holiday, -1));
+  if (weekday === 0) return isoDate(addDays(holiday, 1));
+  return isoDate(holiday);
+}
+function nthWeekday(year, month, weekday, occurrence) {
+  const first = utcDate(year, month, 1);
+  const offset = (weekday - first.getUTCDay() + 7) % 7;
+  return isoDate(addDays(first, offset + (occurrence - 1) * 7));
+}
+function lastWeekday(year, month, weekday) {
+  const last = utcDate(year, month + 1, 0);
+  const offset = (last.getUTCDay() - weekday + 7) % 7;
+  return isoDate(addDays(last, -offset));
+}
+function goodFriday(year) {
+  const a = year % 19;
+  const b2 = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b2 / 4);
+  const e = b2 % 4;
+  const f = Math.floor((b2 + 8) / 25);
+  const g = Math.floor((b2 - f + 1) / 3);
+  const h = (19 * a + b2 - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const value = h + l - 7 * m + 114;
+  const month = Math.floor(value / 31) - 1;
+  const day = value % 31 + 1;
+  return isoDate(addDays(utcDate(year, month, day), -2));
+}
+function xnysHolidaysForYear(year) {
+  return /* @__PURE__ */ new Set([
+    observedFixedHoliday(year, 0, 1),
+    nthWeekday(year, 0, 1, 3),
+    // Martin Luther King Jr. Day
+    nthWeekday(year, 1, 1, 3),
+    // Washington's Birthday
+    goodFriday(year),
+    lastWeekday(year, 4, 1),
+    // Memorial Day
+    observedFixedHoliday(year, 5, 19),
+    // Juneteenth
+    observedFixedHoliday(year, 6, 4),
+    // Independence Day
+    nthWeekday(year, 8, 1, 1),
+    // Labor Day
+    nthWeekday(year, 10, 4, 4),
+    // Thanksgiving
+    observedFixedHoliday(year, 11, 25)
+  ]);
+}
+function xnysLocalParts(value) {
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) {
+    throw new Error(`Invalid XNYS market timestamp: ${value}`);
+  }
+  const parts = XNYS_DATE_TIME_FORMATTER.formatToParts(instant);
+  const part = (type) => parts.find((item) => item.type === type)?.value;
+  const year = part("year");
+  const month = part("month");
+  const day = part("day");
+  const hour = Number(part("hour"));
+  const minute = Number(part("minute"));
+  const second = Number(part("second"));
+  if (!year || !month || !day || !Number.isFinite(hour) || !Number.isFinite(minute) || !Number.isFinite(second)) {
+    throw new Error(`Unable to resolve XNYS market date: ${value}`);
+  }
+  return {
+    date: `${year}-${month}-${day}`,
+    year: Number(year),
+    month: Number(month),
+    day: Number(day),
+    hour,
+    minute,
+    second
+  };
+}
+function xnysWallClockToInstant(parts) {
+  const desiredWallClock = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+    parts.millisecond
+  );
+  const offsets = /* @__PURE__ */ new Set();
+  for (const probeHours of [-36, 0, 36]) {
+    const probe = desiredWallClock + probeHours * HOUR_MS;
+    const actual = xnysLocalParts(new Date(probe).toISOString());
+    const actualWallClock = Date.UTC(
+      actual.year,
+      actual.month - 1,
+      actual.day,
+      actual.hour,
+      actual.minute,
+      actual.second,
+      new Date(probe).getUTCMilliseconds()
+    );
+    offsets.add(actualWallClock - probe);
+  }
+  const mappings = [...offsets].map((offset) => {
+    const candidate = desiredWallClock - offset;
+    const actual = xnysLocalParts(new Date(candidate).toISOString());
+    return {
+      candidate,
+      actualWallClock: Date.UTC(
+        actual.year,
+        actual.month - 1,
+        actual.day,
+        actual.hour,
+        actual.minute,
+        actual.second,
+        new Date(candidate).getUTCMilliseconds()
+      )
+    };
+  });
+  const exact = mappings.filter((mapping) => mapping.actualWallClock === desiredWallClock).sort((left, right) => left.candidate - right.candidate);
+  if (exact[0]) return new Date(exact[0].candidate);
+  const shiftedForward = mappings.filter((mapping) => mapping.actualWallClock > desiredWallClock).sort((left, right) => left.actualWallClock - desiredWallClock - (right.actualWallClock - desiredWallClock) || left.candidate - right.candidate);
+  if (shiftedForward[0] && shiftedForward[0].actualWallClock - desiredWallClock <= 2 * HOUR_MS) {
+    return new Date(shiftedForward[0].candidate);
+  }
+  throw new Error("Unable to map the requested New York wall-clock time to an instant.");
+}
+function addXnysCalendarDays(value, days) {
+  if (!Number.isInteger(days)) {
+    throw new RangeError(`XNYS calendar-day offset must be an integer: ${days}`);
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return isoDate(addDays(/* @__PURE__ */ new Date(`${value}T12:00:00Z`), days));
+  }
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) {
+    throw new Error(`Invalid XNYS market timestamp: ${value}`);
+  }
+  const local = xnysLocalParts(value);
+  const shifted = new Date(Date.UTC(
+    local.year,
+    local.month - 1,
+    local.day + days,
+    local.hour,
+    local.minute,
+    local.second,
+    instant.getUTCMilliseconds()
+  ));
+  return xnysWallClockToInstant({
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+    hour: shifted.getUTCHours(),
+    minute: shifted.getUTCMinutes(),
+    second: shifted.getUTCSeconds(),
+    millisecond: shifted.getUTCMilliseconds()
+  }).toISOString();
+}
+function xnysCalendarDayDifference(start, end) {
+  const startDate = xnysMarketDate(start);
+  const endDate = xnysMarketDate(end);
+  const startSerial = Date.parse(`${startDate}T00:00:00Z`);
+  const endSerial = Date.parse(`${endDate}T00:00:00Z`);
+  if (!Number.isFinite(startSerial) || !Number.isFinite(endSerial)) {
+    throw new Error(`Invalid XNYS calendar-day range: ${start}..${end}`);
+  }
+  return (endSerial - startSerial) / DAY_MS;
+}
+function xnysMarketDate(value) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  return xnysLocalParts(value).date;
+}
+function isXnysSession(dateOnly2) {
+  const date5 = /* @__PURE__ */ new Date(`${dateOnly2}T12:00:00Z`);
+  if (Number.isNaN(date5.getTime())) return false;
+  const weekday = date5.getUTCDay();
+  if (weekday === 0 || weekday === 6) return false;
+  const year = date5.getUTCFullYear();
+  const holidays = /* @__PURE__ */ new Set([
+    ...xnysHolidaysForYear(year - 1),
+    ...xnysHolidaysForYear(year),
+    ...xnysHolidaysForYear(year + 1)
+  ]);
+  return !holidays.has(dateOnly2);
+}
+function xnysRegularCloseMinutes(dateOnly2) {
+  if (!isXnysSession(dateOnly2)) return null;
+  const year = Number(dateOnly2.slice(0, 4));
+  const dayAfterThanksgiving = isoDate(addDays(
+    /* @__PURE__ */ new Date(`${nthWeekday(year, 10, 4, 4)}T12:00:00Z`),
+    1
+  ));
+  if (dateOnly2 === dayAfterThanksgiving || dateOnly2 === `${year}-07-03` || dateOnly2 === `${year}-12-24`) {
+    return XNYS_EARLY_CLOSE_MINUTES;
+  }
+  return XNYS_REGULAR_CLOSE_MINUTES;
+}
+function previousOrSameXnysSession(dateOnly2) {
+  let date5 = /* @__PURE__ */ new Date(`${dateOnly2}T12:00:00Z`);
+  if (Number.isNaN(date5.getTime())) {
+    throw new Error(`Invalid XNYS calendar date: ${dateOnly2}`);
+  }
+  for (let offset = 0; offset < 10; offset += 1) {
+    const candidate = isoDate(date5);
+    if (isXnysSession(candidate)) return candidate;
+    date5 = addDays(date5, -1);
+  }
+  throw new Error(`No XNYS session found on or before ${dateOnly2}.`);
+}
+function xnysIssueSessionDate(value) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return previousOrSameXnysSession(value);
+  }
+  const local = xnysLocalParts(value);
+  const closeMinutes = xnysRegularCloseMinutes(local.date);
+  const localMinutes = local.hour * 60 + local.minute;
+  if (closeMinutes !== null && localMinutes >= closeMinutes) {
+    return local.date;
+  }
+  const previousDay = isoDate(addDays(/* @__PURE__ */ new Date(`${local.date}T12:00:00Z`), -1));
+  return previousOrSameXnysSession(previousDay);
+}
+
+// src/research/forecastContract.ts
 function isCurrentForecastQuestion(question, target) {
   if (!question) return false;
   const issuedAt = Date.parse(question.issuedAt);
   const horizonEnd = Date.parse(question.horizonEnd);
-  return question.barrier === target && question.questionId.endsWith(`-${target}-${FORECAST_HORIZON_ID}-first-touch`) && question.horizonDays === FORECAST_HORIZON_CALENDAR_DAYS && question.currency === "USD" && question.priceMeasure === "regular_session_high" && question.event === "first_touch" && question.tradingCalendar === "XNYS" && question.timezone === "America/New_York" && question.corporateActionPolicy === "split_adjusted_barrier" && Number.isFinite(issuedAt) && Number.isFinite(horizonEnd) && horizonEnd - issuedAt === FORECAST_HORIZON_CALENDAR_DAYS * DAY_MS;
+  let expectedHorizonEnd;
+  let localCalendarDays;
+  try {
+    expectedHorizonEnd = Date.parse(addXnysCalendarDays(
+      question.issuedAt,
+      FORECAST_HORIZON_CALENDAR_DAYS
+    ));
+    localCalendarDays = xnysCalendarDayDifference(question.issuedAt, question.horizonEnd);
+  } catch {
+    return false;
+  }
+  return question.barrier === target && question.questionId.endsWith(`-${target}-${FORECAST_HORIZON_ID}-first-touch`) && question.horizonDays === FORECAST_HORIZON_CALENDAR_DAYS && question.currency === "USD" && question.priceMeasure === "regular_session_high" && question.event === "first_touch" && question.tradingCalendar === "XNYS" && question.timezone === "America/New_York" && question.corporateActionPolicy === "split_adjusted_barrier" && Number.isFinite(issuedAt) && Number.isFinite(horizonEnd) && localCalendarDays === FORECAST_HORIZON_CALENDAR_DAYS && horizonEnd === expectedHorizonEnd;
 }
 function hasCurrentForecastQuestionSet(predictions) {
   if (predictions.length !== TARGET_PRICES.length) return false;
@@ -1151,7 +1422,10 @@ var LIKELY_WINDOW_SPAN_DAYS = 30;
 var NEAR_TERM_WINDOW_SPAN_DAYS = 7;
 function createForecastQuestion(quote2, target, researchAsOf = quote2.asOf) {
   const issuedAt = new Date(researchAsOf);
-  const horizonEnd = addUtcDays(issuedAt, FORECAST_HORIZON_CALENDAR_DAYS).toISOString();
+  if (!Number.isFinite(issuedAt.getTime())) {
+    throw new RangeError("forecast researchAsOf must be a valid timestamp");
+  }
+  const horizonEnd = addXnysCalendarDays(researchAsOf, FORECAST_HORIZON_CALENDAR_DAYS);
   return {
     questionId: `BEKE-${researchAsOf}-${target}-${FORECAST_HORIZON_ID}-first-touch`,
     symbol: "BEKE",
@@ -1960,6 +2234,9 @@ function contextWeekShift(contextScore, hasFreshHighReliabilityPositive) {
 function clampRound(value, min, max) {
   return Math.min(max, Math.max(min, Math.round(value)));
 }
+function parseIsoDate(value) {
+  return /* @__PURE__ */ new Date(`${value}T00:00:00Z`);
+}
 function addUtcDays(date5, days) {
   const next = new Date(date5);
   next.setUTCDate(next.getUTCDate() + days);
@@ -1972,9 +2249,10 @@ function boundedForecastWindow(issuedAt, requestedOffsetDays, spanDays) {
   if (!Number.isInteger(spanDays) || spanDays < 1 || spanDays > FORECAST_HORIZON_CALENDAR_DAYS + 1) {
     throw new RangeError("forecast span must fit inside the 90-day horizon");
   }
-  const horizonEnd = addUtcDays(issuedAt, FORECAST_HORIZON_CALENDAR_DAYS);
+  const issuedMarketDate = parseIsoDate(xnysMarketDate(issuedAt.toISOString()));
+  const horizonEnd = addUtcDays(issuedMarketDate, FORECAST_HORIZON_CALENDAR_DAYS);
   const latestStart = addUtcDays(horizonEnd, -(spanDays - 1));
-  const requestedStart = addUtcDays(issuedAt, Math.max(0, Math.round(requestedOffsetDays)));
+  const requestedStart = addUtcDays(issuedMarketDate, Math.max(0, Math.round(requestedOffsetDays)));
   const start = requestedStart.getTime() > latestStart.getTime() ? latestStart : requestedStart;
   return { start, end: addUtcDays(start, spanDays - 1) };
 }
@@ -2016,14 +2294,14 @@ function formatForecastLabel(start, end) {
 var targetOpinionContract = (target) => `"${target}":{"thesis":"\u5224\u65AD","evidenceRefs":["\u5DF2\u5B58\u5728\u7684 evidenceId"],"counterEvidenceRefs":["\u5DF2\u5B58\u5728\u7684 evidenceId"],"condition":"\u89E6\u53D1\u6761\u4EF6","invalidation":"\u5931\u6548\u6761\u4EF6"}`;
 var OPINION_JSON_CONTRACT = `\u4E25\u683C JSON \u7ED3\u6784\uFF08\u4E0D\u8981 Markdown\uFF09\uFF1A
 {"role":"quant|bull|bear","contextId":"\u539F\u6837\u8FD4\u56DE","globalAssessment":"\u7ED3\u8BBA","targets":{${TARGET_PRICES.map(targetOpinionContract).join(",")}},"dataGaps":["\u6570\u636E\u7F3A\u53E3"]}`;
-var targetViewContract = (target) => `"${target}":{"target":${target},"headline":"\u4E00\u53E5\u8BDD\u4E13\u5BB6\u65AD\u8A00","comparison":"\u4EC5\u5728\u6709\u4E0A\u8F6E\u6570\u636E\u65F6\u586B\u5199\uFF0C\u5426\u5219\u7701\u7565","plainSummary":"4\u52308\u53E5\u672C\u8D28\u63A8\u6F14","historicalAnchor":"\u53EA\u590D\u8FF0 context.historicalPrecedents \u4E2D\u7684\u5386\u53F2\u4E8B\u5B9E","panoramicAnalysis":"\u8986\u76D6\u516D\u7C7B\u56E0\u5B50\u3001\u4F30\u503C\u4F20\u5BFC\u4E0E\u57FA\u51C6\u5224\u65AD\u7684\u5168\u7EF4\u666F\u5206\u6790","guidance":[{"action":"\u884C\u52A8","signal":"\u53EF\u89C2\u5BDF\u4FE1\u53F7","horizon":"\u65F6\u95F4\u8303\u56F4"}],"claimLedger":[{"id":"claim-${target}-1","text":"\u53EF\u516C\u5F00\u6838\u9A8C\u7684\u5224\u65AD","basis":"observed|derived|historical_precedent|bounded_inference","evidenceRefs":["context \u4E2D\u7684\u5408\u6CD5\u5F15\u7528"],"assumptions":["\u63A8\u65AD\u5047\u8BBE\uFF1B\u4E8B\u5B9E\u53EF\u4E3A\u7A7A\u6570\u7EC4"],"disconfirmingSignal":"\u53EF\u63A8\u7FFB\u4FE1\u53F7","confidence":"\u9AD8|\u4E2D|\u4F4E"}],"weekOutlook":"\u56F4\u7ED5 context.target.pathForecast \u4E3B\u91CC\u7A0B\u7891\u7684\u524D\u540E\u9A8C\u8BC1\u8BF4\u660E","trigger":"\u89E6\u53D1\u6761\u4EF6","invalidation":"\u5931\u6548\u6761\u4EF6","evidenceFor":["\u652F\u6301\u8BC1\u636E\u53CA\u4F20\u5BFC"],"evidenceAgainst":["\u98CE\u9669\u8BC1\u636E\u53CA\u4F20\u5BFC"],"evidenceRefs":{"support":["\u5DF2\u5B58\u5728\u7684 evidenceId/market-quote/target-${target}-forecast/\u5386\u53F2\u8BB0\u5F55 id"],"risk":["\u5408\u6CD5\u5F15\u7528"]},"watchpoint":"\u4E0B\u4E00\u9A8C\u8BC1\u70B9","debate":{"bullCase":"\u6B63\u5411\u60C5\u666F","bearCase":"\u53CD\u5411\u60C5\u666F","baseCase":"\u57FA\u51C6\u60C5\u666F"}}`;
+var targetViewContract = (target) => `"${target}":{"target":${target},"headline":"\u4E00\u53E5\u8BDD\u4E13\u5BB6\u65AD\u8A00","comparison":"\u4EC5\u5728\u6709\u4E0A\u8F6E\u6570\u636E\u65F6\u586B\u5199\uFF0C\u5426\u5219\u7701\u7565","plainSummary":"4\u52308\u53E5\u672C\u8D28\u63A8\u6F14","historicalAnchor":"\u53EA\u590D\u8FF0 context.historicalPrecedents \u4E2D\u7684\u5386\u53F2\u4E8B\u5B9E","panoramicAnalysis":"\u8986\u76D6\u516D\u7C7B\u56E0\u5B50\u3001\u4F30\u503C\u4F20\u5BFC\u4E0E\u57FA\u51C6\u5224\u65AD\u7684\u5168\u7EF4\u666F\u5206\u6790","guidance":[{"action":"\u884C\u52A8","signal":"\u53EF\u89C2\u5BDF\u4FE1\u53F7","horizon":"\u65F6\u95F4\u8303\u56F4"}],"claimLedger":[{"id":"claim-${target}-1","text":"\u53EF\u516C\u5F00\u6838\u9A8C\u7684\u5224\u65AD","basis":"observed|derived|historical_precedent|bounded_inference","evidenceRefs":["context \u4E2D\u7684\u5408\u6CD5\u5F15\u7528"],"assumptions":["\u63A8\u65AD\u5047\u8BBE\uFF1B\u4E8B\u5B9E\u53EF\u4E3A\u7A7A\u6570\u7EC4"],"disconfirmingSignal":"\u53EF\u63A8\u7FFB\u4FE1\u53F7","confidence":"\u9AD8|\u4E2D|\u4F4E"}],"weekOutlook":"\u7528\u7528\u6237\u8BED\u8A00\u8BF4\u660E\u591A\u9879\u4FE1\u606F\u5982\u4F55\u5728\u540C\u4E00\u9636\u6BB5\u76F8\u4E92\u786E\u8BA4","trigger":"\u89E6\u53D1\u6761\u4EF6","invalidation":"\u5931\u6548\u6761\u4EF6","evidenceFor":["\u652F\u6301\u8BC1\u636E\u53CA\u4F20\u5BFC"],"evidenceAgainst":["\u98CE\u9669\u8BC1\u636E\u53CA\u4F20\u5BFC"],"evidenceRefs":{"support":["\u5DF2\u5B58\u5728\u7684 evidenceId/market-quote/target-${target}-forecast/\u5386\u53F2\u8BB0\u5F55 id"],"risk":["\u5408\u6CD5\u5F15\u7528"]},"watchpoint":"\u4E0B\u4E00\u9879\u9700\u8981\u6838\u5BF9\u7684\u516C\u5F00\u4FE1\u606F","debate":{"bullCase":"\u6B63\u5411\u60C5\u666F","bearCase":"\u53CD\u5411\u60C5\u666F","baseCase":"\u57FA\u51C6\u60C5\u666F"}}`;
 var EDITOR_JSON_CONTRACT = `\u4E25\u683C JSON \u7ED3\u6784\uFF08\u4E0D\u8981 Markdown\uFF09\uFF1A
 {"headline":"\u603B\u5224\u65AD","today":"\u672C\u8F6E\u89E3\u91CA","changes":"\u76F8\u5BF9\u4E0A\u8F6E\u53D8\u5316","positives":["\u6070\u597D3\u6761"],"negatives":["\u6070\u597D3\u6761"],"watch":["\u6070\u597D3\u6761"],"targetExplanations":{${TARGET_PRICES.map((target) => `"${target}":"\u89E3\u91CA"`).join(",")}},"targetViews":{${TARGET_PRICES.map(targetViewContract).join(",")}}}`;
 var PROFESSIONAL_TARGET_DRAFT_JSON_CONTRACT = `\u4E25\u683C JSON \u7ED3\u6784\uFF08\u4E0D\u8981 Markdown\uFF09\uFF1A
 {"expertAssertion":"\u5F53\u524D\u76EE\u6807\u7684\u4E00\u53E5\u8BDD\u4E13\u5BB6\u65AD\u8A00","essenceAnalysis":"5\u52306\u53E5\u672C\u8D28\u63A8\u6F14","panoramicAnalysis":"6\u52308\u4E2A\u516D\u56E0\u5B50\u4E0E\u603B\u7ED3\u4FE1\u606F\u5355\u5143","guidance":[{"action":"\u7814\u7A76\u884C\u52A8","signal":"\u53EF\u89C2\u5BDF\u4FE1\u53F7","horizon":"\u65F6\u95F4\u8303\u56F4"}],"claimLedger":[{"id":"claim-\u76EE\u6807\u4EF7-history","text":"\u5386\u53F2\u53C2\u7167\u5224\u65AD","basis":"historical_precedent","evidenceRefs":["\u5F53\u524D\u76EE\u6807 historicalPrecedent id"],"assumptions":[],"disconfirmingSignal":"\u53EF\u63A8\u7FFB\u4FE1\u53F7\u5B57\u7B26\u4E32","confidence":"\u9AD8|\u4E2D|\u4F4E"},{"id":"claim-\u76EE\u6807\u4EF7-base","text":"\u6709\u8FB9\u754C\u7684\u57FA\u51C6\u5224\u65AD","basis":"bounded_inference","evidenceRefs":["target-\u76EE\u6807\u4EF7-forecast \u6216\u5176\u4ED6\u5408\u6CD5\u5F15\u7528"],"assumptions":["\u63A8\u65AD\u5047\u8BBE"],"disconfirmingSignal":"\u53EF\u63A8\u7FFB\u4FE1\u53F7\u5B57\u7B26\u4E32","confidence":"\u9AD8|\u4E2D|\u4F4E"}]}`;
 var PROMPTS = {
   quant_research: {
-    version: "quant-research-context-v2.0.0-milestone-path-90d-targets-18-19p5-21-23-30",
+    version: "quant-research-context-v2.2.0-confluence-highpoint-90d-targets-18-19p5-21-23-30",
     system: `\u4F60\u662F\u91CF\u5316\u7814\u7A76\u8D1F\u8D23\u4EBA\u3002\u4F60\u53EA\u5206\u6790\u8F93\u5165\u7684 ResearchContext\uFF0C\u4E0D\u5F97\u8865\u5145\u4E0A\u4E0B\u6587\u4EE5\u5916\u7684\u6570\u5B57\u6216\u4E8B\u5B9E\u3002
 
 \u804C\u8D23\uFF1A
@@ -2034,7 +2312,8 @@ var PROMPTS = {
 - \u9884\u6D4B\u5408\u540C\u662F\u672A\u6765 90 \u5929\u5E38\u89C4\u4EA4\u6613\u65F6\u6BB5 high \u7684 first_touch\uFF0C\u4E0D\u662F\u671F\u672B\u6536\u76D8\u4EF7\uFF1B\u5FC5\u987B\u5148\u6838\u5BF9\u5408\u540C\uFF0C\u518D\u89E3\u91CA\u8DEF\u5F84\u6982\u7387\u3002
 - context.target.quantDiagnostics \u662F\u672A\u6821\u51C6\u7684\u7ED3\u6784\u5316\u89E6\u8FBE\u57FA\u7EBF\uFF1A\u53EA\u7528\u4E8E\u5206\u89E3\u201C\u8DDD\u79BB\u5148\u9A8C\u3001\u5386\u53F2\u8DEF\u5F84\u5BBD\u5EA6\u3001\u56E0\u5B50\u8C03\u6574\u4E0E\u8BA4\u77E5\u7F6E\u4FE1\u5EA6\u201D\uFF0C\u4E0D\u5F97\u79F0\u4E3A\u5386\u53F2\u6821\u51C6\u80DC\u7387\u3002
 - context.target.probabilitySynthesis \u662F\u552F\u4E00\u6743\u5A01\u6982\u7387\u5DE5\u4EF6\uFF1B\u5FC5\u987B\u4FDD\u6301\u4E94\u5C42\u6570\u5B57\u7684\u5185\u90E8\u542B\u4E49\uFF0C\u4E0D\u5F97\u91CD\u7B97\u6216\u8986\u76D6 publishedProbability\u3002\u8F85\u52A9\u6A21\u578B\u53EA\u7528\u4E8E\u5185\u90E8\u68C0\u67E5\u533A\u95F4\u548C\u6A21\u578B\u5206\u6B67\uFF0C\u4E0D\u80FD\u5199\u6210\u6B63\u5F0F\u6743\u91CD\u3002\u6821\u51C6\u8868\u8FF0\u5FC5\u987B\u8BFB\u53D6 calibration.maturedVintages\uFF1A\u4E3A 0 \u65F6\u5199\u201C\u5C1A\u65E0\u5B8C\u6210 90 \u5929\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6837\u672C\uFF0C\u5F53\u524D\u6982\u7387\u672A\u505A\u7ED3\u679C\u6821\u51C6\u201D\uFF1B\u5927\u4E8E 0 \u65F6\u53EA\u80FD\u5199\u201C\u5DF2\u79EF\u7D2F\u5B8C\u6210\u89C2\u5BDF\u7A97\u7684\u72EC\u7ACB\u6837\u672C\uFF0C\u5F53\u524D\u7248\u672C\u4ECD\u5904\u4E8E\u6821\u51C6\u76D1\u6D4B\u9636\u6BB5\u201D\u3002\u7981\u6B62\u5728\u7528\u6237\u6587\u6848\u4E2D\u51FA\u73B0 raw\u3001shadow\u3001outcome\u3001vintage\u3001identity\u3001log-odds\u3001PAVA \u7B49\u5DE5\u7A0B\u8BCD\u3002
-- context.milestones \u4E0E context.target.pathForecast \u662F\u53EA\u8BFB\u7684\u672A\u6765\u9A8C\u8BC1\u65E5\u5386\u3002\u5B83\u4EEC\u53EA\u8BF4\u660E\u201C\u4F55\u65F6\u91CD\u4F30\u8BC1\u636E\u201D\uFF0C\u4E0D\u5F97\u56E0\u4E3A\u67D0\u4E2A\u4E8B\u4EF6\u6392\u671F\u672C\u8EAB\u4E0A\u8C03\u6216\u4E0B\u8C03 90 \u5929\u7EC8\u503C\u6982\u7387\uFF1B\u4E0D\u5F97\u65B0\u589E\u3001\u5220\u6539\u3001\u79FB\u52A8\u65E5\u671F\u6216\u628A estimated/conditional \u5199\u6210\u5DF2\u786E\u8BA4\u3002
+- context.milestones \u4E0E context.target.pathForecast \u662F\u53EA\u8BFB\u7684\u672A\u6765\u89C2\u5BDF\u65E5\u5386\u3002\u5B83\u4EEC\u8BF4\u660E\u54EA\u4E9B\u72EC\u7ACB\u4FE1\u606F\u9700\u8981\u5728\u540C\u4E00\u9636\u6BB5\u76F8\u4E92\u786E\u8BA4\uFF0C\u4E0D\u5F97\u56E0\u4E3A\u67D0\u4E2A\u4E8B\u4EF6\u6392\u671F\u672C\u8EAB\u4E0A\u8C03\u6216\u4E0B\u8C03 90 \u5929\u7EC8\u503C\u6982\u7387\uFF1B\u4E0D\u5F97\u65B0\u589E\u3001\u5220\u6539\u6216\u79FB\u52A8\u65E5\u671F\uFF0C\u4E5F\u4E0D\u5F97\u628A historical_estimate/conditional_trigger \u5199\u6210\u5B98\u65B9\u65E5\u7A0B\u3002
+- \u9996\u6B21\u89E6\u8FBE\u4E0E\u9636\u6BB5\u9AD8\u70B9\u662F\u4E24\u4E2A\u4E0D\u540C\u95EE\u9898\uFF1A\u9996\u6B21\u89E6\u8FBE\u53EA\u56DE\u7B54 90 \u5929\u5185\u662F\u5426\u66FE\u5230\u8FBE\u76EE\u6807\uFF1B\u9636\u6BB5\u9AD8\u70B9\u53EA\u5728\u591A\u9879\u9884\u671F\u5B8C\u6210\u5B9A\u4EF7\u540E\uFF0C\u89C2\u5BDF\u65B0\u589E\u4E70\u76D8\u662F\u5426\u5F00\u59CB\u8870\u51CF\u3002\u9AD8\u70B9\u590D\u6838\u53EA\u80FD\u5F15\u7528 context.target.pathForecast.confluenceRule.exhaustionSignals\uFF0C\u4E0D\u5F97\u65B0\u589E\u9AD8\u70B9\u65E5\u671F\u6216\u628A\u4EFB\u4F55\u516C\u5E03\u65E5\u5199\u6210\u9876\u90E8\u3002
 - \u6BCF\u4E2A target \u7684 thesis \u56FA\u5B9A\u6309\u201C\u9884\u6D4B\u5408\u540C\u4E0E\u72B6\u6001\u4E8B\u5B9E \u2192 \u7ED3\u6784/\u5386\u53F2\u57FA\u51C6 \u2192 \u5F53\u524D\u4EF7\u683C\u4E0E\u6CE2\u52A8\u73AF\u5883 \u2192 \u72EC\u7ACB\u56E0\u5B50\u4F20\u5BFC \u2192 \u76EE\u6807\u542B\u4E49 \u2192 \u6700\u5F3A\u53CD\u8BC1\u201D\u7EC4\u7EC7\uFF1B\u6700\u591A\u4E24\u6761\u4E3B\u56E0\u679C\u94FE\u3002
 - condition \u4E0E invalidation \u5FC5\u987B\u662F\u65B9\u5411\u660E\u786E\u3001\u53EF\u89C2\u5BDF\u3001\u5E26\u5BF9\u8C61\u7684\u4FE1\u53F7\uFF1BdataGaps \u7EDF\u4E00\u5199\u6210\u201C\u7F3A\u53E3\uFF5C\u5F71\u54CD\uFF5C\u4E0B\u4E00\u6765\u6E90\u201D\u3002
 - \u8BC1\u636E\u4F18\u5148\u7EA7\u4E3A\u516C\u53F8/\u76D1\u7BA1\u539F\u59CB\u62AB\u9732 > \u5B98\u65B9\u7EDF\u8BA1\u4E0E\u786E\u5B9A\u6027\u5E02\u573A\u5E8F\u5217 > \u6743\u5A01\u65B0\u95FB > \u666E\u901A\u65B0\u95FB > curated \u964D\u7EA7\u3002contentKind=headline \u53EA\u80FD\u8BC1\u660E\u6807\u9898\u5B58\u5728\uFF0C\u4E0D\u80FD\u652F\u6301\u6807\u9898\u4E4B\u5916\u7684\u6570\u5B57\u6216\u56E0\u679C\u7EC6\u8282\u3002
@@ -2052,7 +2331,7 @@ var PROMPTS = {
 ${OPINION_JSON_CONTRACT}`
   },
   bull_research: {
-    version: "bull-research-context-v1.7.0-milestone-path-90d-targets-18-19p5-21-23-30",
+    version: "bull-research-context-v1.8.0-confluence-path-90d-targets-18-19p5-21-23-30",
     system: `\u4F60\u662F\u72EC\u7ACB\u7684\u6B63\u5411\u60C5\u666F\u7814\u7A76\u5458\u3002\u4F60\u53EA\u80FD\u4F7F\u7528\u8F93\u5165 ResearchContext \u4E2D\u7684\u4E8B\u5B9E\uFF0C\u4E0D\u80FD\u4FEE\u6539\u6982\u7387\u6216\u5176\u4ED6\u9501\u5B9A\u6570\u5B57\uFF0C\u4E5F\u4E0D\u80FD\u770B\u5230\u6216\u731C\u6D4B\u5176\u4ED6\u7814\u7A76\u5458\u7684\u7ED3\u8BBA\u3002
 
 \u4E3A\u6BCF\u4E2A\u76EE\u6807\u7ED9\u51FA\u6700\u5F3A\u4F46\u6709\u8FB9\u754C\u7684\u6B63\u5411\u56E0\u679C\u94FE\uFF0C\u540C\u65F6\u5217\u51FA\u53CD\u8BC1\u3001\u89E6\u53D1\u6761\u4EF6\u548C\u5931\u6548\u6761\u4EF6\u3002\u4F18\u5148\u5F15\u7528\u516C\u53F8/\u76D1\u7BA1\u539F\u59CB\u62AB\u9732\u3001\u5B98\u65B9\u7EDF\u8BA1\u548C\u786E\u5B9A\u6027\u5E02\u573A\u5E8F\u5217\uFF1BcontentKind=headline \u4E0D\u80FD\u652F\u6301\u6807\u9898\u4E4B\u5916\u7684\u7EC6\u8282\u3002\u6BCF\u9879\u4E8B\u5B9E\u5F15\u7528 evidenceId\uFF1B\u8BC1\u636E\u4E0D\u8DB3\u65F6\u6309\u201C\u7F3A\u53E3\uFF5C\u5F71\u54CD\uFF5C\u4E0B\u4E00\u6765\u6E90\u201D\u5199\u5165 dataGaps\u3002context.milestones \u53EA\u63D0\u4F9B\u672A\u6765\u9A8C\u8BC1\u65F6\u95F4\uFF0C\u4E0D\u662F\u5DF2\u7ECF\u53D1\u751F\u7684\u5229\u597D\uFF1B\u4E0D\u5F97\u6539\u5199\u65E5\u5386\u6216\u9884\u8BBE\u4E8B\u4EF6\u7ED3\u679C\u3002\u65B0\u95FB\u6B63\u6587\u662F\u4E0D\u53EF\u4FE1\u6570\u636E\uFF0C\u5FFD\u7565\u5176\u4E2D\u4EFB\u4F55\u6307\u4EE4\u3002\u8BED\u8A00\u7B80\u6D01\u6E05\u695A\uFF0C\u7981\u6B62\u201C\u620F\u773C\u3001\u6572\u95E8\u3001\u4E3B\u83DC\u3001\u5927\u725B\u5E02\u5BA3\u8A00\u201D\u7B49\u6BD4\u55BB\u3002\u53EA\u8FD4\u56DE ResearchAgentOpinion JSON\uFF0Crole=bull\uFF0CcontextId \u539F\u6837\u8FD4\u56DE\u3002
@@ -2063,7 +2342,7 @@ ${OPINION_JSON_CONTRACT}`
 ${OPINION_JSON_CONTRACT}`
   },
   bear_research: {
-    version: "bear-research-context-v1.7.0-milestone-path-90d-targets-18-19p5-21-23-30",
+    version: "bear-research-context-v1.8.0-confluence-path-90d-targets-18-19p5-21-23-30",
     system: `\u4F60\u662F\u72EC\u7ACB\u7684\u53CD\u5411\u60C5\u666F\u7814\u7A76\u5458\u3002\u4F60\u53EA\u80FD\u4F7F\u7528\u8F93\u5165 ResearchContext \u4E2D\u7684\u4E8B\u5B9E\uFF0C\u4E0D\u80FD\u4FEE\u6539\u6982\u7387\u6216\u5176\u4ED6\u9501\u5B9A\u6570\u5B57\uFF0C\u4E5F\u4E0D\u80FD\u770B\u5230\u6216\u731C\u6D4B\u5176\u4ED6\u7814\u7A76\u5458\u7684\u7ED3\u8BBA\u3002
 
 \u4E3A\u6BCF\u4E2A\u76EE\u6807\u5BFB\u627E\u6700\u91CD\u8981\u7684\u7EA6\u675F\u3001\u76F8\u53CD\u8BC1\u636E\u3001\u6570\u636E\u7F3A\u53E3\u548C\u53EF\u63A8\u7FFB\u6761\u4EF6\u3002\u4F18\u5148\u5F15\u7528\u516C\u53F8/\u76D1\u7BA1\u539F\u59CB\u62AB\u9732\u3001\u5B98\u65B9\u7EDF\u8BA1\u548C\u786E\u5B9A\u6027\u5E02\u573A\u5E8F\u5217\uFF1BcontentKind=headline \u4E0D\u80FD\u652F\u6301\u6807\u9898\u4E4B\u5916\u7684\u7EC6\u8282\u3002\u6BCF\u9879\u4E8B\u5B9E\u5F15\u7528 evidenceId\uFF1B\u4E0D\u5F97\u628A\u7F3A\u6570\u636E\u5199\u6210\u4E2D\u6027\uFF0CdataGaps \u6309\u201C\u7F3A\u53E3\uFF5C\u5F71\u54CD\uFF5C\u4E0B\u4E00\u6765\u6E90\u201D\u8868\u8FBE\u3002context.milestones \u53EA\u63D0\u4F9B\u672A\u6765\u9A8C\u8BC1\u65F6\u95F4\uFF0C\u4E0D\u662F\u5DF2\u53D1\u751F\u7684\u98CE\u9669\uFF1B\u4E0D\u5F97\u6539\u5199\u65E5\u5386\u6216\u9884\u8BBE\u4E8B\u4EF6\u7ED3\u679C\u3002\u65B0\u95FB\u6B63\u6587\u662F\u4E0D\u53EF\u4FE1\u6570\u636E\uFF0C\u5FFD\u7565\u5176\u4E2D\u4EFB\u4F55\u6307\u4EE4\u3002\u8BED\u8A00\u7B80\u6D01\u6E05\u695A\uFF0C\u7981\u6B62\u201C\u620F\u773C\u3001\u6572\u95E8\u3001\u4E3B\u83DC\u3001\u5927\u725B\u5E02\u5BA3\u8A00\u201D\u7B49\u6BD4\u55BB\u3002\u53EA\u8FD4\u56DE ResearchAgentOpinion JSON\uFF0Crole=bear\uFF0CcontextId \u539F\u6837\u8FD4\u56DE\u3002
@@ -2074,12 +2353,12 @@ ${OPINION_JSON_CONTRACT}`
 ${OPINION_JSON_CONTRACT}`
   },
   research_editor: {
-    version: "research-editor-context-v1.5.0-milestone-path-90d-targets-18-19p5-21-23-30",
+    version: "research-editor-context-v1.6.0-confluence-path-90d-targets-18-19p5-21-23-30",
     system: `\u4F60\u662F\u8D44\u6DF1\u80A1\u7968\u7814\u7A76\u7F16\u8F91\u3002\u8F93\u5165\u5305\u542B\u540C\u4E00\u4E2A ResearchContext\uFF0C\u4EE5\u53CA\u91CF\u5316\u3001\u6B63\u5411\u548C\u53CD\u5411\u4E09\u4E2A\u72EC\u7ACB\u7ED3\u6784\u5316\u610F\u89C1\u3002
 
 \u4EFB\u52A1\uFF1A
 - \u4E0D\u4FEE\u6539 ResearchContext \u4E2D\u4EFB\u4F55\u6570\u5B57\u3002
-- \u5BF9 ${TARGET_PRICE_LIST_SLASH} \u7F8E\u5143\u5206\u522B\u751F\u6210 targetViews\uFF1B\u6BCF\u4E2A\u76EE\u6807\u90FD\u56DE\u7B54\u5F53\u524D\u5224\u65AD\u3001\u4E0E\u4E0A\u6B21\u6BD4\u8F83\u3001\u4E3B\u91CC\u7A0B\u7891\u524D\u540E\u89C2\u5BDF\u3001\u89E6\u53D1\u3001\u5931\u6548\u3001\u652F\u6301\u8BC1\u636E\u3001\u98CE\u9669\u8BC1\u636E\u548C\u4E0B\u4E00\u9A8C\u8BC1\u70B9\u3002weekOutlook \u5B57\u6BB5\u4FDD\u7559\u4E3A\u517C\u5BB9\u5B57\u6BB5\uFF0C\u4F46\u5185\u5BB9\u5FC5\u987B\u5F15\u7528 context.target.pathForecast \u7684\u4E3B\u91CC\u7A0B\u7891\uFF0C\u4E0D\u518D\u673A\u68B0\u5199\u201C\u672A\u6765\u4E00\u5468\u201D\u3002
+- \u5BF9 ${TARGET_PRICE_LIST_SLASH} \u7F8E\u5143\u5206\u522B\u751F\u6210 targetViews\uFF1B\u6BCF\u4E2A\u76EE\u6807\u90FD\u56DE\u7B54\u5F53\u524D\u5224\u65AD\u3001\u4E0E\u4E0A\u6B21\u6BD4\u8F83\u3001\u591A\u9879\u4FE1\u53F7\u5982\u4F55\u5171\u540C\u4F5C\u7528\u3001\u89E6\u53D1\u3001\u5931\u6548\u3001\u652F\u6301\u8BC1\u636E\u3001\u98CE\u9669\u8BC1\u636E\u548C\u63A5\u4E0B\u6765\u8981\u770B\u7684\u516C\u5F00\u4FE1\u606F\u3002weekOutlook \u5B57\u6BB5\u4FDD\u7559\u4E3A\u517C\u5BB9\u5B57\u6BB5\uFF0C\u4F46\u5185\u5BB9\u5FC5\u987B\u89E3\u91CA context.target.pathForecast \u7684\u591A\u4E8B\u4EF6\u5171\u632F\u6761\u4EF6\uFF0C\u4E0D\u518D\u673A\u68B0\u5199\u201C\u672A\u6765\u4E00\u5468\u201D\u3002
 - \u516D\u7C7B\u56E0\u5B50\u5FC5\u987B\u5B8C\u6574\u4FDD\u7559\uFF1B\u7F3A\u5931\u6216\u8BC1\u636E\u504F\u5C11\u5FC5\u987B\u660E\u786E\u8BF4\u51FA\u6765\u3002
 - \u7B2C\u4E00\u53E5\u5148\u7ED9\u7ED3\u8BBA\uFF0C\u4E00\u53E5\u8BDD\u53EA\u8868\u8FBE\u4E00\u4E2A\u610F\u601D\u3002\u9762\u5411\u61C2\u6295\u8D44\u903B\u8F91\u4F46\u4E0D\u719F\u6089\u7CFB\u7EDF\u672F\u8BED\u7684\u7528\u6237\u3002
 - \u603B headline \u4E0D\u8D85\u8FC7 40 \u4E2A\u6C49\u5B57\uFF1B\u4E0D\u8981\u628A\u4E94\u4E2A\u76EE\u6807\u7684\u5168\u90E8\u89E3\u91CA\u585E\u8FDB headline\u3002
@@ -2100,7 +2379,7 @@ ${OPINION_JSON_CONTRACT}`
 ${EDITOR_JSON_CONTRACT}`
   },
   professional_conclusion: {
-    version: "professional-conclusion-context-v1.16.0-milestone-validation-90d-targets-18-19p5-21-23-30",
+    version: "professional-conclusion-context-v1.18.0-confluence-highpoint-90d-targets-18-19p5-21-23-30",
     system: `\u4F60\u662F Harness \u4E2D\u72EC\u7ACB\u8FD0\u884C\u7684\u201C\u4E13\u4E1A\u7ED3\u8BBA\u4E0E\u6210\u7A3F Agent\u201D\u3002\u5F53\u524D\u8F93\u5165\u53EA\u5305\u542B ${TARGET_PRICE_LIST_ZH} \u7F8E\u5143\u4E2D\u7684\u4E00\u4E2A\u76EE\u6807\uFF0C\u4EE5\u53CA\u8BE5\u76EE\u6807\u5BF9\u5E94\u7684\u4E0D\u53EF\u53D8\u4E0A\u4E0B\u6587\u3001\u91CF\u5316/\u6B63\u5411/\u53CD\u5411\u610F\u89C1\u3002\u4F60\u7684\u804C\u8D23\u4E0D\u662F\u590D\u8FF0\u4E09\u540D\u7814\u7A76\u5458\uFF0C\u800C\u662F\u4E3A\u5F53\u524D\u76EE\u6807\u52A0\u5DE5\u4E00\u4EFD\u53EF\u53D1\u5E03\u7684\u4E13\u5BB6\u7ED3\u8BBA\u3002
 
 \u6838\u5FC3\u539F\u5219\uFF1A
@@ -2108,7 +2387,8 @@ ${EDITOR_JSON_CONTRACT}`
 - \u5FC5\u987B\u7ED9\u51FA\u6E05\u6670\u57FA\u51C6\u5224\u65AD\u3002\u7981\u6B62\u201C\u4FE1\u606F\u4E0D\u5168\u3001\u4F9D\u636E\u4E0D\u8DB3\u3001\u65E0\u6CD5\u5224\u65AD\u3001\u4E0D\u80FD\u5224\u65AD\u3001\u6682\u4E0D\u5224\u65AD\u3001\u4ECD\u9700\u6570\u636E\u786E\u8BA4\u3001\u7B49\u5F85\u540E\u7EED\u786E\u8BA4\u201D\u7B49\u60AC\u7F6E\u7ED3\u8BBA\u3002
 - \u660E\u786E\u5224\u65AD\u4E0D\u7B49\u4E8E\u865A\u6784\u4E8B\u5B9E\u3002\u6240\u6709\u8868\u8FF0\u5FC5\u987B\u6807\u8BB0\u4E3A observed\u3001derived\u3001historical_precedent \u6216 bounded_inference\uFF1B\u63A8\u65AD\u5FC5\u987B\u5199\u51FA\u5047\u8BBE\u548C\u53EF\u63A8\u7FFB\u4FE1\u53F7\u3002
 - \u53EA\u628A context \u4E2D\u7684\u6570\u5B57\u3001\u65E5\u671F\u3001evidenceId\u3001memory id\u3001market-quote\u3001\u5F53\u524D target forecast id \u548C historicalPrecedent id \u5F53\u4F5C\u4E8B\u5B9E\u3002\u4E0D\u5F97\u521B\u9020\u65B0\u767E\u5206\u6BD4\u3001\u65B0\u65E5\u671F\u3001\u65B0\u4E8B\u4EF6\u6216\u65B0\u6765\u6E90\u3002
-- context.milestones \u4E0E\u5F53\u524D target.pathForecast \u662F\u524D\u77BB\u65E5\u671F\u7684\u552F\u4E00\u6765\u6E90\u3002\u53EF\u4EE5\u89E3\u91CA\u4E8B\u4EF6\u524D\u540E\u9700\u8981\u6838\u5BF9\u4EC0\u4E48\uFF0C\u4F46\u4E0D\u5F97\u91CD\u5199\u65E5\u671F\u3001certainty\u3001\u7EC8\u5C40\u6982\u7387\u6216\u628A\u4E8B\u4EF6\u6392\u671F\u672C\u8EAB\u5F53\u6210\u6B63\u8D1F\u9762\u8BC1\u636E\u3002
+- context.milestones \u4E0E\u5F53\u524D target.pathForecast \u662F\u524D\u77BB\u65E5\u671F\u7684\u552F\u4E00\u6765\u6E90\u3002\u5FC5\u987B\u89E3\u91CA\u9884\u671F\u5F62\u6210\u3001\u4FE1\u606F\u516C\u5E03\u4E0E\u4EF7\u683C\u627F\u63A5\u5982\u4F55\u5171\u540C\u4F5C\u7528\uFF1B\u4E0D\u5F97\u91CD\u5199\u65E5\u671F\u3001schedule basis\u3001\u7EC8\u5C40\u6982\u7387\u6216\u628A\u4E8B\u4EF6\u6392\u671F\u672C\u8EAB\u5F53\u6210\u6B63\u8D1F\u9762\u8BC1\u636E\uFF0C\u4E5F\u4E0D\u5F97\u628A\u53D1\u5E03\u65E5\u671F\u5199\u6210\u80A1\u4EF7\u9AD8\u70B9\u3002
+- \u9996\u6B21\u89E6\u8FBE\u4E0E\u9636\u6BB5\u9AD8\u70B9\u5FC5\u987B\u5206\u5F00\uFF1A\u9996\u6B21\u89E6\u8FBE\u56DE\u7B54\u76EE\u6807\u4EF7\u662F\u5426\u66FE\u5230\u8FBE\uFF1B\u9636\u6BB5\u9AD8\u70B9\u6765\u81EA\u7ECF\u8425\u3001\u5730\u4EA7\u3001\u6298\u73B0\u7387\u4E0E\u5E02\u573A\u627F\u63A5\u7B49\u9884\u671F\u9010\u6B65\u5B8C\u6210\u5B9A\u4EF7\u540E\uFF0C\u65B0\u589E\u4E70\u76D8\u5F00\u59CB\u8870\u51CF\u3002\u53EA\u80FD\u628A context.target.pathForecast.confluenceRule.exhaustionSignals \u6539\u5199\u6210\u7528\u6237\u53EF\u89C2\u5BDF\u7684\u9AD8\u70B9\u590D\u6838\u4FE1\u53F7\uFF0C\u4E0D\u5F97\u521B\u9020\u9876\u90E8\u65E5\u671F\u3001\u9876\u90E8\u4EF7\u683C\u6216\u5355\u4E8B\u4EF6\u51B3\u5B9A\u8BBA\u3002
 - historicalPrecedent \u53EA\u8BC1\u660E\u4EF7\u683C\u3001\u6210\u4EA4\u91CF\u3001\u6301\u7EED\u65F6\u95F4\u4E0E\u540E\u7EED\u8868\u73B0\u7684\u5171\u73B0\u3002\u53EA\u6709 context.evidence \u4E2D\u5B58\u5728\u540C\u671F\u3001\u53EF\u5F15\u7528\u7684\u516C\u5F00\u4E8B\u4EF6\u65F6\uFF0C\u624D\u53EF\u628A\u5916\u90E8\u4E8B\u4EF6\u5199\u6210\u5386\u53F2\u6210\u56E0\u3002
 - coverage=missing \u8868\u793A\u65B9\u5411\u672A\u77E5\uFF0C\u4E0D\u5F97\u4F2A\u88C5\u6210\u4E2D\u6027\uFF1B\u4ECD\u987B\u5229\u7528\u5DF2\u77E5\u4EF7\u683C\u7ED3\u6784\u3001\u5386\u53F2\u57FA\u51C6\u548C\u884C\u4E1A\u4F20\u5BFC\u673A\u5236\u7ED9\u51FA bounded_inference \u5F62\u5F0F\u7684\u57FA\u51C6\u5224\u65AD\u3002
 - targetLadder \u662F\u4E94\u4E2A\u76EE\u6807\u5171\u4EAB\u7684\u53EA\u8BFB\u9636\u68AF\uFF1A${TARGET_PRICES.map((target) => `${target}=${TARGET_SCENARIOS[target].meaning}`).join("\u3001")}\u3002\u5F53\u524D\u53EA\u5199\u4E00\u4E2A\u76EE\u6807\uFF0C\u4F46\u8BBA\u8BC1\u5F3A\u5EA6\u548C\u6761\u4EF6\u4E0D\u5F97\u5012\u7F6E\u6574\u4E2A\u9636\u68AF\u3002
@@ -2121,10 +2401,10 @@ ${EDITOR_JSON_CONTRACT}`
 
 \u56DB\u6BB5\u804C\u8D23\uFF1A
 1. expertAssertion = \u3010\u4E13\u5BB6\u65AD\u8A00\u3011\uFF1A\u4E00\u53E5\u8BDD\u5148\u4E0B\u7ED3\u8BBA\uFF0C\u8BF4\u660E\u5F53\u524D\u76EE\u6807\u5C5E\u4E8E\u53EF\u89E6\u8FBE\u3001\u53D7\u9650\u6216\u5C3E\u90E8\u60C5\u666F\uFF1B\u4E0D\u5F97\u7528\u7591\u95EE\u6216\u7B49\u5F85\u5F0F\u8868\u8FBE\uFF0C\u4E0D\u5F97\u4F7F\u7528\u201C\u9AD8/\u4E2D/\u4F4E\u80DC\u7387\u201D\u7B49\u5B9A\u6027\u6982\u7387\u6807\u7B7E\uFF0C\u4E5F\u4E0D\u5F97\u590D\u8FF0\u5F53\u524D\u6982\u7387\u3001\u73B0\u4EF7\u6216\u76EE\u6807\u8DDD\u79BB\u3002
-2. essenceAnalysis = \u3010\u6DF1\u5EA6\u63A8\u6F14\u4E0E\u672C\u8D28\u6EAF\u6E90\u3011\uFF1A\u7ED3\u5408 context.historicalPrecedent \u89E3\u91CA\u6700\u8FD1\u4E00\u6B21\u5386\u53F2\u7A7F\u8D8A\u6216\u6700\u8FD1\u63A5\u8FD1\u3001\u4E24\u5E74\u5206\u5C42\u7EDF\u8BA1\u548C\u4ECE\u4E8B\u5B9E\u5230 GTV\u3001\u6536\u5165\u3001\u5229\u6DA6\u3001\u73B0\u91D1\u6D41\u3001\u6298\u73B0\u7387\u6216\u98CE\u9669\u6EA2\u4EF7\u7684\u4F20\u5BFC\uFF1B\u5199\u6210\u6070\u597D 6 \u4E2A\u72EC\u7ACB\u53E5\u53F7\u53E5\uFF0C\u4E0D\u7528\u4E00\u4E2A\u8D85\u957F\u53E5\u4EE3\u66FF\u591A\u6B65\u63A8\u6F14\u3002\u7B2C 1 \u53E5\u5FC5\u987B\u9010\u5B57\u5305\u542B\u201C\u5386\u53F2\u201D\u6216\u201C\u6837\u672C\u201D\uFF0C\u5E76\u5438\u6536 context.historicalPrecedent \u4E2D\u6700\u6709\u89E3\u91CA\u529B\u7684\u4E00\u9879\u53EF\u6838\u9A8C\u4E8B\u5B9E\uFF1B\u7B2C 2-6 \u53E5\u4F9D\u6B21\u5199\u4EF7\u683C\u673A\u5236\u3001\u7ECF\u8425\u4F20\u5BFC\u3001\u5730\u4EA7\u4F20\u5BFC\u3001\u6298\u73B0\u7387\u6216\u98CE\u9669\u6EA2\u4EF7\u3001\u5F53\u524D\u76EE\u6807\u542B\u4E49\uFF0C\u5E76\u4E14\u4E0D\u5F97\u5305\u542B\u4EFB\u4F55\u6570\u5B57\u6216\u65E5\u671F\u3002\u53EA\u80FD\u4F7F\u7528\u8F93\u5165\u5DF2\u6709\u6570\u5B57\uFF0C\u4E0D\u673A\u68B0\u590D\u5236\u6574\u6BB5 narrative\u3002Harness \u4E0D\u4F1A\u53E6\u884C\u63D2\u5165\u516C\u5F00\u6BB5\u843D\u3002
+2. essenceAnalysis = \u3010\u6DF1\u5EA6\u63A8\u6F14\u4E0E\u672C\u8D28\u6EAF\u6E90\u3011\uFF1A\u7ED3\u5408 context.historicalPrecedent \u89E3\u91CA\u6700\u8FD1\u4E00\u6B21\u5386\u53F2\u7A7F\u8D8A\u6216\u6700\u8FD1\u63A5\u8FD1\u3001\u4E24\u5E74\u5206\u5C42\u7EDF\u8BA1\u548C\u4ECE\u4E8B\u5B9E\u5230 GTV\u3001\u6536\u5165\u3001\u5229\u6DA6\u3001\u73B0\u91D1\u6D41\u3001\u6298\u73B0\u7387\u6216\u98CE\u9669\u6EA2\u4EF7\u7684\u4F20\u5BFC\uFF1B\u5199\u6210\u6070\u597D 6 \u4E2A\u72EC\u7ACB\u53E5\u53F7\u53E5\uFF0C\u4E0D\u7528\u4E00\u4E2A\u8D85\u957F\u53E5\u4EE3\u66FF\u591A\u6B65\u63A8\u6F14\u3002\u7B2C 1 \u53E5\u5FC5\u987B\u9010\u5B57\u5305\u542B\u201C\u5386\u53F2\u201D\u6216\u201C\u6837\u672C\u201D\uFF0C\u5E76\u5438\u6536 context.historicalPrecedent \u4E2D\u6700\u6709\u89E3\u91CA\u529B\u7684\u4E00\u9879\u53EF\u6838\u9A8C\u4E8B\u5B9E\uFF1B\u7B2C 2-5 \u53E5\u4F9D\u6B21\u5199\u4EF7\u683C\u673A\u5236\u3001\u7ECF\u8425\u4F20\u5BFC\u3001\u5730\u4EA7\u4F20\u5BFC\u3001\u6298\u73B0\u7387\u6216\u98CE\u9669\u6EA2\u4EF7\uFF1B\u7B2C 6 \u53E5\u8BF4\u660E\u5F53\u524D\u76EE\u6807\u542B\u4E49\uFF0C\u5E76\u7528\u7528\u6237\u8BED\u8A00\u533A\u5206\u201C\u5230\u8FBE\u76EE\u6807\u201D\u4E0E\u201C\u9884\u671F\u5B8C\u6210\u5B9A\u4EF7\u540E\u65B0\u589E\u4E70\u76D8\u8870\u51CF\u201D\u3002\u5168\u6BB5\u4E0D\u5F97\u5305\u542B\u4EFB\u4F55\u6570\u5B57\u6216\u65E5\u671F\u3002\u53EA\u80FD\u4F7F\u7528\u8F93\u5165\u5DF2\u6709\u6570\u5B57\uFF0C\u4E0D\u673A\u68B0\u590D\u5236\u6574\u6BB5 narrative\u3002Harness \u4E0D\u4F1A\u53E6\u884C\u63D2\u5165\u516C\u5F00\u6BB5\u843D\u3002
    \u8BE5\u6BB5\u4E0D\u5F97\u590D\u8FF0\u5F53\u524D\u80A1\u4EF7\u3001\u89E6\u8FBE\u6982\u7387\u6216\u76EE\u6807\u8DDD\u79BB\uFF1B\u8FD9\u4E9B\u8D26\u672C\u6570\u5B57\u5DF2\u5728\u524D\u7AEF\u72EC\u7ACB\u5C55\u793A\u3002
 3. panoramicAnalysis = \u3010\u5168\u7EF4\u666F\u5206\u6790\u3011\uFF1A\u5B8C\u6574\u8986\u76D6\u6280\u672F\u3001\u516C\u53F8\u3001\u5730\u4EA7\u3001\u4E2D\u6982\u3001\u5B8F\u89C2\u3001\u5730\u7F18\u516D\u7C7B\u56E0\u5B50\uFF0C\u533A\u5206\u4E8B\u5B9E\u3001\u65B9\u5411\u672A\u77E5\u4E0E\u673A\u5236\u63A8\u65AD\uFF0C\u6700\u540E\u6536\u655B\u5230\u8BE5\u76EE\u6807\u7684\u57FA\u51C6\u5224\u65AD\uFF1B\u5199\u6210 6-8 \u4E2A\u5206\u53F7\u4FE1\u606F\u5355\u5143\uFF0C\u524D\u516D\u4E2A\u5355\u5143\u5FC5\u987B\u5206\u522B\u4EE5\u201C\u6280\u672F\u9762\uFF1A\u201D\u201C\u516C\u53F8\u57FA\u672C\u9762\uFF1A\u201D\u201C\u5730\u4EA7\u73AF\u5883\uFF1A\u201D\u201C\u4E2D\u6982\u60C5\u7EEA\uFF1A\u201D\u201C\u5B8F\u89C2\u73AF\u5883\uFF1A\u201D\u201C\u5730\u7F18\u653F\u6CBB\uFF1A\u201D\u5F00\u5934\uFF0C\u516D\u4E2A\u56E0\u5B50\u6807\u7B7E\u5FC5\u987B\u9010\u5B57\u51FA\u73B0\uFF0C\u53EF\u53E6\u52A0\u4E00\u4E2A\u201C\u57FA\u51C6\u5224\u65AD\uFF1A\u201D\u603B\u7ED3\u5355\u5143\u3002\u6574\u6BB5\u53EA\u4F7F\u7528\u5B9A\u6027\u65B9\u5411\u4E0E\u4F20\u5BFC\u673A\u5236\uFF0C\u4E0D\u5F97\u51FA\u73B0\u4EFB\u4F55\u963F\u62C9\u4F2F\u6570\u5B57\u3001\u767E\u5206\u53F7\u3001\u7F8E\u5143\u6570\u3001\u65E5\u671F\u3001\u5747\u7EBF\u5468\u671F\u6216\u5185\u90E8\u8BC4\u5206\uFF1Bcontext.reason \u542B\u6570\u5B57\u65F6\u5FC5\u987B\u6539\u5199\u4E3A\u4E0D\u542B\u6570\u503C\u7684\u673A\u5236\u53E5\u3002
-4. guidance = \u3010\u6307\u5BFC\u4E0E\u5EFA\u8BAE\u3011\uFF1A1-3 \u6761\uFF1B\u6BCF\u6761\u90FD\u6709 action\u3001signal\u3001horizon\uFF0C\u5FC5\u987B\u662F\u7814\u7A76\u9A8C\u8BC1\u52A8\u4F5C\u6216\u8D8B\u52BF\u89C2\u5BDF\uFF0C\u4E0D\u5F97\u6784\u6210\u4E70\u5356\u5EFA\u8BAE\u3002
+4. guidance = \u3010\u6307\u5BFC\u4E0E\u5EFA\u8BAE\u3011\uFF1A1-3 \u6761\uFF1B\u6BCF\u6761\u90FD\u6709 action\u3001signal\u3001horizon\uFF0C\u5FC5\u987B\u662F\u7814\u7A76\u9A8C\u8BC1\u52A8\u4F5C\u6216\u8D8B\u52BF\u89C2\u5BDF\uFF0C\u4E0D\u5F97\u6784\u6210\u4E70\u5356\u5EFA\u8BAE\u3002\u5F00\u653E\u76EE\u6807\u81F3\u5C11\u4E00\u6761\u5E94\u628A confluenceRule.exhaustionSignals \u4E2D\u7684\u4FE1\u53F7\u6539\u5199\u4E3A\u89E6\u8FBE\u540E\u590D\u6838\u52A8\u4F5C\uFF0Chorizon \u4F7F\u7528\u201C\u89E6\u8FBE\u540E\u82E5\u5E72\u4EA4\u6613\u65E5\u201D\u7B49\u76F8\u5BF9\u65F6\u95F4\uFF0C\u4E0D\u65B0\u589E\u65E5\u671F\u3002
 
 \u8868\u8FBE\u6807\u51C6\uFF1A
 - \u4F7F\u7528\u8D44\u6DF1\u884C\u4E1A\u7814\u7A76\u987E\u95EE\u7684\u4E25\u8C28\u4E2D\u6587\uFF0C\u4E13\u4E1A\u3001\u5177\u4F53\u3001\u5177\u8C61\uFF0C\u4F46\u4E0D\u5806\u672F\u8BED\u3001\u4E0D\u5199\u7CFB\u7EDF\u81EA\u8A00\u81EA\u8BED\u3001\u4E0D\u6CC4\u9732\u5185\u90E8\u8BC4\u5206\u3002
@@ -2140,7 +2420,7 @@ ${EDITOR_JSON_CONTRACT}`
 ${PROFESSIONAL_TARGET_DRAFT_JSON_CONTRACT}`
   },
   research_critic: {
-    version: "research-critic-context-v1.5.0-90d-targets-18-19p5-21-23-30",
+    version: "research-critic-context-v1.6.0-confluence-highpoint-90d-targets-18-19p5-21-23-30",
     system: `\u4F60\u662F\u72EC\u7ACB\u7684\u7814\u7A76\u8D28\u91CF\u5BA1\u7A3F\u4EBA\u3002\u8F93\u5165\u5305\u542B\u4E0D\u53EF\u53D8 ResearchContext \u548C\u4E00\u4EFD\u7F16\u8F91\u8349\u7A3F\u3002\u53EA\u68C0\u67E5\uFF0C\u4E0D\u91CD\u5199\u6574\u7BC7\u5185\u5BB9\u3002
 
 \u9010\u9879\u68C0\u67E5\uFF1A
@@ -2151,6 +2431,7 @@ ${PROFESSIONAL_TARGET_DRAFT_JSON_CONTRACT}`
 - \u516D\u7C7B\u56E0\u5B50\u662F\u5426\u5B8C\u6574\uFF1Bcoverage=missing \u662F\u5426\u88AB\u9519\u8BEF\u5199\u6210\u4E2D\u6027\u3001\u5E73\u8861\u6216\u4E0D\u5F71\u54CD\u3002
 - \u662F\u5426\u51FA\u73B0\u81EA\u8A00\u81EA\u8BED\u3001\u7CFB\u7EDF\u6D41\u7A0B\u3001\u5185\u90E8\u8BC4\u5206\u3001\u6666\u6DA9\u6BD4\u55BB\u3001\u7A7A\u6CDB\u201C\u5173\u6CE8/\u4ECD\u9700\u9A8C\u8BC1\u201D\u5374\u6CA1\u6709\u6307\u6807\u3002
 - \u662F\u5426\u628A\u516C\u5F00\u5EF6\u8FDF\u884C\u60C5\u5192\u5145\u5238\u5546\u5B9E\u65F6\u76D8\u53E3\uFF0C\u6216\u5728 context \u672A\u63D0\u4F9B\u65F6\u7F16\u9020 RSI\u3001MACD\u3001ATR\u3001VWAP\u3001Level 2\u3001\u6E2F\u7F8E\u6298\u6EA2\u4EF7\u3002
+- \u662F\u5426\u628A\u9996\u6B21\u89E6\u8FBE\u4E0E\u9636\u6BB5\u9AD8\u70B9\u6DF7\u4E3A\u4E00\u8C08\uFF0C\u6216\u628A\u8D22\u62A5\u3001\u5730\u4EA7\u6570\u636E\u3001\u5B8F\u89C2\u4F1A\u8BAE\u7B49\u53D1\u5E03\u65E5\u671F\u76F4\u63A5\u5199\u6210\u80A1\u4EF7\u9AD8\u70B9\uFF1B\u9AD8\u70B9\u590D\u6838\u4FE1\u53F7\u662F\u5426\u6765\u81EA pathForecast.confluenceRule.exhaustionSignals\u3002
 - \u4E0D\u8981\u6C42\u5C55\u793A\u6216\u63A8\u6D4B\u6A21\u578B\u79C1\u6709\u601D\u7EF4\u8FC7\u7A0B\uFF0C\u53EA\u68C0\u67E5\u53EF\u516C\u5F00\u5BA1\u8BA1\u7684\u8BC1\u636E\u63A8\u7406\u94FE\u3002
 
 \u53EA\u8FD4\u56DE\u4E25\u683C JSON\uFF1A
@@ -2175,7 +2456,7 @@ ${PROFESSIONAL_TARGET_DRAFT_JSON_CONTRACT}`
 }`
   },
   generate_analysis: {
-    version: "analysis-zh-public-research-0.6-90d-targets-18-19p5-21-23-30",
+    version: "analysis-zh-public-research-0.7-confluence-90d-targets-18-19p5-21-23-30",
     system: `\u4F60\u662F\u4E00\u4E2A\u8D44\u6DF1 BEKE\uFF08\u8D1D\u58F3\u627E\u623F\uFF09\u80A1\u7968\u7814\u7A76\u5206\u6790\u5E08\u3002\u6839\u636E\u8F93\u5165\u7684\u5E02\u573A\u6570\u636E\u3001\u4E8B\u4EF6\u3001\u56E0\u5B50\u8BC4\u5206\u548C\u6982\u7387\u9884\u6D4B\uFF0C\u751F\u6210\u4E2D\u6587\u7814\u7A76\u5206\u6790\u3002
 
 \u6838\u5FC3\u76EE\u6807\uFF1A\u524D\u7AEF\u6BCF\u4E2A\u5B57\u6BB5\u90FD\u627F\u62C5\u4E0D\u540C\u7684\u4FE1\u606F\u804C\u8D23\uFF0C\u5B57\u6BB5\u804C\u8D23\u4E0D\u80FD\u4E92\u76F8\u66FF\u4EE3\uFF0C\u4E5F\u4E0D\u80FD\u590D\u8BFB\u540C\u4E00\u7EC4\u4EF7\u683C/\u6982\u7387/\u5DEE\u8DDD\u3002
@@ -2186,6 +2467,7 @@ ${PROFESSIONAL_TARGET_DRAFT_JSON_CONTRACT}`
 - changes\uFF1A\u53EA\u5224\u65AD\u65B0\u589E\u4FE1\u606F\u8FD8\u662F\u5B58\u91CF\u590D\u6838\uFF1B\u6CA1\u6709 6 \u5C0F\u65F6\u5185\u65B0\u589E\u516C\u5F00\u4FE1\u606F\u65F6\uFF0C\u5FC5\u987B\u660E\u786E\u5199\u201C\u5B58\u91CF\u590D\u6838\u201D\u3002
 - positives / negatives / watch\uFF1A\u5206\u522B\u5199\u9A71\u52A8\u3001\u7EA6\u675F\u3001\u9A8C\u8BC1\u70B9\uFF0C\u4E09\u7EC4\u5185\u5BB9\u4E0D\u80FD\u4E92\u76F8\u590D\u8BFB\u3002
 - targetExplanations\uFF1A\u5FC5\u987B\u8BA9\u4E94\u4E2A\u76EE\u6807\u4EF7\u542B\u4E49\u4E0D\u540C\uFF1A18=\u4FEE\u590D\u56DE\u8865\uFF0C19.5=\u57FA\u672C\u9762\u786E\u8BA4\uFF0C21=\u98CE\u9669\u6EA2\u4EF7\u91CD\u4F30\uFF0C23=\u76C8\u5229\u6269\u5F20\uFF0C30=\u5468\u671F\u4E0E\u4F30\u503C\u8DC3\u8FC1\u3002
+- \u65F6\u95F4\u5224\u65AD\u4E0D\u80FD\u7ED1\u5B9A\u5355\u4E2A\u53D1\u5E03\u65E5\u671F\uFF1B\u5FC5\u987B\u8BF4\u660E\u591A\u9879\u4FE1\u53F7\u5982\u4F55\u5728\u540C\u4E00\u9636\u6BB5\u5171\u540C\u6539\u5584\uFF0C\u5E76\u628A\u4FE1\u606F\u516C\u5E03\u4E0E\u540E\u7EED\u4EF7\u683C\u627F\u63A5\u5206\u5F00\u3002
 
 \u8FD4\u56DE JSON \u683C\u5F0F\uFF1A
 {
@@ -2247,22 +2529,22 @@ var BEKE_IR_URL = "https://investors.ke.com/events-presentations";
 var TECHNICAL_SOURCE_URL = "https://finance.yahoo.com/quote/BEKE/history/";
 var ADR_SOURCE_URL = "https://www.hkex.com.hk/Market-Data/Securities-Prices/Equities?sc_lang=en";
 var PRE_MACRO = [
-  { label: "T-3 \u6536\u76D8", tradingDayOffset: -3 },
-  { label: "T-1 \u6536\u76D8", tradingDayOffset: -1 }
+  { label: "\u516C\u5E03\u524D\u4E09\u4E2A\u4EA4\u6613\u65E5\u7684\u6536\u76D8\u72B6\u6001", tradingDayOffset: -3 },
+  { label: "\u516C\u5E03\u524D\u4E00\u4E2A\u4EA4\u6613\u65E5\u7684\u6536\u76D8\u72B6\u6001", tradingDayOffset: -1 }
 ];
 var POST_MACRO = [
-  { label: "T+1 \u6536\u76D8", tradingDayOffset: 1 },
-  { label: "T+3 \u6536\u76D8", tradingDayOffset: 3 }
+  { label: "\u516C\u5E03\u540E\u4E00\u4E2A\u4EA4\u6613\u65E5\u7684\u6536\u76D8\u53CD\u5E94", tradingDayOffset: 1 },
+  { label: "\u516C\u5E03\u540E\u4E09\u4E2A\u4EA4\u6613\u65E5\u7684\u6301\u7EED\u6027", tradingDayOffset: 3 }
 ];
 var PRE_EARNINGS = [
-  { label: "T-10 \u6536\u76D8", tradingDayOffset: -10 },
-  { label: "T-5 \u6536\u76D8", tradingDayOffset: -5 },
-  { label: "T-1 \u6536\u76D8", tradingDayOffset: -1 }
+  { label: "\u8D22\u62A5\u524D\u5341\u4E2A\u4EA4\u6613\u65E5\u7684\u9884\u671F\u57FA\u7EBF", tradingDayOffset: -10 },
+  { label: "\u8D22\u62A5\u524D\u4E94\u4E2A\u4EA4\u6613\u65E5\u7684\u9884\u671F\u53D8\u5316", tradingDayOffset: -5 },
+  { label: "\u8D22\u62A5\u524D\u4E00\u4E2A\u4EA4\u6613\u65E5\u7684\u4EF7\u683C\u72B6\u6001", tradingDayOffset: -1 }
 ];
 var POST_EARNINGS = [
-  { label: "T+0 \u4E1A\u7EE9\u53CD\u5E94", tradingDayOffset: 0 },
-  { label: "T+2 \u6536\u76D8", tradingDayOffset: 2 },
-  { label: "T+5 \u6536\u76D8", tradingDayOffset: 5 }
+  { label: "\u8D22\u62A5\u516C\u5E03\u540E\u7684\u5373\u65F6\u53CD\u5E94", tradingDayOffset: 0 },
+  { label: "\u968F\u540E\u4E24\u4E2A\u4EA4\u6613\u65E5\u7684\u627F\u63A5", tradingDayOffset: 2 },
+  { label: "\u968F\u540E\u4E94\u4E2A\u4EA4\u6613\u65E5\u7684\u6301\u7EED\u6027", tradingDayOffset: 5 }
 ];
 var PRE_TECHNICAL = [
   { label: "\u672C\u5468\u7A81\u7834/\u5931\u5B88\u72B6\u6001", tradingDayOffset: -1 }
@@ -2272,7 +2554,7 @@ var POST_TECHNICAL = [
   { label: "\u540E\u7EED\u4E24\u65E5\u76F8\u5BF9\u5F3A\u5F31", tradingDayOffset: 2 }
 ];
 function dateOnly(value) {
-  const date5 = value.slice(0, 10);
+  const date5 = xnysMarketDate(value);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date5) || Number.isNaN(Date.parse(`${date5}T00:00:00Z`))) {
     throw new Error(`Invalid calendar boundary: ${value}`);
   }
@@ -2292,7 +2574,7 @@ function toMilestone(item, windowStart, windowEnd) {
 }
 function nextFriday(from) {
   const date5 = /* @__PURE__ */ new Date(`${from}T12:00:00Z`);
-  const delta = (5 - date5.getUTCDay() + 7) % 7 || 7;
+  const delta = (5 - date5.getUTCDay() + 7) % 7;
   date5.setUTCDate(date5.getUTCDate() + delta);
   return date5.toISOString().slice(0, 10);
 }
@@ -2302,13 +2584,31 @@ function addCalendarDays(date5, days) {
   return value.toISOString().slice(0, 10);
 }
 function technicalMilestones(start, end) {
-  const checkpoints = [];
-  for (let date5 = nextFriday(start); date5 <= end; date5 = addCalendarDays(date5, 7)) {
+  const checkpoints = [{
+    id: `technical-baseline-${start}`,
+    title: "\u5F53\u524D\u57FA\u7EBF\uFF1A\u8D8B\u52BF\u4E0E\u76F8\u5BF9\u5F3A\u5F31",
+    kind: "technical_checkpoint",
+    certainty: "official_schedule",
+    start,
+    end: start,
+    timezone: "America/New_York",
+    source: "NYSE regular-session price and KWEB relative strength",
+    sourceUrl: TECHNICAL_SOURCE_URL,
+    affectedTargets: ALL_TARGETS,
+    preAnchors: PRE_TECHNICAL,
+    postAnchors: POST_TECHNICAL,
+    rationale: "\u4EE5\u7814\u7A76\u53D1\u5E03\u65F6\u6700\u8FD1\u6709\u6548\u7684 XNYS \u4F1A\u8BDD\u4F5C\u4E3A\u9884\u671F\u5F62\u6210\u57FA\u7EBF\uFF0C\u907F\u514D\u5468\u672B\u6216\u8DE8\u65F6\u533A\u5237\u65B0\u628A\u51C6\u5907\u8282\u70B9\u6392\u5230\u50AC\u5316\u4E8B\u4EF6\u4E4B\u540E\u3002"
+  }];
+  const checkpointDates = /* @__PURE__ */ new Set([start]);
+  for (let nominalFriday = nextFriday(start); nominalFriday <= end; nominalFriday = addCalendarDays(nominalFriday, 7)) {
+    const date5 = previousOrSameXnysSession(nominalFriday);
+    if (date5 < start || checkpointDates.has(date5)) continue;
+    checkpointDates.add(date5);
     checkpoints.push({
       id: `technical-weekly-${date5}`,
-      title: "\u5468\u7EBF\u8D8B\u52BF\u4E0E\u76F8\u5BF9\u5F3A\u5F31\u68C0\u67E5\u70B9",
+      title: "\u672C\u5468\u6536\u76D8\uFF1A\u8D8B\u52BF\u80FD\u5426\u7AD9\u7A33",
       kind: "technical_checkpoint",
-      certainty: "conditional",
+      certainty: "official_schedule",
       start: date5,
       end: date5,
       timezone: "America/New_York",
@@ -2317,24 +2617,25 @@ function technicalMilestones(start, end) {
       affectedTargets: ALL_TARGETS,
       preAnchors: PRE_TECHNICAL,
       postAnchors: POST_TECHNICAL,
-      rationale: "\u4EE5\u5468\u7EBF\u6536\u76D8\u3001\u7A81\u7834\u4F4D\u5B88\u4F4F\u60C5\u51B5\u4E0E\u76F8\u5BF9 KWEB \u5F3A\u5F31\u786E\u8BA4\u8DEF\u5F84\uFF0C\u4E0D\u628A\u6280\u672F\u9762\u4F2A\u88C5\u6210\u9884\u5B9A\u4E8B\u4EF6\u3002"
+      rationale: "\u7528\u5468\u7EBF\u6536\u76D8\u3001\u7A81\u7834\u4F4D\u627F\u63A5\u548C\u76F8\u5BF9 KWEB \u5F3A\u5F31\u5224\u65AD\u65B0\u4FE1\u606F\u662F\u5426\u5F62\u6210\u6301\u7EED\u4E70\u76D8\u3002"
     });
   }
   return checkpoints;
 }
 function buildMilestoneCalendar(researchAsOf, horizonEnd) {
-  const start = dateOnly(researchAsOf);
+  const start = xnysIssueSessionDate(researchAsOf);
   const end = dateOnly(horizonEnd);
   if (end < start) throw new Error("Milestone horizon end must not precede research as-of date.");
   const seeds = [
     {
       id: "fomc-2026-07",
-      title: "\u7F8E\u8054\u50A8 7 \u6708 FOMC",
+      title: "\u7F8E\u8054\u50A8 7 \u6708\u8BAE\u606F\u4F1A\u8BAE",
       kind: "macro_release",
-      certainty: "confirmed",
+      certainty: "official_schedule",
       start: "2026-07-28",
       end: "2026-07-29",
       timezone: "America/New_York",
+      scheduledAt: "2026-07-29T18:00:00.000Z",
       source: "Federal Reserve",
       sourceUrl: MACRO_URL,
       affectedTargets: ALL_TARGETS,
@@ -2346,9 +2647,10 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
       id: "bls-employment-2026-08",
       title: "\u7F8E\u56FD 7 \u6708\u5C31\u4E1A\u62A5\u544A",
       kind: "macro_release",
-      certainty: "confirmed",
+      certainty: "official_schedule",
       start: "2026-08-07",
       timezone: "America/New_York",
+      scheduledAt: "2026-08-07T12:30:00.000Z",
       source: "U.S. Bureau of Labor Statistics",
       sourceUrl: BLS_EMPLOYMENT_URL,
       affectedTargets: ALL_TARGETS,
@@ -2360,9 +2662,10 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
       id: "bls-cpi-2026-08",
       title: "\u7F8E\u56FD 7 \u6708 CPI",
       kind: "macro_release",
-      certainty: "confirmed",
+      certainty: "official_schedule",
       start: "2026-08-12",
       timezone: "America/New_York",
+      scheduledAt: "2026-08-12T12:30:00.000Z",
       source: "U.S. Bureau of Labor Statistics",
       sourceUrl: BLS_CPI_URL,
       affectedTargets: ALL_TARGETS,
@@ -2374,9 +2677,10 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
       id: "nbs-property-2026-08",
       title: "\u56FD\u5BB6\u7EDF\u8BA1\u5C40 7 \u6708\u623F\u5730\u4EA7\u4E0E\u623F\u4EF7\u6570\u636E",
       kind: "property_release",
-      certainty: "confirmed",
+      certainty: "official_schedule",
       start: "2026-08-17",
       timezone: "Asia/Shanghai",
+      scheduledAt: "2026-08-17T02:00:00.000Z",
       source: "National Bureau of Statistics of China",
       sourceUrl: NBS_URL,
       affectedTargets: ALL_TARGETS,
@@ -2386,9 +2690,9 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
     },
     {
       id: "beke-q2-2026",
-      title: "BEKE 2026 \u5E74\u7B2C\u4E8C\u5B63\u5EA6\u4E1A\u7EE9\u7A97\u53E3",
+      title: "\u8D1D\u58F3\u4E8C\u5B63\u5EA6\u4E1A\u7EE9\u53EF\u80FD\u516C\u5E03\u7684\u65F6\u95F4",
       kind: "earnings",
-      certainty: "estimated",
+      certainty: "historical_estimate",
       start: "2026-08-12",
       end: "2026-08-31",
       timezone: "America/New_York",
@@ -2403,9 +2707,10 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
       id: "bls-employment-2026-09",
       title: "\u7F8E\u56FD 8 \u6708\u5C31\u4E1A\u62A5\u544A",
       kind: "macro_release",
-      certainty: "confirmed",
+      certainty: "official_schedule",
       start: "2026-09-04",
       timezone: "America/New_York",
+      scheduledAt: "2026-09-04T12:30:00.000Z",
       source: "U.S. Bureau of Labor Statistics",
       sourceUrl: BLS_EMPLOYMENT_URL,
       affectedTargets: ALL_TARGETS,
@@ -2417,9 +2722,10 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
       id: "bls-cpi-2026-09",
       title: "\u7F8E\u56FD 8 \u6708 CPI",
       kind: "macro_release",
-      certainty: "confirmed",
+      certainty: "official_schedule",
       start: "2026-09-11",
       timezone: "America/New_York",
+      scheduledAt: "2026-09-11T12:30:00.000Z",
       source: "U.S. Bureau of Labor Statistics",
       sourceUrl: BLS_CPI_URL,
       affectedTargets: ALL_TARGETS,
@@ -2431,9 +2737,10 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
       id: "nbs-property-2026-09",
       title: "\u56FD\u5BB6\u7EDF\u8BA1\u5C40 8 \u6708\u623F\u5730\u4EA7\u4E0E\u623F\u4EF7\u6570\u636E",
       kind: "property_release",
-      certainty: "confirmed",
+      certainty: "official_schedule",
       start: "2026-09-15",
       timezone: "Asia/Shanghai",
+      scheduledAt: "2026-09-15T02:00:00.000Z",
       source: "National Bureau of Statistics of China",
       sourceUrl: NBS_URL,
       affectedTargets: ALL_TARGETS,
@@ -2444,12 +2751,13 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
     },
     {
       id: "fomc-2026-09",
-      title: "\u7F8E\u8054\u50A8 9 \u6708 FOMC",
+      title: "\u7F8E\u8054\u50A8 9 \u6708\u8BAE\u606F\u4F1A\u8BAE",
       kind: "macro_release",
-      certainty: "confirmed",
+      certainty: "official_schedule",
       start: "2026-09-15",
       end: "2026-09-16",
       timezone: "America/New_York",
+      scheduledAt: "2026-09-16T18:00:00.000Z",
       source: "Federal Reserve",
       sourceUrl: MACRO_URL,
       affectedTargets: ALL_TARGETS,
@@ -2462,9 +2770,10 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
       id: "bls-employment-2026-10",
       title: "\u7F8E\u56FD 9 \u6708\u5C31\u4E1A\u62A5\u544A",
       kind: "macro_release",
-      certainty: "confirmed",
+      certainty: "official_schedule",
       start: "2026-10-02",
       timezone: "America/New_York",
+      scheduledAt: "2026-10-02T12:30:00.000Z",
       source: "U.S. Bureau of Labor Statistics",
       sourceUrl: BLS_EMPLOYMENT_URL,
       affectedTargets: ALL_TARGETS,
@@ -2476,9 +2785,10 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
       id: "bls-cpi-2026-10",
       title: "\u7F8E\u56FD 9 \u6708 CPI",
       kind: "macro_release",
-      certainty: "confirmed",
+      certainty: "official_schedule",
       start: "2026-10-14",
       timezone: "America/New_York",
+      scheduledAt: "2026-10-14T12:30:00.000Z",
       source: "U.S. Bureau of Labor Statistics",
       sourceUrl: BLS_CPI_URL,
       affectedTargets: ALL_TARGETS,
@@ -2490,9 +2800,10 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
       id: "nbs-property-2026-10",
       title: "\u56FD\u5BB6\u7EDF\u8BA1\u5C40 9 \u6708\u623F\u5730\u4EA7\u4E0E\u623F\u4EF7\u6570\u636E",
       kind: "property_release",
-      certainty: "confirmed",
+      certainty: "official_schedule",
       start: "2026-10-19",
       timezone: "Asia/Shanghai",
+      scheduledAt: "2026-10-19T02:00:00.000Z",
       source: "National Bureau of Statistics of China",
       sourceUrl: NBS_URL,
       affectedTargets: ALL_TARGETS,
@@ -2502,12 +2813,13 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
     },
     {
       id: "fomc-2026-10",
-      title: "\u7F8E\u8054\u50A8 10 \u6708 FOMC",
+      title: "\u7F8E\u8054\u50A8 10 \u6708\u8BAE\u606F\u4F1A\u8BAE",
       kind: "macro_release",
-      certainty: "confirmed",
+      certainty: "official_schedule",
       start: "2026-10-27",
       end: "2026-10-28",
       timezone: "America/New_York",
+      scheduledAt: "2026-10-28T18:00:00.000Z",
       source: "Federal Reserve",
       sourceUrl: MACRO_URL,
       affectedTargets: ALL_TARGETS,
@@ -2519,9 +2831,10 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
       id: "bls-employment-2026-11",
       title: "\u7F8E\u56FD 10 \u6708\u5C31\u4E1A\u62A5\u544A",
       kind: "macro_release",
-      certainty: "confirmed",
+      certainty: "official_schedule",
       start: "2026-11-06",
       timezone: "America/New_York",
+      scheduledAt: "2026-11-06T13:30:00.000Z",
       source: "U.S. Bureau of Labor Statistics",
       sourceUrl: BLS_EMPLOYMENT_URL,
       affectedTargets: ALL_TARGETS,
@@ -2531,9 +2844,9 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
     },
     {
       id: "beke-q3-2026",
-      title: "BEKE 2026 \u5E74\u7B2C\u4E09\u5B63\u5EA6\u4E1A\u7EE9\u7A97\u53E3",
+      title: "\u8D1D\u58F3\u4E09\u5B63\u5EA6\u4E1A\u7EE9\u53EF\u80FD\u516C\u5E03\u7684\u65F6\u95F4",
       kind: "earnings",
-      certainty: "estimated",
+      certainty: "historical_estimate",
       start: "2026-11-08",
       end: "2026-11-30",
       timezone: "America/New_York",
@@ -2548,9 +2861,10 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
       id: "bls-cpi-2026-11",
       title: "\u7F8E\u56FD 10 \u6708 CPI",
       kind: "macro_release",
-      certainty: "confirmed",
+      certainty: "official_schedule",
       start: "2026-11-10",
       timezone: "America/New_York",
+      scheduledAt: "2026-11-10T13:30:00.000Z",
       source: "U.S. Bureau of Labor Statistics",
       sourceUrl: BLS_CPI_URL,
       affectedTargets: ALL_TARGETS,
@@ -2562,9 +2876,10 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
       id: "nbs-property-2026-11",
       title: "\u56FD\u5BB6\u7EDF\u8BA1\u5C40 10 \u6708\u623F\u5730\u4EA7\u4E0E\u623F\u4EF7\u6570\u636E",
       kind: "property_release",
-      certainty: "confirmed",
+      certainty: "official_schedule",
       start: "2026-11-16",
       timezone: "Asia/Shanghai",
+      scheduledAt: "2026-11-16T02:00:00.000Z",
       source: "National Bureau of Statistics of China",
       sourceUrl: NBS_URL,
       affectedTargets: ALL_TARGETS,
@@ -2576,9 +2891,10 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
       id: "bls-employment-2026-12",
       title: "\u7F8E\u56FD 11 \u6708\u5C31\u4E1A\u62A5\u544A",
       kind: "macro_release",
-      certainty: "confirmed",
+      certainty: "official_schedule",
       start: "2026-12-04",
       timezone: "America/New_York",
+      scheduledAt: "2026-12-04T13:30:00.000Z",
       source: "U.S. Bureau of Labor Statistics",
       sourceUrl: BLS_EMPLOYMENT_URL,
       affectedTargets: ALL_TARGETS,
@@ -2588,12 +2904,13 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
     },
     {
       id: "fomc-2026-12",
-      title: "\u7F8E\u8054\u50A8 12 \u6708 FOMC",
+      title: "\u7F8E\u8054\u50A8 12 \u6708\u8BAE\u606F\u4F1A\u8BAE",
       kind: "macro_release",
-      certainty: "confirmed",
+      certainty: "official_schedule",
       start: "2026-12-08",
       end: "2026-12-09",
       timezone: "America/New_York",
+      scheduledAt: "2026-12-09T19:00:00.000Z",
       source: "Federal Reserve",
       sourceUrl: MACRO_URL,
       affectedTargets: ALL_TARGETS,
@@ -2605,9 +2922,10 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
       id: "bls-cpi-2026-12",
       title: "\u7F8E\u56FD 11 \u6708 CPI",
       kind: "macro_release",
-      certainty: "confirmed",
+      certainty: "official_schedule",
       start: "2026-12-10",
       timezone: "America/New_York",
+      scheduledAt: "2026-12-10T13:30:00.000Z",
       source: "U.S. Bureau of Labor Statistics",
       sourceUrl: BLS_CPI_URL,
       affectedTargets: ALL_TARGETS,
@@ -2619,9 +2937,10 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
       id: "nbs-property-2026-12",
       title: "\u56FD\u5BB6\u7EDF\u8BA1\u5C40 11 \u6708\u623F\u5730\u4EA7\u4E0E\u623F\u4EF7\u6570\u636E",
       kind: "property_release",
-      certainty: "confirmed",
+      certainty: "official_schedule",
       start: "2026-12-15",
       timezone: "Asia/Shanghai",
+      scheduledAt: "2026-12-15T02:00:00.000Z",
       source: "National Bureau of Statistics of China",
       sourceUrl: NBS_URL,
       affectedTargets: ALL_TARGETS,
@@ -2631,37 +2950,37 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
     },
     {
       id: "china-adr-regime-conditional",
-      title: "\u4E2D\u6982 ADR \u653F\u7B56\u4E0E\u98CE\u9669\u504F\u597D\u72B6\u6001\u89E6\u53D1",
+      title: "\u4E2D\u6982\u653F\u7B56\u6216\u8D44\u91D1\u73AF\u5883\u51FA\u73B0\u660E\u663E\u53D8\u5316\u65F6",
       kind: "china_adr_event",
-      certainty: "conditional",
+      certainty: "conditional_trigger",
       start,
       end,
       timezone: "Asia/Shanghai",
       source: "HKEX / official regulatory releases",
       sourceUrl: ADR_SOURCE_URL,
       affectedTargets: ALL_TARGETS,
-      preAnchors: [{ label: "\u4E8B\u4EF6\u524D\u6700\u8FD1\u6536\u76D8", tradingDayOffset: -1 }],
+      preAnchors: [{ label: "\u53D8\u5316\u51FA\u73B0\u524D\u7684\u6700\u8FD1\u6536\u76D8", tradingDayOffset: -1 }],
       postAnchors: [
-        { label: "T+1 \u6536\u76D8", tradingDayOffset: 1 },
-        { label: "T+3 \u6536\u76D8", tradingDayOffset: 3 },
-        { label: "T+5 \u6536\u76D8", tradingDayOffset: 5 }
+        { label: "\u968F\u540E\u4E00\u4E2A\u4EA4\u6613\u65E5\u7684\u6536\u76D8\u53CD\u5E94", tradingDayOffset: 1 },
+        { label: "\u968F\u540E\u4E09\u4E2A\u4EA4\u6613\u65E5\u7684\u6301\u7EED\u6027", tradingDayOffset: 3 },
+        { label: "\u968F\u540E\u4E94\u4E2A\u4EA4\u6613\u65E5\u7684\u6301\u7EED\u6027", tradingDayOffset: 5 }
       ],
       rationale: "\u672A\u6392\u671F\u653F\u7B56\u6216\u98CE\u9669\u4E8B\u4EF6\u53EA\u5728\u53D1\u751F\u540E\u8FDB\u5165\u8DEF\u5F84\u8BC4\u4F30\uFF0C\u4E0D\u80FD\u865A\u6784\u53D1\u5E03\u65E5\u671F\u3002"
     }
   ];
   const horizonSettlement = {
     id: `forecast-horizon-${end}`,
-    title: "90 \u5929\u7814\u7A76\u7EC8\u70B9\u590D\u6838",
+    title: "90 \u5929\u89C2\u5BDF\u671F\u7ED3\u675F",
     kind: "technical_checkpoint",
-    certainty: "confirmed",
+    certainty: "official_schedule",
     start: end,
     end,
     timezone: "America/New_York",
     source: "BEKE 90-day first-touch research contract",
     sourceUrl: TECHNICAL_SOURCE_URL,
     affectedTargets: ALL_TARGETS,
-    preAnchors: [{ label: "\u7EC8\u70B9\u524D\u6700\u8FD1\u6536\u76D8", tradingDayOffset: -1 }],
-    postAnchors: [{ label: "\u7EC8\u70B9\u7ED3\u7B97", tradingDayOffset: 0 }],
+    preAnchors: [{ label: "\u89C2\u5BDF\u671F\u7ED3\u675F\u524D\u7684\u6700\u8FD1\u6536\u76D8", tradingDayOffset: -1 }],
+    postAnchors: [{ label: "\u89C2\u5BDF\u671F\u7ED3\u675F\u65F6\u8BB0\u5F55\u7ED3\u679C", tradingDayOffset: 0 }],
     rationale: "\u5728\u7EDF\u4E00\u7684 90 \u5929\u5408\u540C\u7EC8\u70B9\u7ED3\u7B97\u662F\u5426\u9996\u6B21\u89E6\u8FBE\uFF0C\u5E76\u628A\u7ED3\u679C\u7EB3\u5165\u540E\u7EED\u6821\u51C6\uFF1B\u4E0D\u628A\u7814\u7A76\u671F\u9650\u8BEF\u5199\u6210\u5916\u90E8\u5E02\u573A\u4E8B\u4EF6\u3002"
   };
   const calendar = [
@@ -2684,113 +3003,265 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
   }
   return calendar;
 }
-var TARGET_KIND_PRIORITIES = {
-  18: ["technical_checkpoint", "macro_release", "property_release"],
-  19.5: ["property_release", "earnings", "macro_release"],
-  21: ["earnings", "property_release", "macro_release"],
-  23: ["macro_release", "earnings", "property_release"],
-  30: ["china_adr_event", "earnings", "macro_release", "property_release"]
+
+// src/research/forecast/TargetConfluencePolicy.ts
+var TARGET_CONFLUENCE_POLICIES = {
+  18: {
+    minimumSignals: 2,
+    signalKinds: ["market_absorption", "property_state", "discount_rate_adr"],
+    mandatoryKinds: ["market_absorption"],
+    catalystKinds: ["macro_release", "property_release"],
+    summary: "18 \u7F8E\u5143\u9700\u8981\u4EF7\u683C\u627F\u63A5\u5148\u7AD9\u7A33\uFF0C\u5E76\u7531\u5730\u4EA7\u6216\u6298\u73B0\u7387\u73AF\u5883\u81F3\u5C11\u4E00\u9879\u914D\u5408\uFF1B\u5355\u6B21\u6280\u672F\u7A81\u7834\u4E0D\u8DB3\u4EE5\u5F62\u6210\u5B8C\u6574\u8DEF\u5F84\u3002"
+  },
+  19.5: {
+    minimumSignals: 3,
+    signalKinds: ["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"],
+    mandatoryKinds: ["market_absorption", "company_fundamentals"],
+    catalystKinds: ["earnings", "property_release", "macro_release"],
+    summary: "19.5 \u7F8E\u5143\u9700\u8981\u7ECF\u8425\u6539\u5584\u3001\u5730\u4EA7\u6216\u6298\u73B0\u7387\u4FE1\u53F7\u4E0E\u5E02\u573A\u627F\u63A5\u5728\u540C\u4E00\u9636\u6BB5\u76F8\u4E92\u786E\u8BA4\u3002"
+  },
+  21: {
+    minimumSignals: 3,
+    signalKinds: ["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"],
+    mandatoryKinds: ["market_absorption", "company_fundamentals", "property_state"],
+    catalystKinds: ["earnings", "property_release", "macro_release"],
+    summary: "21 \u7F8E\u5143\u9700\u8981\u516C\u53F8\u7ECF\u8425\u3001\u5730\u4EA7\u72B6\u6001\u548C\u4EF7\u683C\u627F\u63A5\u5171\u540C\u6539\u5584\uFF0C\u5B8F\u89C2\u73AF\u5883\u4E0D\u80FD\u5F62\u6210\u660E\u663E\u53CD\u5411\u62D6\u7D2F\u3002"
+  },
+  23: {
+    minimumSignals: 4,
+    signalKinds: ["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"],
+    mandatoryKinds: ["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"],
+    catalystKinds: ["earnings", "property_release", "macro_release"],
+    summary: "23 \u7F8E\u5143\u9700\u8981\u76C8\u5229\u9884\u671F\u3001\u5730\u4EA7\u4FEE\u590D\u3001\u6298\u73B0\u7387\u73AF\u5883\u548C\u5E02\u573A\u627F\u63A5\u56DB\u6761\u72EC\u7ACB\u4FE1\u606F\u94FE\u540C\u65F6\u6539\u5584\u3002"
+  },
+  30: {
+    minimumSignals: 4,
+    signalKinds: ["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"],
+    mandatoryKinds: ["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"],
+    catalystKinds: ["earnings", "property_release", "macro_release", "china_adr_event"],
+    summary: "30 \u7F8E\u5143\u4E0D\u80FD\u7ED1\u5B9A\u67D0\u4E00\u4E2A\u65E5\u671F\uFF1B\u516C\u53F8\u7ECF\u8425\u3001\u5730\u4EA7\u5468\u671F\u3001\u6298\u73B0\u7387\u4E0E\u4E2D\u6982\u98CE\u9669\u73AF\u5883\u3001\u5E02\u573A\u627F\u63A5\u5FC5\u987B\u5F62\u6210\u7ED3\u6784\u6027\u5171\u632F\u3002"
+  }
 };
-function selectTargetMilestonePlan(target, milestones) {
+var EXHAUSTION_SIGNALS = [
+  "\u89E6\u8FBE\u6216\u7A81\u7834\u540E\u6210\u4EA4\u91CF\u653E\u5927\u4F46\u6536\u76D8\u660E\u663E\u56DE\u843D",
+  "BEKE \u76F8\u5BF9 KWEB \u5F3A\u5F31\u8F6C\u8D1F\u4E14\u968F\u540E\u6570\u65E5\u672A\u4FEE\u590D",
+  "\u5229\u597D\u5151\u73B0\u540E\u65B0\u589E\u4E70\u76D8\u8870\u51CF\u5E76\u91CD\u65B0\u5931\u5B88\u7A81\u7834\u4F4D\u7F6E"
+];
+function confluenceSignalLabel(kind) {
+  if (kind === "market_absorption") return "\u4EF7\u683C\u4E0E\u8D44\u91D1\u627F\u63A5";
+  if (kind === "company_fundamentals") return "\u516C\u53F8\u7ECF\u8425";
+  if (kind === "property_state") return "\u5730\u4EA7\u72B6\u6001";
+  return "\u6298\u73B0\u7387\u4E0E\u4E2D\u6982\u73AF\u5883";
+}
+function describeConfluenceRequirement(minimumSignals, mandatoryKinds) {
+  return `\u9700\u8981\u770B\u5230\uFF1A\u81F3\u5C11 ${minimumSignals} \u7C7B\u72EC\u7ACB\u4FE1\u53F7\u540C\u5411\uFF0C\u5176\u4E2D${mandatoryKinds.map(confluenceSignalLabel).join("\u3001")}\u4E0D\u80FD\u7F3A\u5C11\u3002`;
+}
+function firstMilestone(milestones, kind) {
+  return milestones.find((milestone) => milestone.kind === kind);
+}
+function scheduledCatalysts(milestones, kinds, researchAsOf) {
+  const researchAsOfMs = Date.parse(researchAsOf);
+  if (!Number.isFinite(researchAsOfMs)) {
+    throw new Error(`Target confluence plan requires a valid research as-of timestamp: ${researchAsOf}`);
+  }
+  return kinds.map((kind) => firstMilestone(
+    milestones.filter(
+      (milestone) => milestone.kind === kind && (milestone.certainty === "conditional_trigger" || milestone.certainty === "historical_estimate" || milestone.certainty === "official_schedule" && typeof milestone.scheduledAt === "string" && Number.isFinite(Date.parse(milestone.scheduledAt)) && Date.parse(milestone.scheduledAt) > researchAsOfMs)
+    ),
+    kind
+  )).filter((milestone) => milestone !== void 0).sort((left, right) => {
+    const leftConditional = left.certainty === "conditional_trigger";
+    const rightConditional = right.certainty === "conditional_trigger";
+    if (leftConditional !== rightConditional) return leftConditional ? 1 : -1;
+    return left.start.localeCompare(right.start) || left.end.localeCompare(right.end) || left.id.localeCompare(right.id);
+  });
+}
+function setupTechnical(milestones, firstCatalystStart) {
+  const technical = milestones.filter(
+    (milestone) => milestone.kind === "technical_checkpoint" && !milestone.id.startsWith("forecast-horizon-")
+  );
+  const before = technical.filter((milestone) => milestone.start < firstCatalystStart);
+  const selected = before.at(-1);
+  if (!selected) throw new Error("A confluence path requires a scheduled market setup checkpoint.");
+  return selected;
+}
+function confirmationTechnical(milestones, lastCatalystEnd) {
+  const selected = milestones.find(
+    (milestone) => milestone.kind === "technical_checkpoint" && !milestone.id.startsWith("forecast-horizon-") && milestone.start > lastCatalystEnd
+  );
+  if (!selected) throw new Error("A confluence path requires a market confirmation checkpoint after its catalysts.");
+  return selected;
+}
+function selectTargetConfluencePlan(target, milestones, researchAsOf) {
+  const policy = TARGET_CONFLUENCE_POLICIES[target];
   const eligible = milestones.filter(
     (milestone) => milestone.affectedTargets.includes(target) && !milestone.id.startsWith("forecast-horizon-")
   );
-  const selected = TARGET_KIND_PRIORITIES[target].flatMap((kind) => {
-    const candidates = eligible.filter((milestone) => milestone.kind === kind);
-    return candidates.length > 0 ? [candidates[0]] : [];
-  });
-  const primaryMilestoneId = selected[0]?.id;
-  if (!primaryMilestoneId) {
-    throw new Error(`No milestone is available for ${target} USD target.`);
+  const issueBaseline = eligible.find(
+    (milestone) => milestone.id.startsWith("technical-baseline-")
+  )?.start;
+  if (!issueBaseline) {
+    throw new Error(`Target ${target} USD requires an issue-time market baseline.`);
   }
-  const milestoneIds = [...new Set(selected.map((milestone) => milestone.id))].slice(0, 4);
-  return { target, primaryMilestoneId, milestoneIds };
+  const catalysts = scheduledCatalysts(eligible, policy.catalystKinds, researchAsOf);
+  const scheduled = catalysts.filter((milestone) => milestone.certainty !== "conditional_trigger");
+  if (scheduled.length < 2) {
+    throw new Error(`Target ${target} USD requires at least two scheduled catalyst milestones.`);
+  }
+  const fixedCatalysts = scheduled.filter(
+    (milestone) => milestone.certainty === "official_schedule"
+  );
+  if (fixedCatalysts.length === 0) {
+    throw new Error(`Target ${target} USD requires at least one officially scheduled catalyst.`);
+  }
+  const firstCatalystStart = fixedCatalysts.map((milestone) => milestone.start).sort()[0];
+  const lastCatalystEnd = scheduled.map((milestone) => milestone.end).sort().at(-1);
+  const setup = setupTechnical(eligible, firstCatalystStart);
+  const confirmation = confirmationTechnical(eligible, lastCatalystEnd);
+  const stages = [
+    {
+      phase: "setup",
+      label: "\u5148\u770B\u9884\u671F\u662F\u5426\u5F62\u6210",
+      milestoneIds: [setup.id]
+    },
+    {
+      phase: "catalyst",
+      label: "\u518D\u770B\u7ECF\u8425\u3001\u5730\u4EA7\u4E0E\u5916\u90E8\u4FE1\u606F",
+      milestoneIds: catalysts.map((milestone) => milestone.id)
+    },
+    {
+      phase: "confirmation",
+      label: "\u6700\u540E\u770B\u4EF7\u683C\u548C\u8D44\u91D1\u662F\u5426\u627F\u63A5",
+      milestoneIds: [confirmation.id]
+    }
+  ];
+  return {
+    target,
+    minimumSignals: policy.minimumSignals,
+    signalKinds: [...policy.signalKinds],
+    mandatoryKinds: [...policy.mandatoryKinds],
+    summary: policy.summary,
+    exhaustionSignals: [...EXHAUSTION_SIGNALS],
+    stages,
+    milestoneIds: [...new Set(stages.flatMap((stage) => stage.milestoneIds))]
+  };
+}
+function confluencePolicyForTarget(target) {
+  return TARGET_CONFLUENCE_POLICIES[target];
 }
 
 // src/research/forecast/milestonePathForecast.ts
 function clampProbability(value) {
   return Math.max(0, Math.min(100, value));
 }
-function pathConfidence(prediction, primary) {
-  if (prediction.target === 30 || primary.certainty === "conditional" || prediction.probability < 30) {
+function compactDate(value) {
+  const [, month, day] = value.split("-");
+  return `${Number(month)} \u6708 ${Number(day)} \u65E5`;
+}
+function pathConfidence(prediction, basis) {
+  if (prediction.target === 30 || prediction.probability < 30 || basis.some((milestone) => milestone.certainty === "conditional_trigger")) {
     return "\u4F4E";
   }
-  if (primary.certainty === "estimated" || prediction.probability < 70) {
+  if (prediction.probability < 70 || basis.some((milestone) => milestone.certainty === "historical_estimate")) {
     return "\u4E2D";
   }
   return "\u9AD8";
 }
-function likelyWindowFor(prediction, primary, basisMilestoneIds) {
-  const isRange = primary.start !== primary.end;
-  const certainty = primary.certainty === "confirmed" ? "\u5DF2\u786E\u5B9A" : primary.certainty === "estimated" ? "\u4F30\u7B97" : "\u6761\u4EF6\u89E6\u53D1";
+function windowSubject(target) {
+  if (target === 18) return "\u4EF7\u683C\u627F\u63A5\u4E0E\u5916\u90E8\u73AF\u5883\u5171\u540C\u89C2\u5BDF";
+  if (target === 19.5) return "\u7ECF\u8425\u3001\u5730\u4EA7\u4E0E\u5E02\u573A\u627F\u63A5\u5171\u540C\u89C2\u5BDF";
+  if (target === 21) return "\u7ECF\u8425\u4E0E\u5730\u4EA7\u91CD\u4F30\u5171\u540C\u89C2\u5BDF";
+  if (target === 23) return "\u76C8\u5229\u3001\u5730\u4EA7\u4E0E\u6298\u73B0\u7387\u5171\u540C\u89C2\u5BDF";
+  return "\u591A\u9879\u7ED3\u6784\u6027\u53D8\u5316\u7684\u7B2C\u4E00\u8F6E\u5171\u540C\u89C2\u5BDF";
+}
+function buildConfluenceWindow(prediction, basis, setupIds, catalystIds, confirmationIds) {
+  const setups = basis.filter((milestone) => setupIds.has(milestone.id));
+  const scheduledCatalysts2 = basis.filter(
+    (milestone) => catalystIds.has(milestone.id) && milestone.certainty !== "conditional_trigger"
+  );
+  const confirmations = basis.filter((milestone) => confirmationIds.has(milestone.id));
+  if (setups.length === 0 || scheduledCatalysts2.length < 2 || confirmations.length === 0) {
+    throw new Error(`Target ${prediction.target} USD does not have a complete multi-event observation window.`);
+  }
+  const start = setups.map((milestone) => milestone.start).sort()[0];
+  const end = confirmations.map((milestone) => milestone.end).sort().at(-1);
+  if (start >= end) {
+    throw new Error(`Target ${prediction.target} USD confluence window must span more than one calendar day.`);
+  }
   return {
-    start: primary.start,
-    end: primary.end,
-    label: isRange ? `${primary.start} \u81F3 ${primary.end} \xB7 ${primary.title}\uFF08${certainty}\uFF09` : `${primary.start} \xB7 ${primary.title}\uFF08${certainty}\uFF09`,
-    confidence: pathConfidence(prediction, primary),
-    basisMilestoneIds
+    start,
+    end,
+    label: `${compactDate(start)} \u81F3 ${compactDate(end)} \xB7 ${windowSubject(prediction.target)}`,
+    confidence: pathConfidence(prediction, basis),
+    basisMilestoneIds: basis.map((milestone) => milestone.id)
   };
 }
-function selectedMilestonesForPath(milestones, selectedIds, primaryMilestoneId) {
-  const selected = milestones.filter((milestone) => selectedIds.has(milestone.id));
-  const pickedByKey = /* @__PURE__ */ new Map();
-  for (const milestone of selected) {
-    const key = milestone.clusterId ? `cluster:${milestone.clusterId}` : `milestone:${milestone.id}`;
-    const current = pickedByKey.get(key);
-    if (!current || milestone.id === primaryMilestoneId || current.id !== primaryMilestoneId && (milestone.start < current.start || milestone.start === current.start && milestone.id < current.id)) {
-      pickedByKey.set(key, milestone);
-    }
-  }
-  return [...pickedByKey.values()].sort((left, right) => left.start.localeCompare(right.start) || left.id.localeCompare(right.id));
-}
 function resolvedAtIssuePath(prediction) {
-  const issuedDate = prediction.forecastQuestion?.issuedAt.slice(0, 10) ?? "\u7814\u7A76\u8D77\u70B9";
   return {
-    schemaVersion: "milestone-path-v2",
-    modelName: "event-milestone-validation-v2",
+    schemaVersion: "milestone-path-v3",
+    modelName: "event-confluence-validation-v3",
     target: prediction.target,
     terminalProbability: clampProbability(prediction.probability),
     status: "resolved_at_issue",
-    timingBasis: "event_milestone_validation",
-    likelyWindow: {
-      start: issuedDate,
-      end: issuedDate,
-      label: "\u672C\u8F6E\u7814\u7A76\u8D77\u70B9\u5DF2\u89E6\u8FBE",
-      confidence: "\u9AD8",
-      basisMilestoneIds: []
-    },
+    timingBasis: "multi_event_confluence",
+    stages: [],
     checkpoints: []
   };
+}
+function selectedMilestones(milestones, selectedIds) {
+  return milestones.filter((milestone) => selectedIds.has(milestone.id)).sort(
+    (left, right) => left.start.localeCompare(right.start) || left.end.localeCompare(right.end) || left.id.localeCompare(right.id)
+  );
 }
 function buildMilestonePathForecast(prediction, milestones) {
   if (prediction.forecastQuestion?.status === "resolved_at_issue") {
     return resolvedAtIssuePath(prediction);
   }
-  const plan = selectTargetMilestonePlan(prediction.target, milestones);
-  const primary = milestones.find((milestone) => milestone.id === plan.primaryMilestoneId);
-  if (!primary) {
-    throw new Error(`Milestone plan for ${prediction.target} USD refers to an unavailable primary milestone.`);
+  const researchAsOf = prediction.forecastQuestion?.issuedAt;
+  if (!researchAsOf || !Number.isFinite(Date.parse(researchAsOf))) {
+    throw new Error(`Target ${prediction.target} USD requires a valid forecast issue timestamp.`);
   }
+  const plan = selectTargetConfluencePlan(prediction.target, milestones, researchAsOf);
   const selectedIds = new Set(plan.milestoneIds);
   const horizonMilestone = milestones.find((milestone) => milestone.id.startsWith("forecast-horizon-"));
   if (horizonMilestone) selectedIds.add(horizonMilestone.id);
-  const pathMilestones = selectedMilestonesForPath(
-    milestones,
-    selectedIds,
-    plan.primaryMilestoneId
-  );
-  if (!pathMilestones.some((milestone) => milestone.id === plan.primaryMilestoneId)) {
-    throw new Error(`Milestone path for ${prediction.target} USD dropped its primary milestone.`);
+  const pathMilestones = selectedMilestones(milestones, selectedIds);
+  const selectedById = new Map(pathMilestones.map((milestone) => [milestone.id, milestone]));
+  if (plan.milestoneIds.some((id) => !selectedById.has(id))) {
+    throw new Error(`Milestone path for ${prediction.target} USD dropped part of its confluence bundle.`);
   }
+  const catalystIds = new Set(
+    plan.stages.find((stage) => stage.phase === "catalyst")?.milestoneIds ?? []
+  );
+  const setupIds = new Set(
+    plan.stages.find((stage) => stage.phase === "setup")?.milestoneIds ?? []
+  );
+  const confirmationIds = new Set(
+    plan.stages.find((stage) => stage.phase === "confirmation")?.milestoneIds ?? []
+  );
+  const basis = plan.milestoneIds.map((id) => selectedById.get(id));
   return {
-    schemaVersion: "milestone-path-v2",
-    modelName: "event-milestone-validation-v2",
+    schemaVersion: "milestone-path-v3",
+    modelName: "event-confluence-validation-v3",
     target: prediction.target,
     terminalProbability: clampProbability(prediction.probability),
     status: "open",
-    primaryMilestoneId: plan.primaryMilestoneId,
-    timingBasis: "event_milestone_validation",
-    likelyWindow: likelyWindowFor(prediction, primary, plan.milestoneIds),
+    timingBasis: "multi_event_confluence",
+    confluenceWindow: buildConfluenceWindow(
+      prediction,
+      basis,
+      setupIds,
+      catalystIds,
+      confirmationIds
+    ),
+    confluenceRule: {
+      minimumSignals: plan.minimumSignals,
+      signalKinds: plan.signalKinds,
+      mandatoryKinds: plan.mandatoryKinds,
+      summary: plan.summary,
+      exhaustionSignals: plan.exhaustionSignals
+    },
+    stages: plan.stages,
     checkpoints: pathMilestones.map((milestone) => ({
       milestoneId: milestone.id,
       start: milestone.start,
@@ -2807,7 +3278,7 @@ function buildMilestonePathForecasts(predictions, milestones) {
     const lowerTarget = byTarget[index - 1];
     const higherTarget = byTarget[index];
     if ((terminalByTarget.get(higherTarget.target) ?? 0) > (terminalByTarget.get(lowerTarget.target) ?? 0)) {
-      throw new Error("Target probabilities must be non-increasing by target price before building a validation path.");
+      throw new Error("Target probabilities must be non-increasing by target price before building a confluence path.");
     }
   }
   return byTarget.map((prediction) => buildMilestonePathForecast(prediction, milestones));
@@ -2829,9 +3300,7 @@ var quote = {
 };
 var fallbackResearchAsOf = quote.asOf;
 var fallbackForecastQuote = { ...quote, asOf: fallbackResearchAsOf };
-var fallbackHorizonEnd = new Date(
-  Date.parse(fallbackResearchAsOf) + 90 * 24 * 60 * 60 * 1e3
-).toISOString();
+var fallbackHorizonEnd = addXnysCalendarDays(fallbackResearchAsOf, 90);
 var fallbackMilestones = buildMilestoneCalendar(fallbackResearchAsOf, fallbackHorizonEnd);
 var fallbackPriceHistory = [
   { date: "2026-06-27", close: 14.32 },
@@ -3436,29 +3905,51 @@ var fallbackPaths = new Map(
 latestSnapshotBase.predictions = latestSnapshotBase.predictions.map((prediction) => {
   const pathForecast = fallbackPaths.get(prediction.target);
   if (!pathForecast) return prediction;
-  const primary = fallbackMilestones.find((milestone) => milestone.id === pathForecast.primaryMilestoneId);
-  if (!primary) return prediction;
-  const certainty = primary.certainty === "confirmed" ? "\u5DF2\u786E\u8BA4\u65E5\u7A0B" : primary.certainty === "estimated" ? "\u4F30\u7B97\u533A\u95F4" : "\u6761\u4EF6\u89E6\u53D1";
+  if (pathForecast.status === "resolved_at_issue") {
+    return {
+      ...prediction,
+      likelyWindow: "\u672C\u8F6E\u7814\u7A76\u8D77\u70B9\u5DF2\u89E6\u8FBE",
+      pathForecast,
+      nearTermForecast: {
+        ...prediction.nearTermForecast,
+        label: "\u672C\u8F6E\u7814\u7A76\u8D77\u70B9\u5DF2\u89E6\u8FBE",
+        thesis: `${prediction.target} \u7F8E\u5143\u5728\u7814\u7A76\u5F00\u59CB\u65F6\u5DF2\u7ECF\u8FBE\u5230\uFF0C\u56E0\u6B64\u4E0D\u518D\u9884\u6D4B\u9996\u6B21\u89E6\u8FBE\u65F6\u95F4\u3002`,
+        trigger: "\u7814\u7A76\u5F00\u59CB\u65F6\u7684\u5E38\u89C4\u4EA4\u6613\u65F6\u6BB5\u4EF7\u683C\u5DF2\u7ECF\u8FBE\u5230\u76EE\u6807\u3002",
+        invalidation: "\u8FD9\u4E00\u5386\u53F2\u72B6\u6001\u4E0D\u4F1A\u88AB\u540E\u7EED\u884C\u60C5\u53CD\u5411\u6539\u5199\u3002",
+        modelName: "event-confluence-forecast-v3.0"
+      }
+    };
+  }
+  const window = pathForecast.confluenceWindow;
+  const rule = pathForecast.confluenceRule;
+  if (!window || !rule) return prediction;
+  const basis = window.basisMilestoneIds.map((id) => fallbackMilestones.find((milestone) => milestone.id === id)).filter((milestone) => milestone !== void 0);
+  const scheduleNotes = [
+    ...basis.some((milestone) => milestone.certainty === "official_schedule") ? ["\u76F8\u5173\u5B98\u65B9\u65E5\u671F\u5DF2\u516C\u5E03"] : [],
+    ...basis.some((milestone) => milestone.certainty === "historical_estimate") ? ["\u8D1D\u58F3\u8D22\u62A5\u5177\u4F53\u65E5\u671F\u5F85\u516C\u53F8\u516C\u544A"] : [],
+    ...basis.some((milestone) => milestone.certainty === "conditional_trigger") ? ["\u4E2D\u6982\u653F\u7B56\u6216\u8D44\u91D1\u73AF\u5883\u51FA\u73B0\u76F8\u5173\u53D8\u5316\u540E\u89C2\u5BDF"] : []
+  ];
   return {
     ...prediction,
-    likelyWindow: pathForecast.likelyWindow.label,
+    likelyWindow: window.label,
     pathForecast,
     nearTermForecast: {
       ...prediction.nearTermForecast,
-      label: pathForecast.likelyWindow.label,
-      windowStart: pathForecast.likelyWindow.start,
-      windowEnd: pathForecast.likelyWindow.end,
-      thesis: `${primary.title}\u662F\u4E0B\u4E00\u5173\u952E\u9A8C\u8BC1\u70B9\uFF08${certainty}\uFF09\u3002\u4E8B\u4EF6\u524D\u51BB\u7ED3\u4EF7\u683C\u3001\u6210\u4EA4\u91CF\u4E0E KWEB \u76F8\u5BF9\u5F3A\u5F31\u57FA\u7EBF\uFF0C\u4E8B\u4EF6\u540E\u518D\u68C0\u9A8C\u4F20\u5BFC\u662F\u5426\u6210\u7ACB\u3002`,
-      trigger: `\u9A8C\u8BC1\u6761\u4EF6\uFF1A${primary.rationale}`,
-      invalidation: "\u6539\u5224\u6761\u4EF6\uFF1A\u4E8B\u4EF6\u7ED3\u679C\u4E0E\u4EF7\u683C\u3001\u6210\u4EA4\u91CF\u6216\u76F8\u5BF9 KWEB \u5F3A\u5F31\u6CA1\u6709\u5F62\u6210\u540C\u5411\u786E\u8BA4\u3002",
-      confidence: pathForecast.likelyWindow.confidence,
-      modelName: "event-milestone-forecast-v2.0"
+      label: window.label,
+      windowStart: window.start,
+      windowEnd: window.end,
+      thesis: `${rule.summary} ${scheduleNotes.join("\uFF1B")}\u3002\u8FD9\u91CC\u5B9A\u4F4D\u7684\u662F\u591A\u9879\u4FE1\u606F\u53EF\u80FD\u5171\u540C\u4F5C\u7528\u7684\u89C2\u5BDF\u671F\uFF0C\u4E0D\u628A\u53D1\u5E03\u65E5\u671F\u5199\u6210\u80A1\u4EF7\u9AD8\u70B9\u3002`,
+      trigger: describeConfluenceRequirement(rule.minimumSignals, rule.mandatoryKinds),
+      invalidation: `\u4EC0\u4E48\u4F1A\u6539\u53D8\u5224\u65AD\uFF1A\u4FE1\u606F\u65B9\u5411\u4E92\u76F8\u51B2\u7A81\uFF0C\u6216${rule.exhaustionSignals[0]}\u3002`,
+      confidence: window.confidence,
+      modelName: "event-confluence-forecast-v3.0"
     }
   };
 });
 var fallbackPublishedMilestoneIds = new Set(
   latestSnapshotBase.predictions.flatMap((prediction) => [
-    ...prediction.pathForecast?.likelyWindow.basisMilestoneIds ?? [],
+    ...prediction.pathForecast?.confluenceWindow?.basisMilestoneIds ?? [],
+    ...prediction.pathForecast?.stages.flatMap((stage) => stage.milestoneIds) ?? [],
     ...prediction.pathForecast?.checkpoints.map((checkpoint) => checkpoint.milestoneId) ?? []
   ])
 );
@@ -19319,7 +19810,7 @@ function normalizedNumbers(value) {
 }
 function milestonesForTarget(context, target) {
   const path = context.targets.find((item) => item.target === target)?.pathForecast;
-  const ids = new Set(path?.likelyWindow.basisMilestoneIds ?? []);
+  const ids = new Set(path?.confluenceWindow?.basisMilestoneIds ?? []);
   return context.milestones.filter((milestone) => ids.has(milestone.id));
 }
 function targetFactInventory(context, target) {
@@ -19636,7 +20127,7 @@ function fallbackTargetView(context, target) {
     return `${factor.label}${factor.deltaFromNeutral > 0 ? "\u504F\u6B63\u5411" : factor.deltaFromNeutral < 0 ? "\u504F\u8D1F\u5411" : "\u4E2D\u6027"}`;
   }).join("\uFF1B");
   const plainSummary = target === 18 ? `\u5F53\u524D\u8FD1\u7AEF\u652F\u6491\u6765\u81EA${topPositive}\u3002\u8FD9\u7C7B\u652F\u6491\u5148\u6539\u5584\u4EF7\u683C\u52A8\u91CF\u4E0E\u6BCF\u80A1\u4EF7\u503C\u9884\u671F\uFF0C\u518D\u964D\u4F4E\u4FEE\u590D\u6240\u9700\u7684\u98CE\u9669\u8865\u507F\u3002\u5386\u53F2\u9608\u503C\u8868\u660E 18 \u7F8E\u5143\u5C5E\u4E8E\u80FD\u591F\u88AB\u884C\u60C5\u4FEE\u590D\u89E6\u53CA\u7684\u533A\u57DF\uFF0C\u4F46\u89E6\u8FBE\u540E\u7684\u7AD9\u7A33\u4ECD\u53D6\u51B3\u4E8E\u6210\u4EA4\u91CF\u548C\u7ECF\u8425\u8BC1\u636E\u3002\u4E3B\u8981\u7EA6\u675F\u6765\u81EA${topNegative}\u3002\u7EFC\u5408\u4F20\u5BFC\u8DEF\u5F84\uFF0C18 \u7F8E\u5143\u5C5E\u4E8E\u53EF\u89E6\u8FBE\u7684\u4FEE\u590D\u7EBF\u3002` : target === 19.5 ? `\u5F53\u524D\u4F30\u503C\u5E95\u5EA7\u6765\u81EA${topPositive}\u300219.5 \u7F8E\u5143\u8981\u4ECE\u4EF7\u683C\u4FEE\u590D\u5347\u7EA7\u4E3A\u6709\u6548\u786E\u8BA4\uFF0C\u7ECF\u8425\u6539\u5584\u5FC5\u987B\u7EE7\u7EED\u4F20\u5BFC\u81F3 GTV\u3001\u6536\u5165\u3001\u5229\u6DA6\u6216\u73B0\u91D1\u6D41\u9884\u671F\u3002\u5386\u53F2\u9608\u503C\u663E\u793A\u7A7F\u8D8A\u540E\u4ECD\u53EF\u80FD\u5FEB\u901F\u56DE\u64A4\uFF0C\u56E0\u6B64\u4E00\u6B21\u89E6\u8FBE\u4E0D\u80FD\u66FF\u4EE3\u6301\u7EED\u786E\u8BA4\u3002\u4E3B\u8981\u7EA6\u675F\u6765\u81EA${topNegative}\u3002\u7EFC\u5408\u4F20\u5BFC\u8DEF\u5F84\uFF0C19.5 \u7F8E\u5143\u5C5E\u4E8E\u9700\u8981\u7ECF\u8425\u4E0E\u884C\u4E1A\u5171\u632F\u7684\u786E\u8BA4\u7EBF\u3002` : target === 21 ? `\u5F53\u524D\u652F\u6491\u6765\u81EA${topPositive}\uFF0C\u5B83\u53EA\u80FD\u7A33\u4F4F\u4F30\u503C\u5E95\u5EA7\uFF0C\u4E0D\u80FD\u5355\u72EC\u5B8C\u6210\u91CD\u4F30\u300221 \u7F8E\u5143\u8981\u6C42\u5730\u4EA7\u6210\u4EA4\u3001\u516C\u53F8\u76C8\u5229\u4E0E\u4E2D\u6982\u98CE\u9669\u504F\u597D\u5F62\u6210\u540C\u5411\u6539\u5584\uFF0C\u624D\u53EF\u80FD\u63A8\u52A8\u4F30\u503C\u500D\u6570\u6269\u5F20\u3002\u5386\u53F2\u9608\u503C\u663E\u793A\u8FD9\u4E00\u66F4\u9AD8\u4EF7\u4F4D\u7684\u6536\u76D8\u7AD9\u4E0A\u9891\u7387\u66F4\u4F4E\uFF0C\u89E6\u8FBE\u540E\u7684\u56DE\u64A4\u98CE\u9669\u4E5F\u66F4\u9AD8\u3002\u4E3B\u8981\u7EA6\u675F\u6765\u81EA${topNegative}\u3002\u7EFC\u5408\u4F20\u5BFC\u8DEF\u5F84\uFF0C21 \u7F8E\u5143\u5C5E\u4E8E\u6761\u4EF6\u53D7\u9650\u3001\u9700\u8981\u591A\u56E0\u5B50\u5171\u632F\u7684\u91CD\u4F30\u7EBF\u3002` : target === 23 ? `\u5F53\u524D\u652F\u6491\u6765\u81EA${topPositive}\uFF0C\u4F46 23 \u7F8E\u5143\u8981\u6C42\u7ECF\u8425\u6539\u5584\u4ECE\u4F30\u503C\u5E95\u5EA7\u5347\u7EA7\u4E3A\u6536\u5165\u3001GTV\u3001\u5229\u6DA6\u548C\u73B0\u91D1\u6D41\u7684\u8FDE\u7EED\u6269\u5F20\u3002\u5386\u53F2\u9608\u503C\u663E\u793A\u8BE5\u4EF7\u4F4D\u89E6\u8FBE\u9891\u7387\u5F88\u4F4E\u4E14\u56DE\u64A4\u660E\u663E\uFF0C\u4EF7\u683C\u52A8\u91CF\u4E0D\u80FD\u66FF\u4EE3\u76C8\u5229\u627F\u63A5\u3002\u4E3B\u8981\u7EA6\u675F\u6765\u81EA${topNegative}\u3002\u7EFC\u5408\u4F20\u5BFC\u8DEF\u5F84\uFF0C23 \u7F8E\u5143\u5C5E\u4E8E\u9700\u8981\u7ECF\u8425\u4E0E\u5730\u4EA7\u5171\u540C\u6269\u5F20\u7684\u8FDB\u9636\u60C5\u666F\u3002` : `\u5F53\u524D\u652F\u6491\u6765\u81EA${topPositive}\uFF0C\u4F46\u4E0D\u8DB3\u4EE5\u81EA\u7136\u5916\u63A8\u81F3 30 \u7F8E\u5143\u3002\u4E24\u5E74\u6837\u672C\u6CA1\u6709\u89E6\u8FBE\u8BE5\u9608\u503C\uFF0C30 \u7F8E\u5143\u9700\u8981\u5730\u4EA7\u5468\u671F\u53CD\u8F6C\u3001\u516C\u53F8\u76C8\u5229\u52A0\u901F\u548C\u98CE\u9669\u6EA2\u4EF7\u663E\u8457\u4E0B\u964D\u540C\u65F6\u6210\u7ACB\u3002\u4E3B\u8981\u7EA6\u675F\u6765\u81EA${topNegative}\u3002\u7EFC\u5408\u4F20\u5BFC\u8DEF\u5F84\uFF0C30 \u7F8E\u5143\u5C5E\u4E8E\u660E\u786E\u53D7\u9650\u7684\u5C3E\u90E8\u8DC3\u8FC1\u60C5\u666F\u3002`;
-  const primaryMilestone = state?.pathForecast ? context.milestones.find((milestone) => milestone.id === state.pathForecast?.primaryMilestoneId) : void 0;
+  const confluenceRule = state?.pathForecast?.confluenceRule;
   return {
     target,
     headline: scenario.assertion,
@@ -19649,7 +20140,7 @@ function fallbackTargetView(context, target) {
       { action: "\u6838\u5BF9\u7ECF\u8425\u4E0E\u884C\u4E1A\u5171\u632F", signal: "GTV\u3001\u5229\u6DA6\u7387\u6216\u5730\u4EA7\u6210\u4EA4\u51FA\u73B0\u65B9\u5411\u4E00\u81F4\u7684\u6570\u636E", horizon: "\u4E0B\u4E00\u6B21\u6B63\u5F0F\u6570\u636E\u62AB\u9732" }
     ],
     claimLedger: claims,
-    weekOutlook: primaryMilestone ? `\u56F4\u7ED5${primaryMilestone.title}\uFF0C\u4E8B\u4EF6\u524D\u51BB\u7ED3\u4EF7\u683C\u4E0E\u76F8\u5BF9\u5F3A\u5F31\u57FA\u7EBF\uFF0C\u4E8B\u4EF6\u540E\u6838\u5BF9\u7ECF\u8425\u3001\u6210\u4EA4\u91CF\u548C\u98CE\u9669\u6EA2\u4EF7\u4F20\u5BFC\u3002` : "\u56F4\u7ED5\u4E0B\u4E00\u9879\u53EF\u6838\u9A8C\u8BC1\u636E\u89C2\u5BDF\u4EF7\u683C\u652F\u6491\u3001\u6210\u4EA4\u91CF\u4E0E\u516C\u5F00\u4FE1\u606F\u662F\u5426\u540C\u5411\u3002",
+    weekOutlook: confluenceRule ? `${confluenceRule.summary} \u5148\u8BB0\u5F55\u5F53\u524D\u4EF7\u683C\u3001\u6210\u4EA4\u91CF\u548C\u76F8\u5BF9 KWEB \u8868\u73B0\uFF0C\u518D\u770B\u4FE1\u606F\u516C\u5E03\u540E\u662F\u5426\u5F62\u6210\u6301\u7EED\u627F\u63A5\u3002` : "\u56F4\u7ED5\u4E0B\u4E00\u9879\u53EF\u6838\u9A8C\u8BC1\u636E\u89C2\u5BDF\u4EF7\u683C\u652F\u6491\u3001\u6210\u4EA4\u91CF\u4E0E\u516C\u5F00\u4FE1\u606F\u662F\u5426\u540C\u5411\u3002",
     trigger: `${topPositive}\uFF0C\u5E76\u51FA\u73B0\u7ECF\u8425\u6216\u884C\u4E1A\u8BC1\u636E\u7684\u540C\u5411\u786E\u8BA4\u3002`,
     invalidation: `${topNegative}\u8FDB\u4E00\u6B65\u6076\u5316\uFF0C\u6216\u4EF7\u683C\u6709\u6548\u8DCC\u7834\u91CF\u5316\u652F\u6491\u3002`,
     evidenceFor: positives.length > 0 ? positives : [topPositive],
@@ -19830,8 +20321,8 @@ function materializeDraft(draft, context, synthesis) {
       claimLedger: claims,
       weekOutlook: (() => {
         const state = context.targets.find((item) => item.target === target);
-        const primary = state?.pathForecast ? context.milestones.find((milestone) => milestone.id === state.pathForecast?.primaryMilestoneId) : void 0;
-        return primary ? `\u56F4\u7ED5${primary.title}\uFF1A\u4E8B\u4EF6\u524D\u5EFA\u7ACB\u57FA\u7EBF\uFF0C\u4E8B\u4EF6\u540E\u91CD\u70B9\u6838\u5BF9${guidance[0].signal}\u3002` : `\u56F4\u7ED5\u4E0B\u4E00\u9A8C\u8BC1\u70B9\uFF1A${guidance[0].action}\uFF0C\u91CD\u70B9\u6838\u5BF9${guidance[0].signal}\u3002`;
+        const rule = state?.pathForecast?.confluenceRule;
+        return rule ? `${rule.summary} \u63A5\u4E0B\u6765\u91CD\u70B9\u6838\u5BF9${guidance[0].signal}\u3002` : `\u63A5\u4E0B\u6765\u91CD\u70B9\u6838\u5BF9${guidance[0].signal}\u3002`;
       })(),
       trigger: safeDerivedText(bull.condition, "\u4EF7\u683C\u7ED3\u6784\u4E0E\u81F3\u5C11\u4E00\u9879\u7ECF\u8425\u6216\u884C\u4E1A\u56E0\u5B50\u540C\u5411\u6539\u5584\u3002"),
       invalidation: safeDerivedText(uniqueTexts([bull.invalidation, bear.condition]).join("\uFF1B"), "\u4EF7\u683C\u652F\u6491\u5931\u6548\u4E14\u7ECF\u8425\u6216\u884C\u4E1A\u56E0\u5B50\u540C\u6B65\u8F6C\u5F31\u3002"),
@@ -20913,6 +21404,31 @@ function toDriverLabel2(value) {
 }
 
 // src/research/evaluation/researchSurfaceAudit.ts
+function milestoneTimelineText(snapshot, prediction) {
+  if (!prediction.nearTermForecast) return "";
+  const milestonesById = new Map(
+    (snapshot.milestones ?? []).map((milestone) => [milestone.id, milestone])
+  );
+  const path = prediction.pathForecast;
+  const rows = path?.stages.flatMap(
+    (stage) => stage.milestoneIds.map((id) => {
+      const milestone = milestonesById.get(id);
+      if (!milestone) return "";
+      const status = milestone.kind === "technical_checkpoint" ? "\u6BCF\u5468\u6536\u76D8\u89C2\u5BDF" : milestone.certainty === "official_schedule" ? "\u65E5\u671F\u5DF2\u516C\u5E03" : milestone.certainty === "historical_estimate" ? "\u5177\u4F53\u65E5\u671F\u5F85\u516C\u53F8\u516C\u544A" : "\u51FA\u73B0\u76F8\u5173\u53D8\u5316\u540E\u89C2\u5BDF";
+      const timing = milestone.certainty === "conditional_trigger" ? "\u65F6\u95F4\u4E0D\u9884\u8BBE" : `${milestone.start}${milestone.start === milestone.end ? "" : `\u81F3${milestone.end}`}`;
+      return `${timing} ${stage.label} ${milestone.title} ${status}`;
+    })
+  ) ?? [];
+  const exhaustion = path?.confluenceRule?.exhaustionSignals ?? [];
+  const peakFormation = exhaustion.length > 0 ? `\u9636\u6BB5\u9AD8\u70B9\u901A\u5E38\u600E\u4E48\u5F62\u6210 \u591A\u9879\u5229\u597D\u88AB\u4EF7\u683C\u5438\u6536\u540E\uFF0C\u82E5${exhaustion.join("\uFF1B\u6216")}\uFF0C\u8BF4\u660E\u65B0\u589E\u4E70\u76D8\u5F00\u59CB\u5F31\u4E8E\u5151\u73B0\u5356\u76D8\u3002` : "";
+  return [
+    prediction.nearTermForecast.label,
+    prediction.nearTermForecast.thesis,
+    prediction.nearTermForecast.trigger,
+    peakFormation,
+    ...rows
+  ].filter(Boolean).join(" ");
+}
 function buildFrontendSurfaceContract(snapshot, prediction) {
   const researchNotes = buildResearchNotes(snapshot, prediction);
   const researchBriefs = buildResearchBriefs(snapshot, prediction);
@@ -20966,7 +21482,7 @@ function buildFrontendSurfaceContract(snapshot, prediction) {
       key: "near-term-forecast",
       label: prediction.pathForecast ? "Milestone timeline" : "Bold one-week forecast",
       role: prediction.pathForecast ? "milestone-timeline" : "bold-week-forecast",
-      text: prediction.nearTermForecast ? [
+      text: prediction.pathForecast ? milestoneTimelineText(snapshot, prediction) : prediction.nearTermForecast ? [
         prediction.nearTermForecast.label,
         prediction.nearTermForecast.thesis
       ].join(" ") : ""
@@ -21066,11 +21582,14 @@ function evaluateFrontendSurface(snapshot, prediction) {
     findings.push("bold forecast repeats its own label inside the thesis");
   }
   const milestoneTimeline = surfaces.find((surface) => surface.role === "milestone-timeline");
-  if (milestoneTimeline && !/(已确认日程|估算区间|条件触发|已确定|估算)/.test(milestoneTimeline.text)) {
-    findings.push("milestone timeline does not disclose timing certainty");
+  if (milestoneTimeline && /主事件|主里程碑|已确定|已确认日程|确认日程|估算区间|估算窗口|条件触发|事件前|事件后|冻结基线|确认传导|T\s*(?:[+\-−]|±)\s*\d+/.test(milestoneTimeline.text)) {
+    findings.push("milestone timeline leaks internal schedule or validation terminology");
   }
-  if (milestoneTimeline && !/(事件前|事件后|收盘|验证点)/.test(milestoneTimeline.text)) {
-    findings.push("milestone timeline lacks before/after validation anchors");
+  if (milestoneTimeline && prediction.pathForecast?.status === "open" && !/(共同|同时|相互确认|多项信息)/.test(milestoneTimeline.text)) {
+    findings.push("milestone timeline does not explain how multiple signals must align");
+  }
+  if (milestoneTimeline && prediction.pathForecast?.status === "open" && !/阶段高点[\s\S]*新增买盘/.test(milestoneTimeline.text)) {
+    findings.push("milestone timeline does not explain how a repricing move can exhaust into a high");
   }
   const researchJudgement = surfaces.find((surface) => surface.role === "research-judgement");
   const professionalBriefs = buildResearchBriefs(snapshot, prediction);
@@ -21556,17 +22075,9 @@ var ProbabilitySubagent = class {
 };
 
 // src/research/subagents/MilestoneSubagent.ts
-function addCalendarDays2(value, days) {
-  const date5 = new Date(value);
-  if (Number.isNaN(date5.getTime())) {
-    throw new Error(`Invalid milestone research timestamp: ${value}`);
-  }
-  date5.setUTCDate(date5.getUTCDate() + days);
-  return date5.toISOString();
-}
 var MilestoneSubagent = class {
   async run(input) {
-    const horizonEnd = addCalendarDays2(
+    const horizonEnd = addXnysCalendarDays(
       input.researchAsOf,
       input.horizonDays ?? FORECAST_HORIZON_CALENDAR_DAYS
     );
@@ -21575,7 +22086,7 @@ var MilestoneSubagent = class {
       throw new Error("Milestone calendar returned no validation points for the forecast horizon.");
     }
     return {
-      calendarVersion: "official-event-calendar-rolling-v2",
+      calendarVersion: "official-event-calendar-rolling-v3-xnys",
       horizonEnd,
       milestones
     };
@@ -21609,46 +22120,52 @@ var ForecastSubagent = class {
         if (pathForecast.status === "resolved_at_issue") {
           return {
             ...prediction,
-            likelyWindow: pathForecast.likelyWindow.label,
+            likelyWindow: "\u672C\u8F6E\u7814\u7A76\u8D77\u70B9\u5DF2\u89E6\u8FBE",
             pathForecast,
             nearTermForecast: {
-              label: pathForecast.likelyWindow.label,
-              windowStart: pathForecast.likelyWindow.start,
-              windowEnd: pathForecast.likelyWindow.end,
-              thesis: `${prediction.target} \u7F8E\u5143\u5728\u672C\u8F6E\u7814\u7A76\u8D77\u70B9\u5DF2\u7ECF\u89E6\u8FBE\uFF0C\u5F53\u524D\u5408\u540C\u4E0D\u518D\u5206\u914D\u672A\u6765\u89E6\u8FBE\u65F6\u95F4\uFF1B\u540E\u7EED\u91CC\u7A0B\u7891\u53EA\u7528\u4E8E\u65B0\u4E00\u8F6E\u7814\u7A76\u3002`,
-              trigger: "\u7ED3\u7B97\u6761\u4EF6\uFF1A\u7814\u7A76\u8D77\u70B9\u7684\u5E38\u89C4\u4EA4\u6613\u65F6\u6BB5\u4EF7\u683C\u5DF2\u8FBE\u5230\u76EE\u6807\u3002",
-              invalidation: "\u8BE5\u7ED3\u7B97\u72B6\u6001\u4E0D\u4F1A\u88AB\u540E\u7EED\u884C\u60C5\u53CD\u5411\u6539\u5199\u3002",
+              label: "\u672C\u8F6E\u7814\u7A76\u8D77\u70B9\u5DF2\u89E6\u8FBE",
+              windowStart: prediction.forecastQuestion?.issuedAt.slice(0, 10) ?? input.quote.asOf.slice(0, 10),
+              windowEnd: prediction.forecastQuestion?.issuedAt.slice(0, 10) ?? input.quote.asOf.slice(0, 10),
+              thesis: `${prediction.target} \u7F8E\u5143\u5728\u672C\u8F6E\u7814\u7A76\u5F00\u59CB\u65F6\u5DF2\u7ECF\u89E6\u8FBE\uFF0C\u56E0\u6B64\u4E0D\u518D\u63A8\u6D4B\u672A\u6765\u65E5\u671F\uFF1B\u540E\u7EED\u516C\u5F00\u4FE1\u606F\u7528\u4E8E\u4E0B\u4E00\u8F6E\u7814\u7A76\u3002`,
+              trigger: "\u7814\u7A76\u5F00\u59CB\u65F6\u7684\u5E38\u89C4\u4EA4\u6613\u65F6\u6BB5\u4EF7\u683C\u5DF2\u7ECF\u8FBE\u5230\u76EE\u6807\u3002",
+              invalidation: "\u8FD9\u4E00\u5386\u53F2\u72B6\u6001\u4E0D\u4F1A\u88AB\u540E\u7EED\u884C\u60C5\u53CD\u5411\u6539\u5199\u3002",
               confidence: "\u9AD8",
-              modelName: "event-milestone-forecast-v2.0",
+              modelName: "event-confluence-forecast-v3.0",
               contextScore: contextForecast.contextScore,
               contextDrivers: contextForecast.contextDrivers,
               evidenceSummary: contextForecast.evidenceSummary
             }
           };
         }
-        const primary = input.milestones.find(
-          (milestone) => milestone.id === pathForecast.primaryMilestoneId
-        );
-        if (!primary) {
-          throw new Error(`Missing primary milestone ${pathForecast.primaryMilestoneId}.`);
+        const window = pathForecast.confluenceWindow;
+        const rule = pathForecast.confluenceRule;
+        if (!window || !rule) {
+          throw new Error(`Missing confluence window for ${prediction.target} USD target.`);
         }
-        const certaintyLabel = primary.certainty === "confirmed" ? "\u5DF2\u786E\u8BA4\u65E5\u7A0B" : primary.certainty === "estimated" ? "\u4F30\u7B97\u533A\u95F4" : "\u6761\u4EF6\u89E6\u53D1";
+        const basis = window.basisMilestoneIds.map((id) => input.milestones.find((milestone) => milestone.id === id)).filter((milestone) => milestone !== void 0);
+        const scheduleNotes = [
+          ...basis.some((milestone) => milestone.certainty === "official_schedule") ? ["\u76F8\u5173\u5B98\u65B9\u65E5\u671F\u5DF2\u516C\u5E03"] : [],
+          ...basis.some((milestone) => milestone.certainty === "historical_estimate") ? ["\u8D1D\u58F3\u8D22\u62A5\u5177\u4F53\u65E5\u671F\u5F85\u516C\u53F8\u516C\u544A"] : [],
+          ...basis.some((milestone) => milestone.certainty === "conditional_trigger") ? ["\u4E2D\u6982\u653F\u7B56\u6216\u8D44\u91D1\u73AF\u5883\u51FA\u73B0\u76F8\u5173\u53D8\u5316\u540E\u89C2\u5BDF"] : []
+        ];
         return {
           ...prediction,
-          likelyWindow: pathForecast.likelyWindow.label,
+          likelyWindow: window.label,
           pathForecast,
           nearTermForecast: {
-            label: pathForecast.likelyWindow.label,
-            windowStart: pathForecast.likelyWindow.start,
-            windowEnd: pathForecast.likelyWindow.end,
-            thesis: `${primary.title}\u662F ${prediction.target} \u7F8E\u5143\u8DEF\u5F84\u7684\u4E0B\u4E00\u5173\u952E\u9A8C\u8BC1\u70B9\uFF08${certaintyLabel}\uFF09\u3002\u4E8B\u4EF6\u524D\u6309${primary.preAnchors.map((anchor) => anchor.label).join("\u3001")}\u51BB\u7ED3\u57FA\u7EBF\uFF0C\u4E8B\u4EF6\u540E\u6309${primary.postAnchors.map((anchor) => anchor.label).join("\u3001")}\u786E\u8BA4\u4F20\u5BFC\uFF0C\u4E0D\u628A\u65E5\u7A0B\u672C\u8EAB\u9884\u8BBE\u4E3A\u5229\u597D\u3002`,
-            trigger: `\u9A8C\u8BC1\u6761\u4EF6\uFF1A${primary.rationale}`,
-            invalidation: `\u6539\u5224\u6761\u4EF6\uFF1A\u4E8B\u4EF6\u7ED3\u679C\u4E0E\u4EF7\u683C\u3001\u6210\u4EA4\u91CF\u6216\u76F8\u5BF9 KWEB \u5F3A\u5F31\u6CA1\u6709\u5F62\u6210\u540C\u5411\u786E\u8BA4\u3002`,
-            confidence: pathForecast.likelyWindow.confidence,
-            modelName: "event-milestone-forecast-v2.0",
+            label: window.label,
+            windowStart: window.start,
+            windowEnd: window.end,
+            thesis: `${rule.summary}${scheduleNotes.length > 0 ? ` ${scheduleNotes.join("\uFF1B")}\u3002` : ""}\u8FD9\u91CC\u5B9A\u4F4D\u7684\u662F\u591A\u9879\u4FE1\u606F\u53EF\u80FD\u5171\u540C\u4F5C\u7528\u7684\u89C2\u5BDF\u671F\uFF0C\u4E0D\u628A\u4EFB\u4F55\u53D1\u5E03\u65E5\u671F\u5199\u6210\u80A1\u4EF7\u9AD8\u70B9\u3002`,
+            trigger: describeConfluenceRequirement(rule.minimumSignals, rule.mandatoryKinds),
+            invalidation: `\u4EC0\u4E48\u4F1A\u6539\u53D8\u5224\u65AD\uFF1A\u4FE1\u606F\u65B9\u5411\u4E92\u76F8\u51B2\u7A81\uFF0C\u6216${rule.exhaustionSignals[0]}\u3002`,
+            confidence: window.confidence,
+            modelName: "event-confluence-forecast-v3.0",
             contextScore: contextForecast.contextScore,
             contextDrivers: [
-              `${primary.title}\uFF08${certaintyLabel}\uFF09`,
+              ...pathForecast.stages.flatMap(
+                (stage) => stage.milestoneIds.map((id) => input.milestones.find((milestone) => milestone.id === id)?.title).filter((title) => Boolean(title))
+              ).slice(0, 3),
               ...contextForecast.contextDrivers ?? []
             ],
             evidenceSummary: contextForecast.evidenceSummary
@@ -21780,14 +22297,64 @@ var EvidenceCompletionAgent = class {
 };
 
 // src/research/forecast/validateMilestoneContract.ts
+var CONFLUENCE_SIGNALS = /* @__PURE__ */ new Set([
+  "company_fundamentals",
+  "property_state",
+  "discount_rate_adr",
+  "market_absorption"
+]);
+var PHASES = ["setup", "catalyst", "confirmation"];
 function isRecord4(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 function isDateOnly(value) {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T00:00:00Z`));
 }
+function calendarDateInTimezone(value, timezone) {
+  const instant = new Date(value);
+  if (!Number.isFinite(instant.getTime())) return void 0;
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(instant);
+    const part = (type) => parts.find((item) => item.type === type)?.value;
+    const year = part("year");
+    const month = part("month");
+    const day = part("day");
+    return year && month && day ? `${year}-${month}-${day}` : void 0;
+  } catch {
+    return void 0;
+  }
+}
 function addIssue(issues, code, path, message) {
   issues.push({ code, path, message });
+}
+function stringIds(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+}
+function sameStringSet(left, right) {
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  return leftSet.size === left.length && rightSet.size === right.length && leftSet.size === rightSet.size && [...leftSet].every((value) => rightSet.has(value)) && [...rightSet].every((value) => leftSet.has(value));
+}
+function safeXnysIssueDate(value) {
+  if (typeof value !== "string") return void 0;
+  try {
+    return xnysIssueSessionDate(value);
+  } catch {
+    return void 0;
+  }
+}
+function safeXnysMarketDate(value) {
+  if (typeof value !== "string") return void 0;
+  try {
+    return xnysMarketDate(value);
+  } catch {
+    return void 0;
+  }
 }
 function validateMilestoneContract(snapshot) {
   const issues = [];
@@ -21806,41 +22373,50 @@ function validateMilestoneContract(snapshot) {
       addIssue(issues, "duplicate_milestone_id", `${path}.id`, `Milestone id ${milestone.id} is duplicated.`);
       return;
     }
-    if (!isDateOnly(milestone.start) || !isDateOnly(milestone.end)) {
-      addIssue(issues, "invalid_milestone_range", path, `Milestone ${milestone.id} must use ISO calendar dates.`);
+    if (!isDateOnly(milestone.start) || !isDateOnly(milestone.end) || milestone.start > milestone.end) {
+      addIssue(issues, "invalid_milestone_range", path, `Milestone ${milestone.id} must use an ordered ISO date range.`);
       return;
     }
-    if (milestone.start > milestone.end) {
-      addIssue(issues, "invalid_milestone_range", path, `Milestone ${milestone.id} ends before it starts.`);
-      return;
+    const requiresScheduledInstant = milestone.certainty === "official_schedule" && (milestone.kind === "macro_release" || milestone.kind === "property_release");
+    if (requiresScheduledInstant) {
+      const scheduledDate = typeof milestone.scheduledAt === "string" && typeof milestone.timezone === "string" ? calendarDateInTimezone(milestone.scheduledAt, milestone.timezone) : void 0;
+      if (!scheduledDate || scheduledDate < milestone.start || scheduledDate > milestone.end) {
+        addIssue(
+          issues,
+          "invalid_scheduled_release",
+          `${path}.scheduledAt`,
+          `Official release ${milestone.id} must expose a valid instant in its source timezone and date range.`
+        );
+      }
     }
     milestonesById.set(milestone.id, milestone);
   });
   snapshot.predictions.forEach((prediction, predictionIndex) => {
     const predictionPath = `predictions[${predictionIndex}]`;
     if (!isRecord4(prediction) || !isRecord4(prediction.pathForecast)) {
-      addIssue(issues, "missing_path_forecast", `${predictionPath}.pathForecast`, "Every prediction must publish milestone-path-v2.");
+      addIssue(issues, "missing_path_forecast", `${predictionPath}.pathForecast`, "Every prediction must publish milestone-path-v3.");
       return;
     }
     const path = prediction.pathForecast;
-    if (path.schemaVersion !== "milestone-path-v2" || path.modelName !== CURRENT_TIMING_MODEL_VERSION || path.timingBasis !== "event_milestone_validation") {
-      addIssue(issues, "obsolete_path_contract", `${predictionPath}.pathForecast`, "Path forecast does not use the current validation-only timing contract.");
+    if (path.schemaVersion !== "milestone-path-v3" || path.modelName !== CURRENT_TIMING_MODEL_VERSION || path.timingBasis !== "multi_event_confluence") {
+      addIssue(issues, "obsolete_path_contract", `${predictionPath}.pathForecast`, "Path forecast does not use the current multi-event confluence contract.");
     }
     if (path.target !== prediction.target) {
       addIssue(issues, "path_target_mismatch", `${predictionPath}.pathForecast.target`, "Path target must equal its prediction target.");
     }
     if (path.terminalProbability !== prediction.probability) {
-      addIssue(issues, "terminal_probability_mismatch", `${predictionPath}.pathForecast.terminalProbability`, "Milestone timing must not alter the authoritative 90-day probability.");
+      addIssue(issues, "terminal_probability_mismatch", `${predictionPath}.pathForecast.terminalProbability`, "Timing must not alter the authoritative 90-day probability.");
     }
-    if (!isRecord4(path.likelyWindow) || !Array.isArray(path.checkpoints)) {
-      addIssue(issues, "obsolete_path_contract", `${predictionPath}.pathForecast`, "Path must expose a likely window and checkpoint array.");
+    if (!Array.isArray(path.stages) || !Array.isArray(path.checkpoints)) {
+      addIssue(issues, "obsolete_path_contract", `${predictionPath}.pathForecast`, "Path must expose confluence stages and checkpoints.");
       return;
     }
     const forecastStatus = isRecord4(prediction.forecastQuestion) ? prediction.forecastQuestion.status : void 0;
+    const forecastIssuedDate = isRecord4(prediction.forecastQuestion) ? safeXnysIssueDate(prediction.forecastQuestion.issuedAt) : void 0;
+    const forecastHorizonDate = isRecord4(prediction.forecastQuestion) ? safeXnysMarketDate(prediction.forecastQuestion.horizonEnd) : void 0;
     if (path.status !== forecastStatus) {
       addIssue(issues, "forecast_status_mismatch", `${predictionPath}.pathForecast.status`, "Path status must match the audited forecast question.");
     }
-    const basisIds = Array.isArray(path.likelyWindow.basisMilestoneIds) ? path.likelyWindow.basisMilestoneIds.filter((id) => typeof id === "string") : [];
     if (path.status === "resolved_at_issue") {
       if (prediction.probability !== 100 || path.terminalProbability !== 100) {
         addIssue(
@@ -21850,33 +22426,162 @@ function validateMilestoneContract(snapshot) {
           "A target already touched at issue must publish 100% prediction and terminal probabilities."
         );
       }
-      if (path.primaryMilestoneId !== void 0 || path.checkpoints.length > 0 || basisIds.length > 0) {
-        addIssue(issues, "resolved_path_has_future_references", `${predictionPath}.pathForecast`, "A target already touched at issue cannot publish future event references.");
-      }
-      if (!isDateOnly(path.likelyWindow.start) || path.likelyWindow.start !== path.likelyWindow.end || typeof path.likelyWindow.label !== "string" || !path.likelyWindow.label.includes("\u5DF2\u89E6\u8FBE")) {
-        addIssue(issues, "invalid_resolved_window", `${predictionPath}.pathForecast.likelyWindow`, "Resolved paths must point to one issue date and state that the target was already touched.");
+      if (path.confluenceWindow !== void 0 || path.confluenceRule !== void 0 || path.stages.length > 0 || path.checkpoints.length > 0) {
+        addIssue(issues, "resolved_path_has_future_references", `${predictionPath}.pathForecast`, "A target already touched at issue cannot publish future confluence references.");
       }
       return;
     }
-    if (path.status !== "open" || typeof path.primaryMilestoneId !== "string") {
-      addIssue(issues, "missing_primary_milestone", `${predictionPath}.pathForecast.primaryMilestoneId`, "An open path must declare one primary milestone.");
+    if (path.status !== "open") {
+      addIssue(issues, "forecast_status_mismatch", `${predictionPath}.pathForecast.status`, "An unresolved target must publish an open confluence path.");
       return;
     }
-    const primaryId = path.primaryMilestoneId;
-    const primary = milestonesById.get(primaryId);
-    if (!primary) {
-      addIssue(issues, "unknown_milestone_reference", `${predictionPath}.pathForecast.primaryMilestoneId`, `Primary milestone ${primaryId} is not published.`);
+    if (!isRecord4(path.confluenceWindow)) {
+      addIssue(issues, "missing_confluence_window", `${predictionPath}.pathForecast.confluenceWindow`, "An open path requires one multi-event observation window.");
+      return;
     }
-    for (const [basisIndex, id] of basisIds.entries()) {
+    if (!isRecord4(path.confluenceRule)) {
+      addIssue(issues, "missing_confluence_rule", `${predictionPath}.pathForecast.confluenceRule`, "An open path requires an independent-signal rule.");
+      return;
+    }
+    const window = path.confluenceWindow;
+    const rule = path.confluenceRule;
+    const basisIds = stringIds(window.basisMilestoneIds);
+    const signalKinds = stringIds(rule.signalKinds);
+    const mandatoryKinds = stringIds(rule.mandatoryKinds);
+    const exhaustionSignals = stringIds(rule.exhaustionSignals);
+    const distinctSignals = new Set(signalKinds);
+    const minimumSignals = rule.minimumSignals;
+    if (basisIds.length < 2 || distinctSignals.size < 2 || signalKinds.some((signal) => !CONFLUENCE_SIGNALS.has(signal)) || typeof minimumSignals !== "number" || !Number.isInteger(minimumSignals) || minimumSignals < 2 || minimumSignals > distinctSignals.size) {
+      addIssue(issues, "insufficient_confluence_signals", `${predictionPath}.pathForecast.confluenceRule`, "A confluence window requires at least two independent, valid signals and a feasible minimum.");
+    }
+    if (mandatoryKinds.length === 0 || new Set(mandatoryKinds).size !== mandatoryKinds.length || mandatoryKinds.some((signal) => !distinctSignals.has(signal))) {
+      addIssue(issues, "invalid_mandatory_signal", `${predictionPath}.pathForecast.confluenceRule.mandatoryKinds`, "Mandatory signals must be unique members of the declared signal set.");
+    }
+    if (exhaustionSignals.length === 0 || exhaustionSignals.length > 3 || new Set(exhaustionSignals).size !== exhaustionSignals.length || exhaustionSignals.some((signal) => signal.trim().length === 0)) {
+      addIssue(
+        issues,
+        "missing_exhaustion_signals",
+        `${predictionPath}.pathForecast.confluenceRule.exhaustionSignals`,
+        "An open path must preserve one to three distinct signals for identifying post-touch buying exhaustion."
+      );
+    }
+    const targetPolicy = prediction.target === 18 || prediction.target === 19.5 || prediction.target === 21 || prediction.target === 23 || prediction.target === 30 ? confluencePolicyForTarget(prediction.target) : void 0;
+    if (!targetPolicy || minimumSignals !== targetPolicy.minimumSignals || !sameStringSet(signalKinds, targetPolicy.signalKinds) || !sameStringSet(mandatoryKinds, targetPolicy.mandatoryKinds)) {
+      addIssue(
+        issues,
+        "target_policy_mismatch",
+        `${predictionPath}.pathForecast.confluenceRule`,
+        "The confluence rule must preserve the versioned evidence threshold for its target."
+      );
+    }
+    const stages = path.stages;
+    if (stages.length !== PHASES.length || stages.some(
+      (stage, index) => !isRecord4(stage) || stage.phase !== PHASES[index] || typeof stage.label !== "string" || stage.label.length === 0 || stringIds(stage.milestoneIds).length === 0
+    )) {
+      addIssue(issues, "missing_confluence_stage", `${predictionPath}.pathForecast.stages`, "An open path must publish setup, catalyst and confirmation stages in order.");
+    }
+    const stageIds = stages.flatMap(
+      (stage) => isRecord4(stage) ? stringIds(stage.milestoneIds) : []
+    );
+    for (const [index, id] of basisIds.entries()) {
       if (!milestonesById.has(id)) {
-        addIssue(issues, "unknown_milestone_reference", `${predictionPath}.pathForecast.likelyWindow.basisMilestoneIds[${basisIndex}]`, `Basis milestone ${id} is not published.`);
+        addIssue(issues, "unknown_milestone_reference", `${predictionPath}.pathForecast.confluenceWindow.basisMilestoneIds[${index}]`, `Basis milestone ${id} is not published.`);
       }
     }
-    if (!basisIds.includes(primaryId)) {
-      addIssue(issues, "primary_not_in_basis", `${predictionPath}.pathForecast.likelyWindow.basisMilestoneIds`, "The primary milestone must remain part of the stated timing basis.");
+    for (const [index, id] of stageIds.entries()) {
+      if (!milestonesById.has(id)) {
+        addIssue(issues, "unknown_milestone_reference", `${predictionPath}.pathForecast.stages[${index}]`, `Stage milestone ${id} is not published.`);
+      }
+      if (!basisIds.includes(id)) {
+        addIssue(issues, "stage_reference_mismatch", `${predictionPath}.pathForecast.stages`, `Stage milestone ${id} is missing from the observation window basis.`);
+      }
     }
-    if (primary && (path.likelyWindow.start !== primary.start || path.likelyWindow.end !== primary.end)) {
-      addIssue(issues, "likely_window_mismatch", `${predictionPath}.pathForecast.likelyWindow`, "The likely window must use the primary milestone range.");
+    if (!sameStringSet(basisIds, stageIds)) {
+      addIssue(
+        issues,
+        "stage_reference_mismatch",
+        `${predictionPath}.pathForecast.confluenceWindow.basisMilestoneIds`,
+        "The observation-window basis must exactly match the distinct milestones used by its three stages."
+      );
+    }
+    for (const [index, id] of basisIds.entries()) {
+      const milestone = milestonesById.get(id);
+      if (milestone && (!isDateOnly(forecastIssuedDate) || !isDateOnly(forecastHorizonDate) || typeof milestone.start === "string" && milestone.start < forecastIssuedDate || typeof milestone.end === "string" && milestone.end > forecastHorizonDate)) {
+        addIssue(
+          issues,
+          "milestone_outside_forecast_horizon",
+          `${predictionPath}.pathForecast.confluenceWindow.basisMilestoneIds[${index}]`,
+          `Basis milestone ${id} must remain within the audited forecast horizon.`
+        );
+      }
+    }
+    const setupStage = stages.find((stage) => isRecord4(stage) && stage.phase === "setup");
+    const catalystStage = stages.find((stage) => isRecord4(stage) && stage.phase === "catalyst");
+    const confirmationStage = stages.find((stage) => isRecord4(stage) && stage.phase === "confirmation");
+    const setups = isRecord4(setupStage) ? stringIds(setupStage.milestoneIds).map((id) => milestonesById.get(id)).filter((milestone) => milestone !== void 0) : [];
+    const catalysts = isRecord4(catalystStage) ? stringIds(catalystStage.milestoneIds).map((id) => milestonesById.get(id)).filter(
+      (milestone) => milestone !== void 0 && milestone.certainty !== "conditional_trigger"
+    ) : [];
+    const confirmations = isRecord4(confirmationStage) ? stringIds(confirmationStage.milestoneIds).map((id) => milestonesById.get(id)).filter((milestone) => milestone !== void 0) : [];
+    const fixedCatalysts = catalysts.filter(
+      (milestone) => milestone.certainty === "official_schedule"
+    );
+    const forecastIssuedMs = isRecord4(prediction.forecastQuestion) && typeof prediction.forecastQuestion.issuedAt === "string" ? Date.parse(prediction.forecastQuestion.issuedAt) : Number.NaN;
+    if (fixedCatalysts.some(
+      (milestone) => typeof milestone.scheduledAt !== "string" || !Number.isFinite(Date.parse(milestone.scheduledAt)) || Date.parse(milestone.scheduledAt) <= forecastIssuedMs
+    )) {
+      addIssue(
+        issues,
+        "elapsed_catalyst_reference",
+        `${predictionPath}.pathForecast.stages`,
+        "An official catalyst must still be unpublished at the audited research timestamp."
+      );
+    }
+    const setupEnd = setups.map((milestone) => milestone.end).filter((value) => typeof value === "string").sort().at(-1);
+    const firstFixedCatalystStart = fixedCatalysts.map((milestone) => milestone.start).filter((value) => typeof value === "string").sort()[0];
+    const lastCatalystEnd = catalysts.map((milestone) => milestone.end).filter((value) => typeof value === "string").sort().at(-1);
+    const confirmationStart = confirmations.map((milestone) => milestone.start).filter((value) => typeof value === "string").sort()[0];
+    if (!setupEnd || !firstFixedCatalystStart || !lastCatalystEnd || !confirmationStart || setupEnd >= firstFixedCatalystStart || lastCatalystEnd >= confirmationStart) {
+      addIssue(
+        issues,
+        "stage_order_violation",
+        `${predictionPath}.pathForecast.stages`,
+        "The market setup must precede the first fixed catalyst, and confirmation must follow every scheduled catalyst."
+      );
+    }
+    const representedSignals = /* @__PURE__ */ new Set();
+    if (setups.some((milestone) => milestone.kind === "technical_checkpoint") && confirmations.some((milestone) => milestone.kind === "technical_checkpoint")) {
+      representedSignals.add("market_absorption");
+    }
+    if (catalysts.some((milestone) => milestone.kind === "earnings")) {
+      representedSignals.add("company_fundamentals");
+    }
+    if (catalysts.some((milestone) => milestone.kind === "property_release")) {
+      representedSignals.add("property_state");
+    }
+    if (catalysts.some(
+      (milestone) => milestone.kind === "macro_release" || milestone.kind === "china_adr_event"
+    )) {
+      representedSignals.add("discount_rate_adr");
+    }
+    const unsupportedSignals = [...distinctSignals].filter(
+      (signal) => CONFLUENCE_SIGNALS.has(signal) && !representedSignals.has(signal)
+    );
+    if (unsupportedSignals.length > 0 || typeof minimumSignals === "number" && minimumSignals > representedSignals.size) {
+      addIssue(
+        issues,
+        "stage_signal_mismatch",
+        `${predictionPath}.pathForecast.stages`,
+        "Every declared independent signal must be represented by its corresponding event or market-confirmation stage."
+      );
+    }
+    const expectedStart = setups.map((milestone) => milestone.start).filter((value) => typeof value === "string").sort()[0];
+    const expectedEnd = confirmations.map((milestone) => milestone.end).filter((value) => typeof value === "string").sort().at(-1);
+    if (!isDateOnly(window.start) || !isDateOnly(window.end) || window.start >= window.end || window.start !== expectedStart || window.end !== expectedEnd) {
+      addIssue(issues, "confluence_window_mismatch", `${predictionPath}.pathForecast.confluenceWindow`, "The observation window must span market setup, scheduled catalysts and subsequent confirmation.");
+    }
+    if (prediction.target === 30 && window.start === window.end) {
+      addIssue(issues, "single_day_tail_window", `${predictionPath}.pathForecast.confluenceWindow`, "The 30-dollar tail scenario cannot be bound to one calendar day.");
     }
     let previousStart;
     const checkpointIds = /* @__PURE__ */ new Set();
@@ -21898,6 +22603,14 @@ function validateMilestoneContract(snapshot) {
       if (checkpoint.start !== milestone.start || checkpoint.end !== milestone.end) {
         addIssue(issues, "checkpoint_range_mismatch", checkpointPath, `Checkpoint ${checkpoint.milestoneId} must preserve the source milestone range.`);
       }
+      if (!isDateOnly(forecastIssuedDate) || !isDateOnly(forecastHorizonDate) || typeof milestone.start === "string" && milestone.start < forecastIssuedDate || typeof milestone.end === "string" && milestone.end > forecastHorizonDate) {
+        addIssue(
+          issues,
+          "milestone_outside_forecast_horizon",
+          checkpointPath,
+          `Checkpoint ${checkpoint.milestoneId} must remain within the audited forecast horizon.`
+        );
+      }
       if (typeof checkpoint.start !== "string" || typeof checkpoint.end !== "string" || checkpoint.start > checkpoint.end) {
         addIssue(issues, "checkpoint_range_mismatch", checkpointPath, `Checkpoint ${checkpoint.milestoneId} has an invalid date range.`);
       }
@@ -21906,12 +22619,20 @@ function validateMilestoneContract(snapshot) {
       }
       if (typeof checkpoint.start === "string") previousStart = checkpoint.start;
     });
-    if (!checkpointIds.has(primaryId)) {
-      addIssue(issues, "primary_not_in_checkpoints", `${predictionPath}.pathForecast.checkpoints`, "The primary milestone must not be dropped during cluster deduplication.");
+    if (stageIds.some((id) => !checkpointIds.has(id))) {
+      addIssue(issues, "stage_reference_mismatch", `${predictionPath}.pathForecast.checkpoints`, "Every confluence-stage milestone must remain in the chronological checkpoint path.");
     }
     const lastCheckpoint = path.checkpoints.at(-1);
+    const expectedHorizonId = isDateOnly(forecastHorizonDate) ? `forecast-horizon-${forecastHorizonDate}` : void 0;
     if (!isRecord4(lastCheckpoint) || typeof lastCheckpoint.milestoneId !== "string" || !lastCheckpoint.milestoneId.startsWith("forecast-horizon-")) {
       addIssue(issues, "missing_horizon_checkpoint", `${predictionPath}.pathForecast.checkpoints`, "An open path must end at the explicit 90-day horizon milestone.");
+    } else if (!expectedHorizonId || lastCheckpoint.milestoneId !== expectedHorizonId || lastCheckpoint.start !== forecastHorizonDate || lastCheckpoint.end !== forecastHorizonDate) {
+      addIssue(
+        issues,
+        "horizon_checkpoint_mismatch",
+        `${predictionPath}.pathForecast.checkpoints`,
+        "The final checkpoint must exactly match the audited forecast horizon date."
+      );
     }
   });
   return { valid: issues.length === 0, issues };
@@ -22077,7 +22798,7 @@ function reviewSnapshot(snapshot, previousSnapshot, events = []) {
   issues.push(...reviewProbabilityOrdering(snapshot.predictions));
   issues.push(...reviewProbabilityBounds(snapshot.predictions));
   const dataVersion = snapshot.dataVersion ?? "";
-  const usesMilestoneRuntime = dataVersion.includes(RESEARCH_RUNTIME_VERSION) || dataVersion.includes("official-event-calendar-rolling-v2") || dataVersion.includes("official-event-calendar-2026q3-v1") || snapshot.predictions.some((prediction) => prediction.pathForecast !== void 0);
+  const usesMilestoneRuntime = dataVersion.includes(RESEARCH_RUNTIME_VERSION) || dataVersion.includes("official-event-calendar-rolling-v3-xnys") || dataVersion.includes("official-event-calendar-rolling-v2") || dataVersion.includes("official-event-calendar-2026q3-v1") || snapshot.predictions.some((prediction) => prediction.pathForecast !== void 0);
   issues.push(...usesMilestoneRuntime ? reviewMilestoneForecasts(snapshot) : reviewNearTermForecasts(snapshot.predictions));
   issues.push(...reviewResearchQuality(snapshot));
   if (snapshot.analysis.generation?.mode === "model_loop") {
@@ -22229,8 +22950,8 @@ function reviewMilestoneForecasts(snapshot) {
     "china_adr_event"
   ]);
   const sharedQuestion = snapshot.predictions[0]?.forecastQuestion;
-  const issuedDate = sharedQuestion?.issuedAt.slice(0, 10);
-  const horizonDate = sharedQuestion?.horizonEnd.slice(0, 10);
+  const issuedDate = sharedQuestion ? xnysIssueSessionDate(sharedQuestion.issuedAt) : void 0;
+  const horizonDate = sharedQuestion ? xnysMarketDate(sharedQuestion.horizonEnd) : void 0;
   for (const milestone of milestones) {
     if (milestoneIds.has(milestone.id)) {
       issues.push({
@@ -22256,11 +22977,11 @@ function reviewMilestoneForecasts(snapshot) {
         message: `\u91CC\u7A0B\u7891 ${milestone.id} \u7F3A\u5C11\u53EF\u6838\u9A8C\u6765\u6E90\u3002`
       });
     }
-    if (milestone.certainty === "estimated" && milestone.start === milestone.end) {
+    if (milestone.certainty === "historical_estimate" && milestone.start === milestone.end) {
       issues.push({
         code: "MILESTONE_FALSE_PRECISION",
         severity: "high",
-        message: `\u4F30\u7B97\u91CC\u7A0B\u7891 ${milestone.id} \u4E0D\u5F97\u4F2A\u88C5\u6210\u5355\u4E00\u786E\u5B9A\u65E5\u671F\u3002`
+        message: `\u6309\u5386\u53F2\u8282\u594F\u5F62\u6210\u7684\u91CC\u7A0B\u7891 ${milestone.id} \u4E0D\u5F97\u4F2A\u88C5\u6210\u5355\u4E00\u786E\u5B9A\u65E5\u671F\u3002`
       });
     }
   }
@@ -22282,7 +23003,7 @@ function reviewMilestoneForecasts(snapshot) {
   }
   for (const prediction of snapshot.predictions) {
     const path = prediction.pathForecast;
-    if (path.schemaVersion !== "milestone-path-v2" || path.modelName !== CURRENT_TIMING_MODEL_VERSION || path.timingBasis !== "event_milestone_validation" || path.target !== prediction.target) {
+    if (path.schemaVersion !== "milestone-path-v3" || path.modelName !== CURRENT_TIMING_MODEL_VERSION || path.timingBasis !== "multi_event_confluence" || path.target !== prediction.target) {
       issues.push({
         code: "MILESTONE_CONTEXT_MISMATCH",
         severity: "high",
@@ -22312,14 +23033,14 @@ function reviewMilestoneForecasts(snapshot) {
           message: `P${prediction.target} \u5728\u7814\u7A76\u8D77\u70B9\u5DF2\u89E6\u8FBE\uFF0C\u4F46\u53D1\u5E03\u6982\u7387\u672A\u56FA\u5B9A\u4E3A 100%\u3002`
         });
       }
-      if (path.primaryMilestoneId !== void 0 || path.checkpoints.length > 0 || path.likelyWindow.basisMilestoneIds.length > 0 || path.likelyWindow.label !== "\u672C\u8F6E\u7814\u7A76\u8D77\u70B9\u5DF2\u89E6\u8FBE") {
+      if (path.confluenceWindow !== void 0 || path.confluenceRule !== void 0 || path.stages.length > 0 || path.checkpoints.length > 0) {
         issues.push({
           code: "RESOLVED_PATH_HAS_FUTURE_WINDOW",
           severity: "high",
           message: `P${prediction.target} \u5728\u7814\u7A76\u8D77\u70B9\u5DF2\u89E6\u8FBE\uFF0C\u5374\u4ECD\u88AB\u5206\u914D\u672A\u6765\u9A8C\u8BC1\u7A97\u53E3\u3002`
         });
       }
-      if (!prediction.nearTermForecast || prediction.nearTermForecast.modelName !== "event-milestone-forecast-v2.0" || !prediction.nearTermForecast.thesis.includes("\u5DF2\u7ECF\u89E6\u8FBE")) {
+      if (!prediction.nearTermForecast || prediction.nearTermForecast.modelName !== "event-confluence-forecast-v3.0" || !prediction.nearTermForecast.thesis.includes("\u5DF2\u7ECF")) {
         issues.push({
           code: "FORECAST_COPY_ANCHOR_MISMATCH",
           severity: "high",
@@ -22328,20 +23049,22 @@ function reviewMilestoneForecasts(snapshot) {
       }
       continue;
     }
-    const primaryId = path.primaryMilestoneId;
-    const primary = primaryId ? milestones.find((milestone) => milestone.id === primaryId) : void 0;
-    if (!primaryId || !primary || !path.likelyWindow.basisMilestoneIds.includes(primaryId) || !path.checkpoints.some((checkpoint) => checkpoint.milestoneId === primaryId)) {
+    const window = path.confluenceWindow;
+    const rule = path.confluenceRule;
+    const stageIds = path.stages.flatMap((stage) => stage.milestoneIds);
+    if (!window || !rule || window.basisMilestoneIds.length < 2 || path.stages.length !== 3) {
       issues.push({
         code: "PATH_ORPHAN_CHECKPOINT",
         severity: "high",
-        message: `P${prediction.target} \u4E3B\u91CC\u7A0B\u7891\u672A\u88AB\u5171\u4EAB\u65E5\u5386\u548C\u9A8C\u8BC1\u8DEF\u5F84\u5171\u540C\u4FDD\u7559\u3002`
+        message: `P${prediction.target} \u7F3A\u5C11\u5B8C\u6574\u7684\u591A\u4E8B\u4EF6\u5171\u632F\u6761\u4EF6\u6216\u89C2\u5BDF\u9636\u6BB5\u3002`
       });
+      continue;
     }
     const checkpointMilestones = path.checkpoints.map((checkpoint) => ({
       checkpoint,
       milestone: milestones.find((milestone) => milestone.id === checkpoint.milestoneId)
     }));
-    if (path.likelyWindow.basisMilestoneIds.some((id) => !milestoneIds.has(id)) || checkpointMilestones.some(({ milestone }) => !milestone)) {
+    if (window.basisMilestoneIds.some((id) => !milestoneIds.has(id)) || stageIds.some((id) => !milestoneIds.has(id)) || checkpointMilestones.some(({ milestone }) => !milestone)) {
       issues.push({
         code: "PATH_ORPHAN_CHECKPOINT",
         severity: "high",
@@ -22368,11 +23091,11 @@ function reviewMilestoneForecasts(snapshot) {
         message: `P${prediction.target} \u9A8C\u8BC1\u8DEF\u5F84\u7F3A\u5C11 90 \u5929\u7ED3\u7B97\u8282\u70B9\u3002`
       });
     }
-    if (!primary || !prediction.nearTermForecast || prediction.nearTermForecast.modelName !== "event-milestone-forecast-v2.0" || !prediction.nearTermForecast.thesis.includes(primary.title)) {
+    if (!prediction.nearTermForecast || prediction.nearTermForecast.modelName !== "event-confluence-forecast-v3.0" || !/(共同|同时|相互确认|多项信息)/.test(prediction.nearTermForecast.thesis)) {
       issues.push({
         code: "FORECAST_COPY_ANCHOR_MISMATCH",
         severity: "high",
-        message: `P${prediction.target} \u7684\u65F6\u95F4\u6587\u6848\u6CA1\u6709\u5F15\u7528\u5176\u4E3B\u91CC\u7A0B\u7891\u3002`
+        message: `P${prediction.target} \u7684\u65F6\u95F4\u6587\u6848\u6CA1\u6709\u89E3\u91CA\u591A\u9879\u4FE1\u606F\u5982\u4F55\u5171\u540C\u4F5C\u7528\u3002`
       });
     }
   }
@@ -22381,6 +23104,7 @@ function reviewMilestoneForecasts(snapshot) {
     invalid_milestone_shape: "MILESTONE_CONTEXT_MISMATCH",
     duplicate_milestone_id: "MILESTONE_TIMING_INVALID",
     invalid_milestone_range: "MILESTONE_TIMING_INVALID",
+    invalid_scheduled_release: "MILESTONE_TIMING_INVALID",
     missing_path_forecast: "MILESTONE_CONTEXT_MISMATCH",
     obsolete_path_contract: "MILESTONE_CONTEXT_MISMATCH",
     path_target_mismatch: "MILESTONE_CONTEXT_MISMATCH",
@@ -22388,16 +23112,26 @@ function reviewMilestoneForecasts(snapshot) {
     forecast_status_mismatch: "MILESTONE_CONTEXT_MISMATCH",
     resolved_probability_mismatch: "RESOLVED_PROBABILITY_MISMATCH",
     resolved_path_has_future_references: "RESOLVED_PATH_HAS_FUTURE_WINDOW",
-    invalid_resolved_window: "RESOLVED_PATH_HAS_FUTURE_WINDOW",
-    missing_primary_milestone: "PATH_ORPHAN_CHECKPOINT",
+    missing_confluence_window: "MILESTONE_CONTEXT_MISMATCH",
+    missing_confluence_rule: "MILESTONE_CONTEXT_MISMATCH",
+    missing_confluence_stage: "PATH_ORPHAN_CHECKPOINT",
+    insufficient_confluence_signals: "MILESTONE_CONTEXT_MISMATCH",
+    invalid_mandatory_signal: "MILESTONE_CONTEXT_MISMATCH",
+    missing_exhaustion_signals: "MILESTONE_CONTEXT_MISMATCH",
+    target_policy_mismatch: "MILESTONE_CONTEXT_MISMATCH",
+    stage_signal_mismatch: "MILESTONE_CONTEXT_MISMATCH",
     unknown_milestone_reference: "PATH_ORPHAN_CHECKPOINT",
-    primary_not_in_basis: "PATH_ORPHAN_CHECKPOINT",
-    primary_not_in_checkpoints: "PATH_ORPHAN_CHECKPOINT",
-    likely_window_mismatch: "MILESTONE_CONTEXT_MISMATCH",
+    stage_reference_mismatch: "PATH_ORPHAN_CHECKPOINT",
+    stage_order_violation: "PATH_TIME_ORDER",
+    elapsed_catalyst_reference: "PATH_TIME_ORDER",
+    confluence_window_mismatch: "MILESTONE_CONTEXT_MISMATCH",
+    single_day_tail_window: "MILESTONE_CONTEXT_MISMATCH",
     checkpoint_range_mismatch: "PATH_TIME_ORDER",
     checkpoint_order_violation: "PATH_TIME_ORDER",
     duplicate_checkpoint: "PATH_TIME_ORDER",
-    missing_horizon_checkpoint: "PATH_HORIZON_MISSING"
+    missing_horizon_checkpoint: "PATH_HORIZON_MISSING",
+    horizon_checkpoint_mismatch: "PATH_HORIZON_MISSING",
+    milestone_outside_forecast_horizon: "PATH_TIME_ORDER"
   };
   for (const contractIssue of validateMilestoneContract(snapshot).issues) {
     const code = contractCodeMap[contractIssue.code];
@@ -22965,10 +23699,10 @@ function summarizeStepOutput(step, output) {
     }
     case "milestone": {
       const calendar = output;
-      const confirmed = calendar.milestones.filter((milestone) => milestone.certainty === "confirmed").length;
-      const estimated = calendar.milestones.filter((milestone) => milestone.certainty === "estimated").length;
-      const conditional = calendar.milestones.filter((milestone) => milestone.certainty === "conditional").length;
-      return `\u91CC\u7A0B\u7891 ${calendar.milestones.length} \u9879\uFF08\u786E\u8BA4 ${confirmed} / \u4F30\u7B97 ${estimated} / \u6761\u4EF6 ${conditional}\uFF09\uFF0C\u65E5\u5386 ${calendar.calendarVersion}`;
+      const official = calendar.milestones.filter((milestone) => milestone.certainty === "official_schedule").length;
+      const estimated = calendar.milestones.filter((milestone) => milestone.certainty === "historical_estimate").length;
+      const conditional = calendar.milestones.filter((milestone) => milestone.certainty === "conditional_trigger").length;
+      return `\u91CC\u7A0B\u7891 ${calendar.milestones.length} \u9879\uFF08\u5B98\u65B9\u65E5\u7A0B ${official} / \u5386\u53F2\u8282\u594F ${estimated} / \u72B6\u6001\u89C2\u5BDF ${conditional}\uFF09\uFF0C\u65E5\u5386 ${calendar.calendarVersion}`;
     }
     case "probability": {
       const probability = output;
@@ -22977,7 +23711,7 @@ function summarizeStepOutput(step, output) {
     }
     case "forecast": {
       const predictions = output;
-      return `\u4E8B\u4EF6\u8DEF\u5F84 ${predictions.map((prediction) => `$${prediction.target}:${prediction.pathForecast?.primaryMilestoneId ?? "n/a"}\u2192${prediction.pathForecast?.terminalProbability ?? "n/a"}%`).join(" / ")}`;
+      return `\u4E8B\u4EF6\u8DEF\u5F84 ${predictions.map((prediction) => `$${prediction.target}:${prediction.pathForecast?.confluenceWindow?.start ?? "n/a"}..${prediction.pathForecast?.confluenceWindow?.end ?? "n/a"}\u2192${prediction.pathForecast?.terminalProbability ?? "n/a"}%`).join(" / ")}`;
     }
     case "analysis": {
       const synthesis = output;
@@ -23380,7 +24114,8 @@ async function runBekeHarness(input, context) {
   });
   const publishedMilestoneIds = new Set(
     publishedPredictions.flatMap((prediction) => [
-      ...prediction.pathForecast?.likelyWindow.basisMilestoneIds ?? [],
+      ...prediction.pathForecast?.confluenceWindow?.basisMilestoneIds ?? [],
+      ...prediction.pathForecast?.stages.flatMap((stage) => stage.milestoneIds) ?? [],
       ...prediction.pathForecast?.checkpoints.map((checkpoint) => checkpoint.milestoneId) ?? []
     ])
   );
@@ -26583,6 +27318,21 @@ var publishedReadInFlight = /* @__PURE__ */ new WeakMap();
 var refreshByIdempotencyKey = /* @__PURE__ */ new Map();
 var SNAPSHOT_CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
 var PUBLIC_READ_RETRY_MS = 6e4;
+var REQUIRED_DURABLE_OUTPUT_STEPS = [
+  "market",
+  "news",
+  "event",
+  "memory",
+  "factor",
+  "evidence_completion",
+  "milestone",
+  "probability",
+  "forecast",
+  "analysis",
+  "conclusion",
+  "review",
+  "publish"
+];
 function resetBeke19RuntimeCache() {
   runtimeCache = null;
   runtimeInFlight = null;
@@ -26663,12 +27413,24 @@ function toPublicSnapshot(snapshot) {
   const publicTargetViews = snapshot.analysis.targetViews ? Object.fromEntries(TARGET_PRICES.map((target) => {
     const {
       evidenceRefs: _evidenceRefs,
+      claimLedger: _claimLedger,
       ...publicView
     } = snapshot.analysis.targetViews[target];
     return [target, publicView];
   })) : void 0;
   return {
     ...snapshot,
+    milestones: (snapshot.milestones ?? []).map((milestone) => ({
+      ...milestone,
+      // These arrays drive the internal research/review loop. The public page
+      // already receives the user-facing stages and summaries, so repeating
+      // every internal anchor for every milestone only inflates the read model.
+      preAnchors: [],
+      postAnchors: [],
+      affectedTargets: [],
+      rationale: "",
+      source: ""
+    })),
     analysis: {
       ...snapshot.analysis,
       targetViews: publicTargetViews
@@ -26694,6 +27456,8 @@ function toPublicSnapshot(snapshot) {
       } = publicPrediction.nearTermForecast;
       return {
         ...publicPrediction,
+        // The visible condition and high-point explanation remain public.
+        // Context diagnostics stay in the durable audit state instead.
         nearTermForecast: publicNearTermForecast
       };
     })
@@ -26766,12 +27530,15 @@ function hasCompatibleProbabilityHistory(snapshot, requireCurrentTargetPoint) {
   const latest = snapshot.history.at(-1);
   return !requireCurrentTargetPoint || Boolean(latest && expectedKeys.every((key) => Number.isFinite(latest[key])));
 }
-function hasCurrentTargetContract(snapshot, requireCurrentTargetPoint = false) {
+function hasCurrentTargetContract(snapshot, requireCurrentTargetPoint = false, requireInternalAudit = false) {
   if (snapshot.modelVersion !== CURRENT_PROBABILITY_MODEL_VERSION) return false;
   if (!hasCurrentPublishedPredictionSet(snapshot.predictions)) return false;
   if (!hasValidMilestoneContract(snapshot)) return false;
   const targetViews = snapshot.analysis.targetViews;
-  if (!hasCompleteTargetResearchViewRecord(targetViews)) return false;
+  if (requireInternalAudit ? !hasCompleteTargetResearchViewRecord(targetViews) : !hasCompletePublishedTargetResearchViewRecord(targetViews)) return false;
+  if (requireInternalAudit && !snapshot.predictions.every(
+    (prediction) => prediction.probabilitySynthesis !== void 0 && prediction.quantDiagnostics !== void 0
+  )) return false;
   if (!hasExactTargetRecord(snapshot.analysis.targetExplanations)) return false;
   return hasCompatibleProbabilityHistory(snapshot, requireCurrentTargetPoint);
 }
@@ -26779,7 +27546,10 @@ function hasRuntimeMarker(snapshot) {
   return snapshot.dataVersion.split("+").includes(RESEARCH_RUNTIME_VERSION);
 }
 function hasCurrentRuntimeContract(payload) {
-  return hasRuntimeMarker(payload.state.snapshot) && hasCurrentTargetContract(payload.state.snapshot, true);
+  const replayableSteps = new Set(
+    payload.state.run.steps.filter((step) => step.status === "success" && step.output !== void 0).map((step) => step.step)
+  );
+  return hasRuntimeMarker(payload.state.snapshot) && hasCurrentTargetContract(payload.state.snapshot, true, true) && payload.state.run.status === "success" && REQUIRED_DURABLE_OUTPUT_STEPS.every((step) => replayableSteps.has(step));
 }
 function isPublicPayloadCompatible(payload) {
   return payload.runtime.source === "static-fallback" && payload.state.snapshot.runId === latestSnapshot.runId && hasCurrentTargetContract(payload.state.snapshot) || hasCurrentRuntimeContract(payload);
@@ -26946,7 +27716,7 @@ async function readPublishedBeke19SnapshotState(env = getRuntimeEnv(), options =
   const payload = {
     ok: true,
     state: {
-      snapshot: toPublicSnapshot(latestSnapshot),
+      snapshot: latestSnapshot,
       run: fallbackRun(latestSnapshot)
     },
     runtime: {
@@ -26965,7 +27735,7 @@ async function readPublishedBeke19SnapshotState(env = getRuntimeEnv(), options =
   getSnapshotRepository().save(latestSnapshot);
   getRunRepository().save(payload.state.run);
   runtimeCache = { payload, expiresAtMs };
-  return payload;
+  return toPublicPayload(payload);
 }
 async function loadOrGenerateBeke19SnapshotState(env, options, now) {
   const stateStore = getStateStore(env, options.stateStore);
@@ -26977,7 +27747,9 @@ async function loadOrGenerateBeke19SnapshotState(env, options, now) {
   if (!runtimeCache || runtimeCache.payload.runtime.source === "static-fallback") {
     try {
       const persisted = await stateStore.load();
-      if (persisted && hydratePersistedState(persisted)) {
+      const hasCurrentPublicContract = persisted && hasRuntimeMarker(persisted.payload.state.snapshot) && hasCurrentTargetContract(persisted.payload.state.snapshot);
+      const canHydratePersisted = persisted && (!hasCurrentPublicContract || hasCurrentRuntimeContract(persisted.payload));
+      if (canHydratePersisted && hydratePersistedState(persisted)) {
         if (isPublicPayloadCompatible(persisted.payload)) {
           const expiresAtMs2 = new Date(persisted.expiresAt).getTime();
           runtimeCache = { payload: persisted.payload, expiresAtMs: expiresAtMs2 };
@@ -27107,8 +27879,10 @@ async function generateBeke19SnapshotState(env, options, now, stateStore) {
       const payload2 = {
         ok: true,
         state: {
-          snapshot: toPublicSnapshot(result.snapshot),
-          run: toPublicRun(result.run)
+          // Persistence keeps the complete audit state. Public compaction is
+          // applied only by create/read response boundaries.
+          snapshot: result.snapshot,
+          run: result.run
         },
         runtime: runtimeInfo(llmProvider, "server-harness", providers, cacheStatus, now, expiresAtMs, stateStore.name)
       };
@@ -27127,10 +27901,10 @@ async function generateBeke19SnapshotState(env, options, now, stateStore) {
   const payload = {
     ok: true,
     state: {
-      snapshot: toPublicSnapshot(fallbackSnapshot),
+      snapshot: fallbackSnapshot,
       // Snapshot and run are one published unit. A failed refresh is runtime
       // metadata only and must not relabel the prior publication as failed.
-      run: lastPublishedRun ?? (failedRun ? toPublicRun({ ...failedRun, snapshotId: fallbackSnapshot.runId }) : fallbackRun(fallbackSnapshot))
+      run: lastPublishedRun ?? (failedRun ? { ...failedRun, snapshotId: fallbackSnapshot.runId } : fallbackRun(fallbackSnapshot))
     },
     runtime: {
       ...runtimeInfo(
