@@ -10,15 +10,15 @@ export const MAX_PREFLIGHT_ATTEMPTS = 2;
 
 const EXPECTED_TARGETS = Object.freeze([18, 19.5, 21, 23, 30]);
 const EXPECTED_MODEL_VERSION = "probability-synthesis-v5-90d-targets-18-19p5-21-23-30";
-const EXPECTED_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v9-event-confluence";
-const EXPECTED_TIMING_MODEL_VERSION = "event-confluence-validation-v3";
+const EXPECTED_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v10-measurable-criteria";
+const EXPECTED_TIMING_MODEL_VERSION = "event-confluence-validation-v4";
 const EXPECTED_ANALYSIS_PROVIDER = "TokenPlanProvider";
 const EXPECTED_ANALYSIS_MODEL_ID = "mimo-v2.5-pro";
 const EXPECTED_PROMPT_VERSIONS = Object.freeze([
-  "quant-research-context-v2.2.0-confluence-highpoint-90d-targets-18-19p5-21-23-30",
+  "quant-research-context-v2.3.0-measurable-criteria-90d-targets-18-19p5-21-23-30",
   "bull-research-context-v1.8.0-confluence-path-90d-targets-18-19p5-21-23-30",
   "bear-research-context-v1.8.0-confluence-path-90d-targets-18-19p5-21-23-30",
-  "professional-conclusion-context-v1.18.0-confluence-highpoint-90d-targets-18-19p5-21-23-30",
+  "professional-conclusion-context-v1.19.0-measurable-criteria-90d-targets-18-19p5-21-23-30",
 ]);
 const CONFLUENCE_PHASES = Object.freeze(["setup", "catalyst", "confirmation"]);
 const CONFLUENCE_SIGNAL_KINDS = new Set([
@@ -575,7 +575,7 @@ function validateTargetPublicationContract(snapshot, label) {
 
     const path = requireObject(record.pathForecast, `${label} predictions[${index}].pathForecast`);
     if (
-      path.schemaVersion !== "milestone-path-v3"
+      path.schemaVersion !== "milestone-path-v4"
       || path.modelName !== EXPECTED_TIMING_MODEL_VERSION
       || path.timingBasis !== "multi_event_confluence"
       || path.target !== record.target
@@ -589,10 +589,12 @@ function validateTargetPublicationContract(snapshot, label) {
       throw new Error(`${label} predictions[${index}] pathForecast status must match the forecast question`);
     }
     const stages = requireArray(path.stages, `${label} predictions[${index}].pathForecast.stages`);
-    const checkpoints = requireArray(
-      path.checkpoints,
-      `${label} predictions[${index}].pathForecast.checkpoints`,
-    );
+    const checkpoints = path.checkpoints === undefined
+      ? []
+      : requireArray(
+        path.checkpoints,
+        `${label} predictions[${index}].pathForecast.checkpoints`,
+      );
     if (path.status === "resolved_at_issue") {
       if (
         path.terminalProbability !== 100
@@ -640,7 +642,49 @@ function validateTargetPublicationContract(snapshot, label) {
         signal,
         `${label} predictions[${index}].pathForecast.confluenceRule.exhaustionSignals[${signalIndex}]`,
       ));
-      requireString(rule.summary, `${label} predictions[${index}].pathForecast.confluenceRule.summary`);
+      const validationCriteria = requireArray(
+        rule.validationCriteria,
+        `${label} predictions[${index}].pathForecast.confluenceRule.validationCriteria`,
+      ).map((rawCriterion, criterionIndex) => {
+        const criterion = requireObject(
+          rawCriterion,
+          `${label} predictions[${index}].pathForecast.confluenceRule.validationCriteria[${criterionIndex}]`,
+        );
+        const milestoneIds = requireArray(
+          criterion.milestoneIds,
+          `${label} predictions[${index}].pathForecast.confluenceRule.validationCriteria[${criterionIndex}].milestoneIds`,
+        ).map((milestoneId, milestoneIndex) => requireString(
+          milestoneId,
+          `${label} predictions[${index}].pathForecast.confluenceRule.validationCriteria[${criterionIndex}].milestoneIds[${milestoneIndex}]`,
+        ));
+        const statement = requireString(
+          criterion.statement,
+          `${label} predictions[${index}].pathForecast.confluenceRule.validationCriteria[${criterionIndex}].statement`,
+        );
+        return {
+          id: requireString(criterion.id, `${label} predictions[${index}].pathForecast.confluenceRule.validationCriteria[${criterionIndex}].id`),
+          kind: requireString(criterion.kind, `${label} predictions[${index}].pathForecast.confluenceRule.validationCriteria[${criterionIndex}].kind`),
+          milestoneIds,
+          statement,
+        };
+      });
+      const peakRiskRule = requireObject(
+        rule.peakRiskRule,
+        `${label} predictions[${index}].pathForecast.confluenceRule.peakRiskRule`,
+      );
+      const peakCriteria = requireArray(
+        peakRiskRule.criteria,
+        `${label} predictions[${index}].pathForecast.confluenceRule.peakRiskRule.criteria`,
+      ).map((rawCriterion, criterionIndex) => {
+        const criterion = requireObject(
+          rawCriterion,
+          `${label} predictions[${index}].pathForecast.confluenceRule.peakRiskRule.criteria[${criterionIndex}]`,
+        );
+        return {
+          id: requireString(criterion.id, `${label} predictions[${index}].pathForecast.confluenceRule.peakRiskRule.criteria[${criterionIndex}].id`),
+          statement: requireString(criterion.statement, `${label} predictions[${index}].pathForecast.confluenceRule.peakRiskRule.criteria[${criterionIndex}].statement`),
+        };
+      });
 
       const policy = TARGET_CONFLUENCE_POLICIES[record.target];
       if (
@@ -660,6 +704,35 @@ function validateTargetPublicationContract(snapshot, label) {
         || new Set(exhaustionSignals).size !== exhaustionSignals.length
       ) {
         throw new Error(`${label} predictions[${index}] pathForecast must publish 1-3 distinct exhaustion signals`);
+      }
+      if (
+        validationCriteria.length < signalKinds.length
+        || new Set(validationCriteria.map((criterion) => criterion.id)).size !== validationCriteria.length
+        || validationCriteria.some((criterion) =>
+          !signalKinds.includes(criterion.kind)
+          || criterion.milestoneIds.length === 0
+          || !/\d/.test(criterion.statement)
+          || !/[≥≤]/.test(criterion.statement)
+        )
+        || signalKinds.some((kind) =>
+          !validationCriteria.some((criterion) => criterion.kind === kind)
+        )
+      ) {
+        throw new Error(`${label} predictions[${index}] pathForecast must publish measurable criteria for every signal`);
+      }
+      if (
+        peakRiskRule.activation !== "after_first_touch"
+        || peakRiskRule.windowSessions !== 5
+        || peakRiskRule.minimumSignals !== 2
+        || peakCriteria.length !== 3
+        || new Set(peakCriteria.map((criterion) => criterion.id)).size !== peakCriteria.length
+        || peakCriteria.some((criterion) => !/\d/.test(criterion.statement) || !/[≥≤]/.test(criterion.statement))
+        || !equalOrderedValues(
+          exhaustionSignals,
+          peakCriteria.map((criterion) => criterion.statement),
+        )
+      ) {
+        throw new Error(`${label} predictions[${index}] pathForecast must publish the current post-touch risk rule`);
       }
 
       if (
@@ -705,6 +778,13 @@ function validateTargetPublicationContract(snapshot, label) {
         }
         if (!basisMilestoneIds.includes(milestoneId)) {
           throw new Error(`${label} predictions[${index}] pathForecast stage references must remain in the confluence basis`);
+        }
+      }
+      for (const criterion of validationCriteria) {
+        for (const milestoneId of criterion.milestoneIds) {
+          if (!milestonesById.has(milestoneId) || !basisMilestoneIds.includes(milestoneId)) {
+            throw new Error(`${label} predictions[${index}] validation criterion references an unknown path milestone`);
+          }
         }
       }
       if (!equalDistinctValues(stageMilestoneIds, basisMilestoneIds)) {
@@ -808,24 +888,25 @@ function validateTargetPublicationContract(snapshot, label) {
         }
         previousCheckpointStart = checkpoint.start;
       }
-      if (stageMilestoneIds.some((milestoneId) => !checkpointIds.has(milestoneId))) {
+      if (checkpoints.length > 0 && stageMilestoneIds.some((milestoneId) => !checkpointIds.has(milestoneId))) {
         throw new Error(`${label} predictions[${index}] pathForecast checkpoints must include every stage milestone`);
       }
       const terminalCheckpoint = checkpoints.at(-1);
-      if (
+      if (checkpoints.length > 0 && (
         !terminalCheckpoint
         || typeof terminalCheckpoint.milestoneId !== "string"
         || !terminalCheckpoint.milestoneId.startsWith("forecast-horizon-")
-      ) {
+      )) {
         throw new Error(`${label} predictions[${index}] pathForecast must end at the 90-day horizon`);
-      }
-      const expectedHorizonId = `forecast-horizon-${forecastHorizonDate}`;
-      if (
-        terminalCheckpoint.milestoneId !== expectedHorizonId
-        || terminalCheckpoint.start !== forecastHorizonDate
-        || terminalCheckpoint.end !== forecastHorizonDate
-      ) {
-        throw new Error(`${label} predictions[${index}] pathForecast final checkpoint must exactly match the audited horizon`);
+      } else if (checkpoints.length > 0) {
+        const expectedHorizonId = `forecast-horizon-${forecastHorizonDate}`;
+        if (
+          terminalCheckpoint.milestoneId !== expectedHorizonId
+          || terminalCheckpoint.start !== forecastHorizonDate
+          || terminalCheckpoint.end !== forecastHorizonDate
+        ) {
+          throw new Error(`${label} predictions[${index}] pathForecast final checkpoint must exactly match the audited horizon`);
+        }
       }
     }
     issuedAtValues.add(question.issuedAt);

@@ -23,13 +23,13 @@ const CURRENT_TARGETS = [18, 19.5, 21, 23, 30];
 const RETIRED_TARGETS = [18, 19, 20];
 const LEGACY_TARGETS = [17, 18, 19];
 const CURRENT_MODEL_VERSION = "probability-synthesis-v5-90d-targets-18-19p5-21-23-30";
-const CURRENT_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v9-event-confluence";
-const CURRENT_TIMING_MODEL_VERSION = "event-confluence-validation-v3";
+const CURRENT_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v10-measurable-criteria";
+const CURRENT_TIMING_MODEL_VERSION = "event-confluence-validation-v4";
 const CURRENT_PROMPT_VERSIONS = [
-  "quant-research-context-v2.2.0-confluence-highpoint-90d-targets-18-19p5-21-23-30",
+  "quant-research-context-v2.3.0-measurable-criteria-90d-targets-18-19p5-21-23-30",
   "bull-research-context-v1.8.0-confluence-path-90d-targets-18-19p5-21-23-30",
   "bear-research-context-v1.8.0-confluence-path-90d-targets-18-19p5-21-23-30",
-  "professional-conclusion-context-v1.18.0-confluence-highpoint-90d-targets-18-19p5-21-23-30",
+  "professional-conclusion-context-v1.19.0-measurable-criteria-90d-targets-18-19p5-21-23-30",
 ];
 const REQUIRED_ANALYSIS_STAGES = [
   "quant",
@@ -140,23 +140,23 @@ function milestoneContract(issuedAt, dateOverrides = {}) {
 
 function pathForecast(target, probability, issuedAt, dateOverrides) {
   const contract = milestoneContract(issuedAt, dateOverrides);
-  const policy = TARGET_CONFLUENCE_POLICIES[target];
+  const policy = TARGET_CONFLUENCE_POLICIES[target] ?? TARGET_CONFLUENCE_POLICIES[18];
   const catalystIds = target === 18
     ? [contract.macroId, contract.propertyId]
     : target === 30
       ? [contract.macroId, contract.earningsId, contract.propertyId, contract.conditionalId]
       : [contract.macroId, contract.earningsId, contract.propertyId];
   const stages = [
-    { phase: "setup", label: "先看预期是否形成", milestoneIds: [contract.setupId] },
-    { phase: "catalyst", label: "再看多项信息是否同向", milestoneIds: catalystIds },
-    { phase: "confirmation", label: "最后看价格和资金是否承接", milestoneIds: [contract.confirmationId] },
+    { phase: "setup", label: "价格基线", milestoneIds: [contract.setupId] },
+    { phase: "catalyst", label: "事件结果", milestoneIds: catalystIds },
+    { phase: "confirmation", label: "收盘确认", milestoneIds: [contract.confirmationId] },
   ];
   const basisMilestoneIds = stages.flatMap((stage) => stage.milestoneIds);
   const milestoneById = new Map(contract.milestones.map((milestone) => [milestone.id, milestone]));
   const checkpointIds = [...basisMilestoneIds, contract.horizonId]
     .sort((left, right) => milestoneById.get(left).start.localeCompare(milestoneById.get(right).start));
   return {
-    schemaVersion: "milestone-path-v3",
+    schemaVersion: "milestone-path-v4",
     modelName: CURRENT_TIMING_MODEL_VERSION,
     timingBasis: "multi_event_confluence",
     target,
@@ -171,11 +171,33 @@ function pathForecast(target, probability, issuedAt, dateOverrides) {
     },
     confluenceRule: {
       ...policy,
-      summary: `${target} 美元需要多项独立信号同向。`,
+      summary: `${target} 美元确认条件：${policy.minimumSignals} 类信号达标。`,
+      validationCriteria: policy.signalKinds.map((kind, index) => ({
+        id: `${String(target).replace(".", "p")}-${kind}`,
+        kind,
+        milestoneIds: kind === "market_absorption"
+          ? [contract.setupId, contract.confirmationId]
+          : kind === "company_fundamentals"
+            ? [contract.earningsId]
+            : kind === "property_state"
+              ? [contract.propertyId]
+              : [contract.macroId],
+        statement: `判定线 ${index + 1} ≥ ${index + 1}`,
+      })),
+      peakRiskRule: {
+        activation: "after_first_touch",
+        windowSessions: 5,
+        minimumSignals: 2,
+        criteria: [
+          { id: `${target}-risk-1`, statement: "触达后成交量 ≥ 20 日均量 1.5 倍，且收盘位置 ≤ 当日振幅 25% 分位" },
+          { id: `${target}-risk-2`, statement: "触达后 5 日相对 KWEB 收益 ≤ -3 个百分点" },
+          { id: `${target}-risk-3`, statement: "连续 2 日收盘 ≤ 目标价" },
+        ],
+      },
       exhaustionSignals: [
-        "放量冲高后明显回落",
-        "相对 KWEB 强弱转负",
-        "利好兑现后新增买盘衰减",
+        "触达后成交量 ≥ 20 日均量 1.5 倍，且收盘位置 ≤ 当日振幅 25% 分位",
+        "触达后 5 日相对 KWEB 收益 ≤ -3 个百分点",
+        "连续 2 日收盘 ≤ 目标价",
       ],
     },
     stages,
@@ -697,7 +719,7 @@ test("rejects a publication without the current runtime marker", async () => {
       sleep: async () => {},
       fetchImpl: async () => response(200, payload),
     }),
-    /preflight dataVersion must include research-runtime-targets-18-19p5-21-23-30-v9-event-confluence/,
+    /preflight dataVersion must include research-runtime-targets-18-19p5-21-23-30-v10-measurable-criteria/,
   );
 });
 
@@ -802,6 +824,13 @@ for (const corruptPathCase of [
       path.stages[1].milestoneIds = [path.stages[1].milestoneIds[0]];
       path.confluenceWindow.basisMilestoneIds = path.confluenceWindow.basisMilestoneIds
         .filter((milestoneId) => !removedIds.includes(milestoneId));
+      path.confluenceRule.validationCriteria.forEach((criterion) => {
+        criterion.milestoneIds = criterion.milestoneIds
+          .filter((milestoneId) => !removedIds.includes(milestoneId));
+        if (criterion.milestoneIds.length === 0) {
+          criterion.milestoneIds = [path.stages[1].milestoneIds[0]];
+        }
+      });
       path.checkpoints = path.checkpoints
         .filter((checkpoint) => !removedIds.includes(checkpoint.milestoneId));
     },
