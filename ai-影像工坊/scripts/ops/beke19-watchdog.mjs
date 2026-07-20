@@ -978,9 +978,13 @@ function readPublicationEnvelope(payload, label) {
 
 function validatePublishedPayload(payload, label, {
   requireSuccessfulRun = true,
+  allowStaticFallback = false,
 } = {}) {
   const publication = readPublicationEnvelope(payload, label);
   validateTargetPublicationContract(publication.snapshot, label);
+  if (publication.source === "static-fallback" && !allowStaticFallback) {
+    throw new Error(`${label} must not serve a static fallback publication`);
+  }
   if (publication.source !== "static-fallback") {
     validateModelGeneratedAnalysis(publication.snapshot, label);
   }
@@ -1123,6 +1127,7 @@ export async function runBeke19Watchdog({
       );
       preflight = validatePublishedPayload(preflightPayload, "preflight", {
         requireSuccessfulRun: false,
+        allowStaticFallback: config.forceRefresh,
       });
       break;
     } catch (error) {

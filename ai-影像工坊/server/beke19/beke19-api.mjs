@@ -22688,8 +22688,15 @@ function peakRiskRuleShape(value) {
     (criterion) => isRecord4(criterion) && typeof criterion.id === "string" && criterion.id.trim().length > 0 && Array.isArray(criterion.clauses) && criterion.clauses.length > 0 && criterion.clauses.every(isValidationClause) && hasNumericStatement(criterion.statement)
   );
 }
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (!isRecord4(value)) return value;
+  return Object.fromEntries(
+    Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])])
+  );
+}
 function sameJson(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
 }
 function criterionPolicyProjection(criteria) {
   return criteria.map((criterion) => {
