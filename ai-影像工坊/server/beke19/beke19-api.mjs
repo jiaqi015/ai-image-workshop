@@ -21124,10 +21124,13 @@ function materializeDraft(draft, context, synthesis) {
   return {
     headline: draft.headline,
     today: `\u5F53\u524D\u7ED3\u8BBA\u628A ${TARGET_PRICE_LIST_ZH} \u7F8E\u5143\u5206\u522B\u5B9A\u4E49\u4E3A${TARGETS2.map((target) => targetViews[target].headline).join("\u3001")}\uFF0C\u5E76\u7531\u540C\u4E00\u4EFD\u70B9\u65F6\u8BC1\u636E\u3001\u5386\u53F2\u9608\u503C\u548C\u4E09\u65B9\u7814\u7A76\u610F\u89C1\u5171\u540C\u7EA6\u675F\u3002`,
-    changes: context.previousRunId ? "\u5DF2\u5BF9\u7167\u4E0A\u4E00\u4EFD\u53D1\u5E03\u7ED3\u679C\u66F4\u65B0\u6982\u7387\u3001\u4E8B\u5B9E\u8BC1\u636E\u4E0E\u5386\u53F2\u9608\u503C\uFF0C\u5E76\u91CD\u65B0\u5F62\u6210\u4E94\u4E2A\u76EE\u6807\u7684\u57FA\u51C6\u5224\u65AD\u3002" : "\u672C\u8F6E\u9996\u6B21\u4EE5\u4E8B\u5B9E\u3001\u5386\u53F2\u5171\u73B0\u548C\u6709\u8FB9\u754C\u63A8\u65AD\u4E09\u5C42\u8D26\u672C\u5F62\u6210\u4E94\u4E2A\u76EE\u6807\u7684\u57FA\u51C6\u5224\u65AD\u3002",
+    changes: context.previousRunId ? "\u5DF2\u5BF9\u7167\u4E0A\u4E00\u4EFD\u53D1\u5E03\u7ED3\u679C\u66F4\u65B0\u6982\u7387\u3001\u4E8B\u5B9E\u8BC1\u636E\u4E0E\u5386\u53F2\u9608\u503C\uFF0C\u5E76\u91CD\u65B0\u5F62\u6210\u516B\u4E2A\u76EE\u6807\u7684\u57FA\u51C6\u5224\u65AD\u3002" : "\u672C\u8F6E\u9996\u6B21\u4EE5\u4E8B\u5B9E\u3001\u5386\u53F2\u5171\u73B0\u548C\u6709\u8FB9\u754C\u63A8\u65AD\u4E09\u5C42\u8D26\u672C\u5F62\u6210\u516B\u4E2A\u76EE\u6807\u7684\u57FA\u51C6\u5224\u65AD\u3002",
     positives: pad(positives, "\u4EF7\u683C\u7ED3\u6784\u6784\u6210\u8FD1\u7AEF\u4FEE\u590D\u57FA\u7840"),
     negatives: pad(negatives, "\u884C\u4E1A\u4E0E\u98CE\u9669\u6EA2\u4EF7\u9650\u5236\u4F30\u503C\u5F39\u6027"),
-    watch: TARGETS2.map((target) => targetViews[target].watchpoint),
+    watch: pad(
+      TARGETS2.map((target) => targetViews[target].watchpoint).filter(Boolean),
+      "\u6838\u5BF9\u4E0B\u4E00\u7EC4\u5B98\u65B9\u7ECF\u8425\u4E0E\u884C\u4E1A\u6570\u636E"
+    ),
     targetExplanations: Object.fromEntries(TARGETS2.map((target) => [
       target,
       `${targetViews[target].headline}\u3002${targetViews[target].plainSummary}`
@@ -22184,9 +22187,12 @@ function validateMilestoneContract(snapshot) {
     }
     if (targetPolicy && isKnownTarget(prediction.target)) {
       try {
+        const eligibleMilestones = snapshot.milestones.filter(
+          (milestone) => Array.isArray(milestone.affectedTargets) && milestone.affectedTargets.includes(prediction.target) && !milestone.id.startsWith("forecast-horizon-")
+        );
         const expectedCriteria = buildTargetValidationCriteria(
           prediction.target,
-          snapshot.milestones,
+          eligibleMilestones,
           path.stages
         );
         const expectedPeakRiskRule = targetPeakRiskRule(prediction.target);
