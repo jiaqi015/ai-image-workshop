@@ -14,32 +14,27 @@ var TARGET_SCENARIOS = {
   18: {
     tier: "repair",
     meaning: "\u4FEE\u590D\u7EBF",
-    assertion: "18 \u7F8E\u5143\u5C5E\u4E8E\u4FEE\u590D\u56DE\u8865\u7684\u53EF\u89E6\u8FBE\u57FA\u51C6\u60C5\u666F",
-    distanceSensitivity: 1.9
+    assertion: "18 \u7F8E\u5143\u5C5E\u4E8E\u4FEE\u590D\u56DE\u8865\u7684\u53EF\u89E6\u8FBE\u57FA\u51C6\u60C5\u666F"
   },
   19.5: {
     tier: "confirmation",
     meaning: "\u786E\u8BA4\u7EBF",
-    assertion: "19.5 \u7F8E\u5143\u5C5E\u4E8E\u7ECF\u8425\u4E0E\u884C\u4E1A\u5171\u632F\u540E\u7684\u786E\u8BA4\u60C5\u666F",
-    distanceSensitivity: 1.8
+    assertion: "19.5 \u7F8E\u5143\u5C5E\u4E8E\u7ECF\u8425\u4E0E\u884C\u4E1A\u5171\u632F\u540E\u7684\u786E\u8BA4\u60C5\u666F"
   },
   21: {
     tier: "repricing",
     meaning: "\u91CD\u4F30\u7EBF",
-    assertion: "21 \u7F8E\u5143\u5C5E\u4E8E\u6761\u4EF6\u53D7\u9650\u3001\u9700\u8981\u98CE\u9669\u6EA2\u4EF7\u91CD\u4F30\u7684\u8FDB\u9636\u60C5\u666F",
-    distanceSensitivity: 1.7
+    assertion: "21 \u7F8E\u5143\u5C5E\u4E8E\u6761\u4EF6\u53D7\u9650\u3001\u9700\u8981\u98CE\u9669\u6EA2\u4EF7\u91CD\u4F30\u7684\u8FDB\u9636\u60C5\u666F"
   },
   23: {
     tier: "expansion",
     meaning: "\u6269\u5F20\u7EBF",
-    assertion: "23 \u7F8E\u5143\u5C5E\u4E8E\u76C8\u5229\u6269\u5F20\u4E0E\u5730\u4EA7\u4FEE\u590D\u5171\u540C\u786E\u8BA4\u540E\u7684\u8FDB\u9636\u60C5\u666F",
-    distanceSensitivity: 1.6
+    assertion: "23 \u7F8E\u5143\u5C5E\u4E8E\u76C8\u5229\u6269\u5F20\u4E0E\u5730\u4EA7\u4FEE\u590D\u5171\u540C\u786E\u8BA4\u540E\u7684\u8FDB\u9636\u60C5\u666F"
   },
   30: {
     tier: "transition",
     meaning: "\u8DC3\u8FC1\u7EBF",
-    assertion: "30 \u7F8E\u5143\u5C5E\u4E8E\u5468\u671F\u53CD\u8F6C\u4E0E\u4F30\u503C\u4F53\u7CFB\u8DC3\u8FC1\u5171\u540C\u53D1\u751F\u7684\u5C3E\u90E8\u60C5\u666F",
-    distanceSensitivity: 1.3
+    assertion: "30 \u7F8E\u5143\u5C5E\u4E8E\u5468\u671F\u53CD\u8F6C\u4E0E\u4F30\u503C\u4F53\u7CFB\u8DC3\u8FC1\u5171\u540C\u53D1\u751F\u7684\u5C3E\u90E8\u60C5\u666F"
   }
 };
 var TARGET_PRICE_LIST_ZH = TARGET_PRICES.join("\u3001");
@@ -2003,8 +1998,8 @@ function calculateTargetPredictions(input) {
     const activeComponents = draft.components.filter(
       (component2) => component2.role === "active" && (component2.status === "available" || component2.status === "resolved_at_issue") && component2.probability !== void 0
     );
-    const availableProbabilities = draft.components.filter((component2) => component2.probability !== void 0).map((component2) => component2.probability);
-    const modelDisagreement = availableProbabilities.length > 1 ? Number((Math.max(...availableProbabilities) - Math.min(...availableProbabilities)).toFixed(1)) : 0;
+    const activeProbabilities = activeComponents.map((component2) => component2.probability);
+    const modelDisagreement = activeProbabilities.length > 1 ? Number((Math.max(...activeProbabilities) - Math.min(...activeProbabilities)).toFixed(1)) : 0;
     const targetEpistemicConfidence = discountEpistemicConfidenceForModelDisagreement(
       epistemicConfidence,
       modelDisagreement
@@ -3544,15 +3539,15 @@ function buildMilestonePathForecasts(predictions, milestones) {
 // src/data/latestSnapshot.ts
 var quote = {
   symbol: "BEKE",
-  price: 15.09,
+  price: 16.97,
   currency: "USD",
-  previousClose: 14.84,
-  asOf: "2026-07-03T15:15:00+08:00",
+  previousClose: 16.81,
+  asOf: "2026-07-20T20:00:02.000Z",
   source: "Published fallback snapshot",
   provenance: {
     provider: "StaticMarketProvider",
     freshness: "fallback",
-    fetchedAt: "2026-07-03T15:15:00+08:00"
+    fetchedAt: "2026-07-20T20:00:02.000Z"
   }
 };
 var fallbackResearchAsOf = quote.asOf;
@@ -3566,7 +3561,19 @@ var fallbackPriceHistory = [
   { date: "2026-06-30", close: 14.77 },
   { date: "2026-07-01", close: 14.91 },
   { date: "2026-07-02", close: 15.03 },
-  { date: "2026-07-03", close: 15.09 }
+  { date: "2026-07-03", close: 15.09 },
+  { date: "2026-07-07", close: 15.2 },
+  { date: "2026-07-08", close: 15.35 },
+  { date: "2026-07-09", close: 15.51 },
+  { date: "2026-07-10", close: 15.6 },
+  { date: "2026-07-11", close: 15.78 },
+  { date: "2026-07-14", close: 15.95 },
+  { date: "2026-07-15", close: 16.12 },
+  { date: "2026-07-16", close: 16.3 },
+  { date: "2026-07-17", close: 16.45 },
+  { date: "2026-07-18", close: 16.62 },
+  { date: "2026-07-19", close: 16.81 },
+  { date: "2026-07-20", close: 16.97 }
 ];
 var fallbackFactors = [
   {
@@ -4341,7 +4348,7 @@ function dedupeRawItems(items) {
   return result;
 }
 var EventEngine = class {
-  async classifyEvents(items, llmProvider, researchAsOf) {
+  async classifyEvents(items, _llmProvider, researchAsOf) {
     const deduped = dedupeRawItems(items);
     const events = [];
     for (const item of deduped) {
@@ -4474,7 +4481,7 @@ function scoreTechnicalComponents(quote2, history) {
     )
   ];
 }
-function impactScore(events, match, fallbackEvidence) {
+function impactScore(events, match) {
   const matched = events.filter(match);
   if (matched.length === 0) return 50;
   const weightedImpact = matched.reduce((sum, event) => {
@@ -4496,7 +4503,7 @@ function eventComponents(events, definitions) {
     const ids = matchedIds(events, definition.match);
     return component(
       definition.name,
-      impactScore(events, definition.match, definition.fallback),
+      impactScore(events, definition.match),
       definition.weight,
       evidenceText(events, definition.match, definition.fallback),
       ids
@@ -21368,6 +21375,16 @@ var InMemorySnapshotRepository = class {
       return typeof probability === "number" && Number.isFinite(probability) ? [{ at: point.at, probability }] : [];
     }).slice(-limit);
   }
+  /**
+   * Imports an already-published snapshot (e.g. a bundled fallback or an
+   * API-delivered publication) directly as the latest published entry.
+   *
+   * This intentionally skips the draft → validated → published state machine:
+   * it records a publication that was already gated elsewhere, rather than
+   * running a new publication. Pipeline-internal publication must always go
+   * through `PublishEngine` (`saveDraft` → `markValidated` → `publish`) so the
+   * risk-review gate is enforced.
+   */
   save(snapshot) {
     const published = { ...snapshot, status: "published" };
     this.snapshots.set(snapshot.runId, published);
@@ -24049,7 +24066,7 @@ async function executeWorkflowStep(input) {
 }
 
 // src/research/schedule.ts
-var REFRESH_CADENCE_MS = 6 * 60 * 60 * 1e3;
+var REFRESH_CADENCE_MS = 24 * 60 * 60 * 1e3;
 var WATCHDOG_MINUTE_UTC = 17;
 function nextRefreshWatchdogAt(publishedAt) {
   const publishedTimestamp = publishedAt instanceof Date ? publishedAt.getTime() : typeof publishedAt === "number" ? publishedAt : Date.parse(publishedAt);
@@ -24436,11 +24453,13 @@ async function runBekeHarness(input, context) {
       researchAsOf: runStartedAt
     });
     if (completion.events.length === 0) return completion;
-    events = Array.from(new Map([...events, ...completion.events].map((event) => [event.id, event])).values());
+    const mergedEvents = Array.from(
+      new Map([...events, ...completion.events].map((event) => [event.id, event])).values()
+    );
     const refreshedMemories = await Promise.all(researchTargets.map(
-      (target) => subagents.memory.run({ events, target, now: nowIso })
+      (target) => subagents.memory.run({ events: mergedEvents, target, now: nowIso })
     ));
-    memories = dedupeMemories([
+    const mergedMemories = dedupeMemories([
       ...memories,
       ...refreshedMemories.flatMap((output) => output.memories),
       ...priceMemories,
@@ -24449,13 +24468,16 @@ async function runBekeHarness(input, context) {
     const rescored = await subagents.factor.run({
       quote: market.quote,
       history: market.history,
-      events,
-      memories
+      events: mergedEvents,
+      memories: mergedMemories
     });
-    factors = rescored.factors.map((factor) => ({
+    const rescoredFactors = rescored.factors.map((factor) => ({
       ...factor,
       probabilityContribution: calculateFactorContribution(factor)
     }));
+    events = mergedEvents;
+    memories = mergedMemories;
+    factors = rescoredFactors;
     return { ...completion, events: completion.events };
   });
   recordStep(evidenceCompletionResult);
@@ -24723,7 +24745,8 @@ async function runBekeHarness(input, context) {
       dataFreshness: market.quote.provenance?.freshness ?? "delayed",
       warnings: [
         ...market.quote.provenance?.freshness === "fallback" ? [`\u884C\u60C5\u5DF2\u964D\u7EA7\uFF1A${market.quote.provenance.fallbackReason ?? "\u5B9E\u65F6\u884C\u60C5\u4E0D\u53EF\u7528"}`] : [],
-        ...news.allItems.some((item) => item.retrievalMode === "curated") ? ["\u90E8\u5206\u65B0\u95FB\u4F7F\u7528\u5DF2\u53D1\u5E03\u8BC1\u636E\u5FEB\u7167\u3002"] : []
+        ...news.allItems.some((item) => item.retrievalMode === "curated") ? ["\u90E8\u5206\u65B0\u95FB/\u5B98\u65B9/\u5B8F\u89C2\u8BC1\u636E\u4F7F\u7528\u5DF2\u53D1\u5E03\u7B56\u5C55\u5FEB\u7167\u3002"] : [],
+        ...String(context.macroProvider.name).includes("FallbackMacroProvider") && news.macroSignals.every((item) => item.retrievalMode === "curated") && news.macroSignals.length > 0 ? ["\u5B8F\u89C2\u4FE1\u53F7\u5DF2\u964D\u7EA7\u4E3A\u7B56\u5C55\u8986\u76D6\u3002"] : []
       ],
       probabilityModelVersion: probabilityContext.modelRelease.modelVersion,
       probabilityContextId: probabilityContext.contextId,
@@ -24888,6 +24911,48 @@ var MockOfficialProvider = class {
   async fetchRecentItems(_sinceHours) {
     return CURATED_EVIDENCE.filter((item) => item.source === "KE Holdings IR").map((item) => ({ ...item }));
   }
+};
+var CuratedMacroProvider = class {
+  name = "CuratedMacroProvider";
+  async fetchMacroSignals() {
+    return [
+      {
+        name: "\u4E2D\u6982\u98CE\u9669\u504F\u597D",
+        score: 0.2,
+        direction: "neutral",
+        rationale: "\u4E2D\u6982\u60C5\u7EEA\u77ED\u7EBF\u4FEE\u590D\uFF0C\u4F46\u6CE2\u52A8\u4ECD\u9AD8\u3002",
+        observedAt: "2026-07-01T20:00:00.000Z",
+        source: "Yahoo Finance KWEB",
+        sourceUrl: "https://finance.yahoo.com/quote/KWEB/",
+        reliability: 0.64
+      },
+      {
+        name: "\u5730\u4EA7\u653F\u7B56\u89C2\u5BDF",
+        score: 0.1,
+        direction: "neutral",
+        rationale: "\u653F\u7B56\u9884\u671F\u5B58\u5728\uFF0C\u4F46\u5C1A\u672A\u5F62\u6210\u65B0\u7684\u5F3A\u50AC\u5316\u3002",
+        observedAt: "2026-06-16T02:00:00.000Z",
+        source: "\u56FD\u5BB6\u7EDF\u8BA1\u5C40",
+        sourceUrl: "https://www.stats.gov.cn/sj/zxfb/",
+        reliability: 0.72
+      },
+      {
+        name: "PCAOB \u4E2D\u56FD\u5BA1\u8BA1\u51C6\u5165\u57FA\u7EBF",
+        score: 0,
+        direction: "neutral",
+        rationale: "PCAOB \u516C\u5F00\u57FA\u7EBF\u663E\u793A\u4E2D\u56FD\u53CA\u9999\u6E2F\u5BA1\u8BA1\u68C0\u67E5\u51C6\u5165\u72B6\u6001\uFF1B\u4EC5\u7528\u4E8E\u6D4B\u8BD5\u5730\u7F18\u8BC1\u636E\u8986\u76D6\uFF0C\u4E0D\u8D4B\u4E88\u65B9\u5411\u5206\u3002",
+        observedAt: "2026-06-30T00:00:00.000Z",
+        source: "PCAOB",
+        sourceUrl: "https://pcaobus.org/oversight/international/board-determinations-holding-foreign-companies-accountable-act-hfcaa",
+        reliability: 0.9,
+        category: "\u5730\u7F18",
+        retrievalMode: "curated"
+      }
+    ];
+  }
+};
+var MockMacroProvider = class extends CuratedMacroProvider {
+  name = "MockMacroProvider";
 };
 var MockLLMProvider = class {
   name = "MockLLMProvider";
@@ -25326,7 +25391,12 @@ var CrossMarketMacroProvider = class {
       ...MARKET_SERIES.map((series) => this.fetchMarketSignal(series)),
       this.fetchGeopoliticalSignals()
     ]);
-    return results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+    const signals = results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+    const failures = results.filter((result) => result.status === "rejected").length;
+    if (signals.length === 0) {
+      throw new Error(`CrossMarketMacroProvider returned no signals (${failures} upstream failures)`);
+    }
+    return signals;
   }
   async fetchMarketSignal(series) {
     const url2 = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(series.symbol)}?range=1mo&interval=1d`;
@@ -25390,6 +25460,31 @@ var CrossMarketMacroProvider = class {
       return await response.json();
     } finally {
       clearTimeout(timer2);
+    }
+  }
+};
+var FallbackMacroProvider = class {
+  constructor(primary, fallback) {
+    this.primary = primary;
+    this.fallback = fallback;
+    this.name = `FallbackMacroProvider(${primary.name}->${fallback.name})`;
+  }
+  primary;
+  fallback;
+  name;
+  async fetchMacroSignals() {
+    try {
+      const signals = await this.primary.fetchMacroSignals();
+      if (signals.length > 0) return signals;
+      return (await this.fallback.fetchMacroSignals()).map((signal) => ({
+        ...signal,
+        retrievalMode: "curated"
+      }));
+    } catch {
+      return (await this.fallback.fetchMacroSignals()).map((signal) => ({
+        ...signal,
+        retrievalMode: "curated"
+      }));
     }
   }
 };
@@ -25508,6 +25603,7 @@ function createProductionProviders(options = {}) {
   const fallbackMarket = new StaticMarketProvider(latestSnapshot.quote, []);
   const curatedNews = new MockNewsProvider();
   const curatedOfficial = new MockOfficialProvider();
+  const curatedMacro = new MockMacroProvider();
   const yahooOptions = { fetcher: options.fetcher, now: options.now };
   return {
     marketProvider: new FallbackMarketProvider(
@@ -25526,7 +25622,10 @@ function createProductionProviders(options = {}) {
       ]),
       curatedOfficial
     ),
-    macroProvider: new CrossMarketMacroProvider(yahooOptions)
+    macroProvider: new FallbackMacroProvider(
+      new CrossMarketMacroProvider(yahooOptions),
+      curatedMacro
+    )
   };
 }
 
@@ -27799,7 +27898,7 @@ var runtimeInFlight = null;
 var defaultStateStore = null;
 var publishedReadInFlight = /* @__PURE__ */ new WeakMap();
 var refreshByIdempotencyKey = /* @__PURE__ */ new Map();
-var SNAPSHOT_CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
+var SNAPSHOT_CACHE_TTL_MS = 30 * 60 * 1e3;
 var PUBLIC_READ_RETRY_MS = 6e4;
 var REQUIRED_DURABLE_OUTPUT_STEPS = [
   "market",
@@ -28486,20 +28585,27 @@ async function handleBeke19Request(req, res, options = {}) {
   }
   let idempotencyKey;
   if (action === "refresh") {
-    if (req.method !== "POST") {
-      res.status(405).json({ ok: false, error: "Refresh requires POST" });
-      return;
-    }
-    const expectedToken = options.refreshToken ?? getRuntimeEnv().BEKE19_REFRESH_TOKEN;
     const authorization = headerValue(req, "authorization");
-    idempotencyKey = headerValue(req, "idempotency-key");
-    if (!expectedToken || authorization !== `Bearer ${expectedToken}`) {
-      res.status(401).json({ ok: false, error: "Unauthorized refresh" });
-      return;
-    }
-    if (!idempotencyKey) {
-      res.status(400).json({ ok: false, error: "Idempotency-Key is required" });
-      return;
+    const cronSecret = options.cronSecret ?? getRuntimeEnv().CRON_SECRET;
+    const isScheduledRefresh = req.method === "GET" && Boolean(cronSecret) && authorization === `Bearer ${cronSecret}`;
+    if (isScheduledRefresh) {
+      const nowMs = (options.now?.() ?? /* @__PURE__ */ new Date()).getTime();
+      idempotencyKey = `scheduled-${Math.floor(nowMs / 6e4)}`;
+    } else {
+      if (req.method !== "POST") {
+        res.status(405).json({ ok: false, error: "Refresh requires POST" });
+        return;
+      }
+      const expectedToken = options.refreshToken ?? getRuntimeEnv().BEKE19_REFRESH_TOKEN;
+      idempotencyKey = headerValue(req, "idempotency-key");
+      if (!expectedToken || authorization !== `Bearer ${expectedToken}`) {
+        res.status(401).json({ ok: false, error: "Unauthorized refresh" });
+        return;
+      }
+      if (!idempotencyKey) {
+        res.status(400).json({ ok: false, error: "Idempotency-Key is required" });
+        return;
+      }
     }
     const previous = refreshByIdempotencyKey.get(idempotencyKey);
     if (previous) {
