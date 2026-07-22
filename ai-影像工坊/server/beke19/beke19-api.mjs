@@ -21333,9 +21333,9 @@ var PROFESSIONAL_CONCLUSION_MAX_REPAIR_ROUNDS = 1;
 var PROFESSIONAL_CONCLUSION_MAX_COLLECTION_RECOVERY_ROUNDS = 1;
 var PROFESSIONAL_CONCLUSION_RESERVED_EDITORIAL_ROUNDS = 1;
 var PROFESSIONAL_CONCLUSION_SAFETY_RESERVE_MS = 5e3;
-var PROFESSIONAL_CONCLUSION_INITIAL_WAVE_MS = 45e3;
-var PROFESSIONAL_CONCLUSION_MIN_EDITORIAL_WAVE_MS = 25e3;
-var PROFESSIONAL_CONCLUSION_DEFAULT_BUDGET_MS = 12e4;
+var PROFESSIONAL_CONCLUSION_INITIAL_WAVE_MS = 9e4;
+var PROFESSIONAL_CONCLUSION_MIN_EDITORIAL_WAVE_MS = 4e4;
+var PROFESSIONAL_CONCLUSION_DEFAULT_BUDGET_MS = 18e4;
 var PROFESSIONAL_CONCLUSION_MIN_REQUEST_WINDOW_MS = 250;
 var PROFESSIONAL_CONCLUSION_MIN_INITIAL_RETRY_WINDOW_MS = 25e3;
 function publicationGate(output, context) {
@@ -24752,8 +24752,8 @@ var DEFAULT_STEP_POLICIES = {
   milestone: { timeoutMs: 2e3, maxAttempts: 1, retryDelayMs: 0 },
   probability: { timeoutMs: 5e3, maxAttempts: 1, retryDelayMs: 0 },
   forecast: { timeoutMs: 5e3, maxAttempts: 1, retryDelayMs: 0 },
-  analysis: { timeoutMs: 95e3, maxAttempts: 1, retryDelayMs: 0 },
-  conclusion: { timeoutMs: 12e4, maxAttempts: 1, retryDelayMs: 0 },
+  analysis: { timeoutMs: 15e4, maxAttempts: 1, retryDelayMs: 0 },
+  conclusion: { timeoutMs: 18e4, maxAttempts: 1, retryDelayMs: 0 },
   review: { timeoutMs: 4e3, maxAttempts: 1, retryDelayMs: 0 },
   publish: { timeoutMs: 2e3, maxAttempts: 1, retryDelayMs: 0 }
 };
@@ -25559,7 +25559,7 @@ var MockLLMProvider = class {
 };
 
 // src/research/providers/TokenPlanProvider.ts
-var TOKEN_PLAN_REQUEST_TIMEOUT_MS = 6e4;
+var TOKEN_PLAN_REQUEST_TIMEOUT_MS = 12e4;
 function systemPromptFor(request) {
   for (const prompt of Object.values(PROMPTS)) {
     if (request.promptVersion === prompt.version) return prompt.system;
