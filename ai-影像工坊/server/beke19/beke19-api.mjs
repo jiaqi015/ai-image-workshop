@@ -28186,6 +28186,15 @@ function isPublicPayloadCompatible(payload) {
 function canReuseRuntimeCache(payload) {
   return isPublicPayloadCompatible(payload);
 }
+function canSkipScheduledRefresh(payload, now) {
+  if (!payload.ok) return false;
+  if (payload.runtime.source === "static-fallback" || payload.runtime.degraded) return false;
+  if (payload.state.run.status !== "success") return false;
+  if (!hasRuntimeMarker(payload.state.snapshot)) return false;
+  if (payload.state.snapshot.modelVersion !== CURRENT_PROBABILITY_MODEL_VERSION) return false;
+  const nextMs = Date.parse(payload.state.snapshot.nextUpdateAt ?? "");
+  return Number.isFinite(nextMs) && nextMs > now.getTime();
+}
 function isSnapshotAtLeastAsRecent(candidate, baseline) {
   if (candidate.runId === baseline.runId) return true;
   const isModelPublication = (snapshot) => {
@@ -28584,6 +28593,7 @@ async function handleBeke19Request(req, res, options = {}) {
     return;
   }
   let idempotencyKey;
+  let scheduledRefresh = false;
   if (action === "refresh") {
     const authorization = headerValue(req, "authorization");
     const cronSecret = options.cronSecret ?? getRuntimeEnv().CRON_SECRET;
@@ -28591,6 +28601,7 @@ async function handleBeke19Request(req, res, options = {}) {
     if (isScheduledRefresh) {
       const nowMs = (options.now?.() ?? /* @__PURE__ */ new Date()).getTime();
       idempotencyKey = `scheduled-${Math.floor(nowMs / 6e4)}`;
+      scheduledRefresh = true;
     } else {
       if (req.method !== "POST") {
         res.status(405).json({ ok: false, error: "Refresh requires POST" });
@@ -28618,7 +28629,16 @@ async function handleBeke19Request(req, res, options = {}) {
     return;
   }
   const env = getRuntimeEnv();
-  const payload = action === "refresh" ? await createBeke19SnapshotState(env, { ...options, forceRefresh: true }) : await readPublishedBeke19SnapshotState(env, options);
+  let payload;
+  if (action === "refresh" && scheduledRefresh) {
+    const now = options.now?.() ?? /* @__PURE__ */ new Date();
+    const published = await readPublishedBeke19SnapshotState(env, options);
+    payload = canSkipScheduledRefresh(published, now) ? published : await createBeke19SnapshotState(env, { ...options, forceRefresh: true });
+  } else if (action === "refresh") {
+    payload = await createBeke19SnapshotState(env, { ...options, forceRefresh: true });
+  } else {
+    payload = await readPublishedBeke19SnapshotState(env, options);
+  }
   if (idempotencyKey) {
     refreshByIdempotencyKey.set(idempotencyKey, payload);
     if (refreshByIdempotencyKey.size > 100) {
