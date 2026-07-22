@@ -22455,10 +22455,12 @@ function scrubPublicResearchStrings(value) {
   }
   if (value && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value).map(([key, nested]) => [
-        key,
-        scrubPublicResearchStrings(nested)
-      ])
+      Object.entries(value).map(([key, nested]) => {
+        if (key === "pathForecast" || key === "forecastQuestion" || key === "quantDiagnostics") {
+          return [key, nested];
+        }
+        return [key, scrubPublicResearchStrings(nested)];
+      })
     );
   }
   return value;
