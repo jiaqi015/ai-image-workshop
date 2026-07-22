@@ -24068,6 +24068,7 @@ async function executeWorkflowStep(input) {
 // src/research/schedule.ts
 var REFRESH_CADENCE_MS = 24 * 60 * 60 * 1e3;
 var WATCHDOG_MINUTE_UTC = 17;
+var VERCEL_DAILY_CRON_HOUR_UTC = 21;
 function nextRefreshWatchdogAt(publishedAt) {
   const publishedTimestamp = publishedAt instanceof Date ? publishedAt.getTime() : typeof publishedAt === "number" ? publishedAt : Date.parse(publishedAt);
   if (!Number.isFinite(publishedTimestamp)) {
@@ -24078,6 +24079,19 @@ function nextRefreshWatchdogAt(publishedAt) {
   slot.setUTCMinutes(WATCHDOG_MINUTE_UTC, 0, 0);
   if (slot.getTime() < dueAt) slot.setUTCHours(slot.getUTCHours() + 1);
   return slot.toISOString();
+}
+function nextVercelDailyCronAt(now = Date.now()) {
+  const timestamp = now instanceof Date ? now.getTime() : typeof now === "number" ? now : Date.parse(now);
+  if (!Number.isFinite(timestamp)) {
+    throw new Error("Cannot schedule Vercel daily cron from an invalid time");
+  }
+  const slot = new Date(timestamp);
+  slot.setUTCMinutes(0, 0, 0);
+  slot.setUTCHours(VERCEL_DAILY_CRON_HOUR_UTC);
+  if (slot.getTime() <= timestamp) {
+    slot.setUTCDate(slot.getUTCDate() + 1);
+  }
+  return slot;
 }
 
 // src/research/harness/runBekeHarness.ts
@@ -28193,7 +28207,9 @@ function canSkipScheduledRefresh(payload, now) {
   if (!hasRuntimeMarker(payload.state.snapshot)) return false;
   if (payload.state.snapshot.modelVersion !== CURRENT_PROBABILITY_MODEL_VERSION) return false;
   const nextMs = Date.parse(payload.state.snapshot.nextUpdateAt ?? "");
-  return Number.isFinite(nextMs) && nextMs > now.getTime();
+  if (!Number.isFinite(nextMs)) return false;
+  if (nextMs <= now.getTime()) return false;
+  return nextMs > nextVercelDailyCronAt(now).getTime();
 }
 function isSnapshotAtLeastAsRecent(candidate, baseline) {
   if (candidate.runId === baseline.runId) return true;
@@ -28301,7 +28317,7 @@ async function loadPublishedStateWithDeadline(stateStore, timeoutMs) {
 async function readPublishedBeke19SnapshotState(env = getRuntimeEnv(), options = {}) {
   const now = options.now?.() ?? /* @__PURE__ */ new Date();
   const stateStore = getStateStore(env, options.stateStore);
-  const currentCache = runtimeCache && isSnapshotAtLeastAsRecent(runtimeCache.payload.state.snapshot, latestSnapshot) && isPublicPayloadCompatible(runtimeCache.payload) ? runtimeCache : null;
+  const currentCache = !options.bypassPublishedCache && runtimeCache && isSnapshotAtLeastAsRecent(runtimeCache.payload.state.snapshot, latestSnapshot) && isPublicPayloadCompatible(runtimeCache.payload) ? runtimeCache : null;
   if (currentCache && currentCache.expiresAtMs > now.getTime()) {
     return publicReadPayload(
       currentCache.payload,
@@ -28310,7 +28326,7 @@ async function readPublishedBeke19SnapshotState(env = getRuntimeEnv(), options =
       new Date(currentCache.expiresAtMs).toISOString()
     );
   }
-  const staleCache = currentCache;
+  const staleCache = options.bypassPublishedCache ? null : currentCache;
   if (runtimeCache && !currentCache) runtimeCache = null;
   let degradedReason = "No persisted publication is available";
   try {
@@ -28632,7 +28648,10 @@ async function handleBeke19Request(req, res, options = {}) {
   let payload;
   if (action === "refresh" && scheduledRefresh) {
     const now = options.now?.() ?? /* @__PURE__ */ new Date();
-    const published = await readPublishedBeke19SnapshotState(env, options);
+    const published = await readPublishedBeke19SnapshotState(env, {
+      ...options,
+      bypassPublishedCache: true
+    });
     payload = canSkipScheduledRefresh(published, now) ? published : await createBeke19SnapshotState(env, { ...options, forceRefresh: true });
   } else if (action === "refresh") {
     payload = await createBeke19SnapshotState(env, { ...options, forceRefresh: true });
