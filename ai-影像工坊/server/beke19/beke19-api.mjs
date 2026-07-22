@@ -21982,11 +21982,11 @@ function criterionPolicyProjection(criteria) {
     return {
       id: criterion.id,
       kind: criterion.kind,
-      milestoneIds: criterion.milestoneIds,
-      mode: criterion.mode,
+      // Calendar bindings and period labels can vary with the rolling
+      // milestone set; the versioned decision rule is the clause set.
+      mode: criterion.mode ?? "all",
       minimumClauses: criterion.minimumClauses,
-      clauses: criterion.clauses,
-      statement: criterion.statement
+      clauses: criterion.clauses
     };
   });
 }
