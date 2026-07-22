@@ -19,17 +19,17 @@ import {
 const NOW = Date.parse("2026-07-15T04:00:00.000Z");
 const OLD_RUN_ID = "run-old";
 const NEW_RUN_ID = "run-new";
-const CURRENT_TARGETS = [18, 19.5, 21, 23, 30];
+const CURRENT_TARGETS = [14, 15.5, 18, 19.5, 21, 23, 25, 30];
 const RETIRED_TARGETS = [18, 19, 20];
 const LEGACY_TARGETS = [17, 18, 19];
-const CURRENT_MODEL_VERSION = "probability-synthesis-v5-90d-targets-18-19p5-21-23-30";
-const CURRENT_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v10-measurable-criteria";
+const CURRENT_MODEL_VERSION = "probability-synthesis-v6-90d-targets-14-15p5-18-19p5-21-23-25-30";
+const CURRENT_RUNTIME_VERSION = "research-runtime-targets-14-15p5-18-19p5-21-23-25-30-v12-compare-direction";
 const CURRENT_TIMING_MODEL_VERSION = "event-confluence-validation-v4";
 const CURRENT_PROMPT_VERSIONS = [
-  "quant-research-context-v2.3.0-measurable-criteria-90d-targets-18-19p5-21-23-30",
-  "bull-research-context-v1.8.0-confluence-path-90d-targets-18-19p5-21-23-30",
-  "bear-research-context-v1.8.0-confluence-path-90d-targets-18-19p5-21-23-30",
-  "professional-conclusion-context-v1.19.0-measurable-criteria-90d-targets-18-19p5-21-23-30",
+  "quant-research-context-v2.3.0-measurable-criteria-90d-targets-14-15p5-18-19p5-21-23-25-30",
+  "bull-research-context-v1.8.0-confluence-path-90d-targets-14-15p5-18-19p5-21-23-25-30",
+  "bear-research-context-v1.8.0-confluence-path-90d-targets-14-15p5-18-19p5-21-23-25-30",
+  "professional-conclusion-context-v1.19.0-measurable-criteria-90d-targets-14-15p5-18-19p5-21-23-25-30",
 ];
 const REQUIRED_ANALYSIS_STAGES = [
   "quant",
@@ -38,6 +38,7 @@ const REQUIRED_ANALYSIS_STAGES = [
   "professional_editor",
   "deterministic_critic",
 ];
+const FIXTURE_SPOT = 16.97;
 
 function response(status, payload) {
   return new Response(payload === undefined ? undefined : JSON.stringify(payload), {
@@ -53,18 +54,38 @@ function keyedTargets(targets, valueFactory) {
 function historyPoint(targets = CURRENT_TARGETS) {
   return {
     publishedAt: "2026-07-14T13:11:00.000Z",
-    ...Object.fromEntries(targets.map((target, index) => [`p${target}`, 60 - index * 12])),
+    ...Object.fromEntries(targets.map((target, index) => [`p${target}`, 60 - index * 6])),
   };
 }
 
+function touchDirection(target, spot = FIXTURE_SPOT) {
+  if (target < spot) return "down";
+  return "up";
+}
+
+function probabilityForTarget(target, targets = CURRENT_TARGETS) {
+  const direction = touchDirection(target);
+  const ladder = targets
+    .filter((candidate) => touchDirection(candidate) === direction)
+    .sort((left, right) => left - right);
+  const index = ladder.indexOf(target);
+  if (direction === "down") {
+    return Math.min(95, 30 + Math.max(0, index) * 25);
+  }
+  return Math.max(5, 75 - Math.max(0, index) * 10);
+}
+
 function forecastQuestion(target, issuedAt) {
+  const direction = touchDirection(target);
   return {
-    questionId: `BEKE-${issuedAt}-${target}-90d-first-touch`,
+    questionId: `BEKE-${issuedAt}-${target}-90d-first-touch-${direction}`,
     issuedAt,
     horizonEnd: addXnysCalendarDays(issuedAt, 90),
     horizonDays: 90,
     barrier: target,
-    priceMeasure: "regular_session_high",
+    currency: "USD",
+    direction,
+    priceMeasure: direction === "down" ? "regular_session_low" : "regular_session_high",
     event: "first_touch",
     tradingCalendar: "XNYS",
     timezone: "America/New_York",
@@ -73,12 +94,15 @@ function forecastQuestion(target, issuedAt) {
   };
 }
 
+const NEAR_SPOT_CONFLUENCE = {
+  minimumSignals: 2,
+  signalKinds: ["market_absorption", "property_state", "discount_rate_adr"],
+  mandatoryKinds: ["market_absorption"],
+};
 const TARGET_CONFLUENCE_POLICIES = {
-  18: {
-    minimumSignals: 2,
-    signalKinds: ["market_absorption", "property_state", "discount_rate_adr"],
-    mandatoryKinds: ["market_absorption"],
-  },
+  14: NEAR_SPOT_CONFLUENCE,
+  15.5: NEAR_SPOT_CONFLUENCE,
+  18: NEAR_SPOT_CONFLUENCE,
   19.5: {
     minimumSignals: 3,
     signalKinds: ["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"],
@@ -90,6 +114,11 @@ const TARGET_CONFLUENCE_POLICIES = {
     mandatoryKinds: ["market_absorption", "company_fundamentals", "property_state"],
   },
   23: {
+    minimumSignals: 4,
+    signalKinds: ["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"],
+    mandatoryKinds: ["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"],
+  },
+  25: {
     minimumSignals: 4,
     signalKinds: ["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"],
     mandatoryKinds: ["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"],
@@ -141,7 +170,7 @@ function milestoneContract(issuedAt, dateOverrides = {}) {
 function pathForecast(target, probability, issuedAt, dateOverrides) {
   const contract = milestoneContract(issuedAt, dateOverrides);
   const policy = TARGET_CONFLUENCE_POLICIES[target] ?? TARGET_CONFLUENCE_POLICIES[18];
-  const catalystIds = target === 18
+  const catalystIds = target <= 18
     ? [contract.macroId, contract.propertyId]
     : target === 30
       ? [contract.macroId, contract.earningsId, contract.propertyId, contract.conditionalId]
@@ -246,17 +275,20 @@ function snapshotPayload({
         updatedAt,
         nextUpdateAt,
         milestones: milestoneState.milestones,
-        predictions: predictionTargets.map((target, index) => ({
-          target,
-          probability: 60 - index * 12,
-          forecastQuestion: forecastQuestion(target, updatedAt),
-          pathForecast: pathForecast(
+        predictions: predictionTargets.map((target) => {
+          const probability = probabilityForTarget(target, predictionTargets);
+          return {
             target,
-            60 - index * 12,
-            updatedAt,
-            milestoneDateOverrides,
-          ),
-        })),
+            probability,
+            forecastQuestion: forecastQuestion(target, updatedAt),
+            pathForecast: pathForecast(
+              target,
+              probability,
+              updatedAt,
+              milestoneDateOverrides,
+            ),
+          };
+        }),
         analysis: {
           targetViews: keyedTargets(targetViewTargets, (target) => ({ target })),
           targetExplanations: keyedTargets(targetExplanationTargets, (target) => `${target} 美元目标说明`),
@@ -375,6 +407,41 @@ test("FORCE_REFRESH can recover from a static fallback preflight", async () => {
   assert.equal(result.runId, NEW_RUN_ID);
 });
 
+test("scheduled runs recover from static-fallback without FORCE_REFRESH", async () => {
+  const logger = createLogger();
+  const queue = [
+    response(200, snapshotPayload({
+      source: "static-fallback",
+      runStatus: "failed",
+      nextUpdateAt: "2026-07-15T04:30:00.000Z",
+      generation: {
+        mode: "deterministic_fallback",
+        provider: "PublishedProfessionalSnapshot",
+        contextId: "ctx-static-fallback",
+        promptVersions: [],
+        stages: ["professional_editor", "deterministic_critic"],
+      },
+    })),
+    response(200, successfulRefreshPayload()),
+    response(200, successfulRefreshPayload()),
+  ];
+
+  const result = await runBeke19Watchdog({
+    env: { BEKE19_REFRESH_TOKEN: "secret" },
+    now: () => NOW,
+    logger,
+    fetchImpl: async () => queue.shift(),
+  });
+
+  assert.equal(result.status, "published");
+  assert.equal(result.runId, NEW_RUN_ID);
+  assert.equal(
+    logger.entries.some(([level, message]) =>
+      level === "info" && String(message).includes("recovering degraded publication")),
+    true,
+  );
+});
+
 for (const invalidGenerationCase of [
   {
     name: "rejects a non-model analysis from server-harness",
@@ -443,8 +510,8 @@ for (const invalidGenerationCase of [
 test("accepts decimal target object keys after numeric normalization", async () => {
   const payload = snapshotPayload({ nextUpdateAt: "2026-07-15T04:30:00.000Z" });
   assert.deepEqual(
-    Object.keys(payload.state.snapshot.analysis.targetViews),
-    ["18", "21", "23", "30", "19.5"],
+    Object.keys(payload.state.snapshot.analysis.targetViews).sort((left, right) => Number(left) - Number(right)),
+    CURRENT_TARGETS.map(String),
   );
 
   const result = await runBeke19Watchdog({
@@ -661,7 +728,7 @@ test("rejects the retired 18/19/20 target contract during preflight even when th
         }));
       },
     }),
-    /preflight predictions targets must be exactly 18,19.5,21,23,30 in order/,
+    /preflight predictions targets must be exactly 14,15.5,18,19.5,21,23,25,30 in order/,
   );
   assert.equal(requests, MAX_PREFLIGHT_ATTEMPTS);
 });
@@ -703,7 +770,7 @@ test("rejects the retired probability model version", async () => {
       sleep: async () => {},
       fetchImpl: async () => response(200, payload),
     }),
-    /preflight modelVersion must be probability-synthesis-v5-90d-targets-18-19p5-21-23-30/,
+    /preflight modelVersion must be probability-synthesis-v6-90d-targets-14-15p5-18-19p5-21-23-25-30/,
   );
 });
 
@@ -719,7 +786,7 @@ test("rejects a publication without the current runtime marker", async () => {
       sleep: async () => {},
       fetchImpl: async () => response(200, payload),
     }),
-    /preflight dataVersion must include research-runtime-targets-18-19p5-21-23-30-v10-measurable-criteria/,
+    /preflight dataVersion must include research-runtime-targets-14-15p5-18-19p5-21-23-25-30-v12-compare-direction/,
   );
 });
 
@@ -962,7 +1029,7 @@ test("rejects a checkpoint milestone before the forecast issue date", async () =
 
 test("rejects a checkpoint milestone after the forecast horizon", async () => {
   const payload = snapshotPayload({ nextUpdateAt: "2026-07-15T04:30:00.000Z" });
-  const prediction = payload.state.snapshot.predictions[4];
+  const prediction = payload.state.snapshot.predictions.find((item) => item.target === 30);
   const conditionalId = prediction.pathForecast.stages[1].milestoneIds
     .find((milestoneId) => payload.state.snapshot.milestones.some(
       (milestone) => milestone.id === milestoneId && milestone.certainty === "conditional_trigger",
@@ -1086,12 +1153,12 @@ test("rejects a refresh response that publishes the retired target contract", as
         return queue.shift();
       },
     }),
-    /refresh predictions targets must be exactly 18,19.5,21,23,30 in order|reconciliation predictions targets must be exactly 18,19.5,21,23,30 in order/,
+    /refresh predictions targets must be exactly 14,15.5,18,19.5,21,23,25,30 in order|reconciliation predictions targets must be exactly 14,15.5,18,19.5,21,23,25,30 in order/,
   );
   assert.equal(postRequests, 1);
 });
 
-test("rejects a verification read whose analysis target keys drift from the five-target contract", async () => {
+test("rejects a verification read whose analysis target keys drift from the eight-target contract", async () => {
   const queue = [
     response(200, snapshotPayload()),
     response(200, successfulRefreshPayload()),
@@ -1118,7 +1185,7 @@ test("rejects a verification read whose analysis target keys drift from the five
       sleep: async () => {},
       fetchImpl: async () => queue.shift(),
     }),
-    /verification analysis\.targetViews keys must be exactly 18,19.5,21,23,30|reconciliation analysis\.targetViews keys must be exactly 18,19.5,21,23,30/,
+    /verification analysis\.targetViews keys must be exactly 14,15.5,18,19.5,21,23,25,30|reconciliation analysis\.targetViews keys must be exactly 14,15.5,18,19.5,21,23,25,30/,
   );
 });
 
@@ -1134,7 +1201,7 @@ test("rejects retired target keys in analysis target explanations", async () => 
         nextUpdateAt: "2026-07-15T04:30:00.000Z",
       })),
     }),
-    /preflight analysis\.targetExplanations keys must be exactly 18,19.5,21,23,30/,
+    /preflight analysis\.targetExplanations keys must be exactly 14,15.5,18,19.5,21,23,25,30/,
   );
 });
 
@@ -1206,7 +1273,7 @@ test("rejects retired p20 even when the current history ladder is complete", asy
   );
 });
 
-test("requires a finite p19.5 in every history point", async () => {
+test("requires a finite p14 in every history point", async () => {
   await assert.rejects(
     runBeke19Watchdog({
       env: { BEKE19_REFRESH_TOKEN: "secret" },
@@ -1218,11 +1285,11 @@ test("requires a finite p19.5 in every history point", async () => {
         nextUpdateAt: "2026-07-15T04:30:00.000Z",
       })),
     }),
-    /preflight history\[1\] p19\.5 must be finite/,
+    /preflight history\[1\] p14 must be finite/,
   );
 });
 
-test("requires a finite p21 in every history point", async () => {
+test("requires a finite p15.5 in every history point", async () => {
   await assert.rejects(
     runBeke19Watchdog({
       env: { BEKE19_REFRESH_TOKEN: "secret" },
@@ -1230,15 +1297,15 @@ test("requires a finite p21 in every history point", async () => {
       logger: createLogger(),
       sleep: async () => {},
       fetchImpl: async () => response(200, snapshotPayload({
-        history: [historyPoint([18, 19.5])],
+        history: [historyPoint([14, 18, 19.5, 21, 23, 25, 30])],
         nextUpdateAt: "2026-07-15T04:30:00.000Z",
       })),
     }),
-    /preflight history\[0\] p21 must be finite/,
+    /preflight history\[0\] p15\.5 must be finite/,
   );
 });
 
-test("requires a finite p23 in every history point", async () => {
+test("requires a finite p25 in every history point", async () => {
   await assert.rejects(
     runBeke19Watchdog({
       env: { BEKE19_REFRESH_TOKEN: "secret" },
@@ -1246,11 +1313,11 @@ test("requires a finite p23 in every history point", async () => {
       logger: createLogger(),
       sleep: async () => {},
       fetchImpl: async () => response(200, snapshotPayload({
-        history: [historyPoint([18, 19.5, 21])],
+        history: [historyPoint([14, 15.5, 18, 19.5, 21, 23, 30])],
         nextUpdateAt: "2026-07-15T04:30:00.000Z",
       })),
     }),
-    /preflight history\[0\] p23 must be finite/,
+    /preflight history\[0\] p25 must be finite/,
   );
 });
 
@@ -1262,7 +1329,7 @@ test("requires a finite p30 in every history point", async () => {
       logger: createLogger(),
       sleep: async () => {},
       fetchImpl: async () => response(200, snapshotPayload({
-        history: [historyPoint([18, 19.5, 21, 23])],
+        history: [historyPoint([14, 15.5, 18, 19.5, 21, 23, 25])],
         nextUpdateAt: "2026-07-15T04:30:00.000Z",
       })),
     }),

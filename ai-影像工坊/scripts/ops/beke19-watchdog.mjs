@@ -8,17 +8,17 @@ export const DEFAULT_READ_RETRY_DELAY_MS = 1_000;
 export const MAX_REFRESH_ATTEMPTS = 2;
 export const MAX_PREFLIGHT_ATTEMPTS = 2;
 
-const EXPECTED_TARGETS = Object.freeze([18, 19.5, 21, 23, 30]);
-const EXPECTED_MODEL_VERSION = "probability-synthesis-v5-90d-targets-18-19p5-21-23-30";
-const EXPECTED_RUNTIME_VERSION = "research-runtime-targets-18-19p5-21-23-30-v10-measurable-criteria";
+const EXPECTED_TARGETS = Object.freeze([14, 15.5, 18, 19.5, 21, 23, 25, 30]);
+const EXPECTED_MODEL_VERSION = "probability-synthesis-v6-90d-targets-14-15p5-18-19p5-21-23-25-30";
+const EXPECTED_RUNTIME_VERSION = "research-runtime-targets-14-15p5-18-19p5-21-23-25-30-v12-compare-direction";
 const EXPECTED_TIMING_MODEL_VERSION = "event-confluence-validation-v4";
 const EXPECTED_ANALYSIS_PROVIDER = "TokenPlanProvider";
 const EXPECTED_ANALYSIS_MODEL_ID = "mimo-v2.5-pro";
 const EXPECTED_PROMPT_VERSIONS = Object.freeze([
-  "quant-research-context-v2.3.0-measurable-criteria-90d-targets-18-19p5-21-23-30",
-  "bull-research-context-v1.8.0-confluence-path-90d-targets-18-19p5-21-23-30",
-  "bear-research-context-v1.8.0-confluence-path-90d-targets-18-19p5-21-23-30",
-  "professional-conclusion-context-v1.19.0-measurable-criteria-90d-targets-18-19p5-21-23-30",
+  "quant-research-context-v2.3.0-measurable-criteria-90d-targets-14-15p5-18-19p5-21-23-25-30",
+  "bull-research-context-v1.8.0-confluence-path-90d-targets-14-15p5-18-19p5-21-23-25-30",
+  "bear-research-context-v1.8.0-confluence-path-90d-targets-14-15p5-18-19p5-21-23-25-30",
+  "professional-conclusion-context-v1.19.0-measurable-criteria-90d-targets-14-15p5-18-19p5-21-23-25-30",
 ]);
 const CONFLUENCE_PHASES = Object.freeze(["setup", "catalyst", "confirmation"]);
 const CONFLUENCE_SIGNAL_KINDS = new Set([
@@ -27,12 +27,15 @@ const CONFLUENCE_SIGNAL_KINDS = new Set([
   "discount_rate_adr",
   "market_absorption",
 ]);
+const NEAR_SPOT_CONFLUENCE = Object.freeze({
+  minimumSignals: 2,
+  signalKinds: Object.freeze(["market_absorption", "property_state", "discount_rate_adr"]),
+  mandatoryKinds: Object.freeze(["market_absorption"]),
+});
 const TARGET_CONFLUENCE_POLICIES = Object.freeze({
-  18: Object.freeze({
-    minimumSignals: 2,
-    signalKinds: Object.freeze(["market_absorption", "property_state", "discount_rate_adr"]),
-    mandatoryKinds: Object.freeze(["market_absorption"]),
-  }),
+  14: NEAR_SPOT_CONFLUENCE,
+  15.5: NEAR_SPOT_CONFLUENCE,
+  18: NEAR_SPOT_CONFLUENCE,
   19.5: Object.freeze({
     minimumSignals: 3,
     signalKinds: Object.freeze(["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"]),
@@ -44,6 +47,11 @@ const TARGET_CONFLUENCE_POLICIES = Object.freeze({
     mandatoryKinds: Object.freeze(["market_absorption", "company_fundamentals", "property_state"]),
   }),
   23: Object.freeze({
+    minimumSignals: 4,
+    signalKinds: Object.freeze(["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"]),
+    mandatoryKinds: Object.freeze(["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"]),
+  }),
+  25: Object.freeze({
     minimumSignals: 4,
     signalKinds: Object.freeze(["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"]),
     mandatoryKinds: Object.freeze(["market_absorption", "company_fundamentals", "property_state", "discount_rate_adr"]),
@@ -534,6 +542,15 @@ function validateTargetPublicationContract(snapshot, label) {
     const horizonEnd = Date.parse(horizonEndTimestamp);
     const forecastIssuedDate = xnysIssueSessionDate(issuedAtTimestamp);
     const forecastHorizonDate = xnysMarketDate(horizonEndTimestamp);
+    const direction = question.direction === "down" || question.priceMeasure === "regular_session_low"
+      ? "down"
+      : "up";
+    const expectedPriceMeasure = direction === "down" ? "regular_session_low" : "regular_session_high";
+    const expectedQuestionSuffix = `-${record.target}-90d-first-touch-${direction}`;
+    const legacyUpSuffix = `-${record.target}-90d-first-touch`;
+    const questionId = String(question.questionId ?? "");
+    const questionIdOk = questionId.endsWith(expectedQuestionSuffix)
+      || (direction === "up" && questionId.endsWith(legacyUpSuffix));
     let expectedHorizonEnd;
     let localCalendarDays;
     try {
@@ -561,8 +578,10 @@ function validateTargetPublicationContract(snapshot, label) {
     if (
       question.barrier !== record.target
       || question.horizonDays !== EXPECTED_HORIZON_DAYS
-      || !String(question.questionId).endsWith(`-${record.target}-90d-first-touch`)
-      || question.priceMeasure !== "regular_session_high"
+      || !questionIdOk
+      || question.currency !== "USD"
+      || (question.direction !== undefined && question.direction !== direction)
+      || question.priceMeasure !== expectedPriceMeasure
       || question.event !== "first_touch"
       || question.tradingCalendar !== "XNYS"
       || question.timezone !== "America/New_York"
@@ -572,6 +591,8 @@ function validateTargetPublicationContract(snapshot, label) {
     ) {
       throw new Error(`${label} predictions[${index}] must use the current 90-day first-touch contract`);
     }
+    // Carry direction onto the record for ladder checks below.
+    record.__touchDirection = direction;
 
     const path = requireObject(record.pathForecast, `${label} predictions[${index}].pathForecast`);
     if (
@@ -919,10 +940,24 @@ function validateTargetPublicationContract(snapshot, label) {
   if (issuedAtValues.size !== 1 || horizonEndValues.size !== 1) {
     throw new Error(`${label} predictions must share one 90-day issue and end time`);
   }
-  for (let index = 1; index < predictions.length; index += 1) {
-    if (predictions[index].probability > predictions[index - 1].probability) {
+  const openByDirection = (direction) => predictions
+    .filter((prediction) =>
+      prediction.forecastQuestion?.status !== "resolved_at_issue"
+      && prediction.__touchDirection === direction)
+    .sort((left, right) => left.target - right.target);
+  const upLadder = openByDirection("up");
+  for (let index = 1; index < upLadder.length; index += 1) {
+    if (upLadder[index].probability > upLadder[index - 1].probability) {
       throw new Error(
-        `${label} probabilities must satisfy ${EXPECTED_TARGETS.map((target) => `P${target}`).join(" >= ")}`,
+        `${label} up-ladder probabilities must be non-increasing with target distance`,
+      );
+    }
+  }
+  const downLadder = openByDirection("down");
+  for (let index = 1; index < downLadder.length; index += 1) {
+    if (downLadder[index].probability < downLadder[index - 1].probability) {
+      throw new Error(
+        `${label} down-ladder probabilities must be non-decreasing toward spot`,
       );
     }
   }
@@ -1127,7 +1162,9 @@ export async function runBeke19Watchdog({
       );
       preflight = validatePublishedPayload(preflightPayload, "preflight", {
         requireSuccessfulRun: false,
-        allowStaticFallback: config.forceRefresh,
+        // Preflight may observe a degraded/bundled publication after a contract
+        // bump; the POST path still requires a fresh server-harness publish.
+        allowStaticFallback: true,
       });
       break;
     } catch (error) {
@@ -1138,12 +1175,17 @@ export async function runBeke19Watchdog({
   }
   if (!preflight) throw preflightError;
 
-  if (!config.forceRefresh && Date.parse(preflight.nextUpdateAt) > nowMs) {
+  const healthyPublication = preflight.source === "server-harness";
+  if (!config.forceRefresh && healthyPublication && Date.parse(preflight.nextUpdateAt) > nowMs) {
     logger.info(`not due: nextUpdateAt=${preflight.nextUpdateAt} runId=${preflight.runId}`);
     return { status: "not-due", nextUpdateAt: preflight.nextUpdateAt };
   }
   if (config.forceRefresh) {
     logger.info(`forced refresh: nextUpdateAt=${preflight.nextUpdateAt} runId=${preflight.runId}`);
+  } else if (!healthyPublication) {
+    logger.info(
+      `recovering degraded publication: source=${preflight.source} runId=${preflight.runId}`,
+    );
   }
 
   const token = requireString(env.BEKE19_REFRESH_TOKEN, "BEKE19_REFRESH_TOKEN");
