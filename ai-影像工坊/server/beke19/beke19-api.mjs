@@ -3279,14 +3279,16 @@ function buildMilestoneCalendar(researchAsOf, horizonEnd) {
 function clause(metric, operator, threshold, unit, windowSessions) {
   return { metric, operator, threshold, unit, ...windowSessions ? { windowSessions } : {} };
 }
-function earningsPeriod(milestones) {
-  const earnings = milestones.find((milestone) => milestone.kind === "earnings");
+function earningsPeriod(milestones, preferredIds = []) {
+  const byId = new Map(milestones.map((milestone) => [milestone.id, milestone]));
+  const preferredEarnings = preferredIds.map((id) => byId.get(id)).find((milestone) => milestone?.kind === "earnings");
+  const earnings = preferredEarnings ?? milestones.find((milestone) => milestone.kind === "earnings");
   if (earnings?.id.includes("-q2-")) return "Q2";
   if (earnings?.id.includes("-q3-")) return "Q3";
   return "\u672C\u671F\u4E1A\u7EE9";
 }
-function draftsForTarget(target, milestones) {
-  const period = earningsPeriod(milestones);
+function draftsForTarget(target, milestones, preferredEarningsIds = []) {
+  const period = earningsPeriod(milestones, preferredEarningsIds);
   if (target === 14) {
     return [
       {
@@ -3613,7 +3615,8 @@ function signalMilestoneIds(kind, milestones, stages) {
   }))];
 }
 function buildTargetValidationCriteria(target, milestones, stages) {
-  return draftsForTarget(target, milestones).map((draft) => ({
+  const catalystIds = stages.find((stage) => stage.phase === "catalyst")?.milestoneIds ?? [];
+  return draftsForTarget(target, milestones, catalystIds).map((draft) => ({
     ...draft,
     milestoneIds: signalMilestoneIds(draft.kind, milestones, stages),
     mode: draft.mode ?? "all",
@@ -22194,12 +22197,9 @@ function validateMilestoneContract(snapshot) {
     }
     if (targetPolicy && isKnownTarget(prediction.target)) {
       try {
-        const eligibleMilestones = snapshot.milestones.filter(
-          (milestone) => Array.isArray(milestone.affectedTargets) && milestone.affectedTargets.includes(prediction.target) && !milestone.id.startsWith("forecast-horizon-")
-        );
         const expectedCriteria = buildTargetValidationCriteria(
           prediction.target,
-          eligibleMilestones,
+          snapshot.milestones,
           path.stages
         );
         const expectedPeakRiskRule = targetPeakRiskRule(prediction.target);
