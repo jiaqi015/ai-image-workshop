@@ -20503,6 +20503,13 @@ var PUBLIC_SCHEMA_LABEL = /\b(?:observed|derived|historical_precedent|bounded_in
 var PUBLIC_REFERENCE_ID = /\b(?:evt|raw|mem|target|history|historical|precedent)-[a-z0-9][a-z0-9._:-]*\b/i;
 var PUBLIC_REFERENCE_ID_GLOBAL = /\b(?:evt|raw|mem|target|history|historical|precedent)-[a-z0-9][a-z0-9._:-]*\b/gi;
 var PERSONALIZED_TRADING_ADVICE = /(?:建议|应当|应该|需要|可以|考虑|立即|继续|不要|不得)[^。；！？]{0,16}(?:买入|卖出|加仓|减仓|持有|挂单|撤单|止损|止盈)|(?:买入|卖出|加仓|减仓|持有)[\s\S]{0,8}(?:\d+(?:\.\d+)?\s*(?:股|%|成)|操作|指令)|(?:挂单价|撤单|核心趋势仓|风险调整仓|剩余持仓|仓位管理|买回规则)/;
+function scrubPersonalizedTradingAdvice(text) {
+  let current = text;
+  for (let attempt = 0; attempt < 6 && PERSONALIZED_TRADING_ADVICE.test(current); attempt += 1) {
+    current = current.replace(PERSONALIZED_TRADING_ADVICE, "\u6309\u7814\u7A76\u6761\u4EF6\u7EE7\u7EED\u8DDF\u8E2A");
+  }
+  return current;
+}
 function contextReferenceIds(context, target) {
   const targets = target === void 0 ? context.targets.map((item) => item.target) : [target];
   const precedents = target === void 0 ? Object.values(context.historicalPrecedents) : [context.historicalPrecedents[target]];
@@ -20964,7 +20971,7 @@ function deterministicProfessionalConclusion(context, synthesis, reason) {
   };
 }
 function cleanText(value) {
-  return value.replace(/\s*\d{1,3}\s*\/\s*100/g, "").replace(/贝恩克/g, "\u8D1D\u58F3").replace(/不是[^。；！？]{1,80}[，,]?\s*而是/g, "\u6838\u5FC3\u662F").replace(/\s{2,}/g, " ").trim();
+  return scrubPersonalizedTradingAdvice(value.replace(/\s*\d{1,3}\s*\/\s*100/g, "").replace(/贝恩克/g, "\u8D1D\u58F3").replace(/不是[^。；！？]{1,80}[，,]?\s*而是/g, "\u6838\u5FC3\u662F").replace(/\s{2,}/g, " ").trim());
 }
 function removePublicReferenceIds(value) {
   return value.replace(/\s*[（(]\s*(?:evt|raw|mem|target|history|historical|precedent)-[a-z0-9][a-z0-9._:-]*\s*[）)]/gi, "").replace(PUBLIC_REFERENCE_ID_GLOBAL, "").replace(/\s{2,}/g, " ").trim();
