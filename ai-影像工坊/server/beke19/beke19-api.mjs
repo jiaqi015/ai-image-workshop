@@ -21861,6 +21861,1098 @@ var MemoryEngine = class {
   }
 };
 
+// src/research/forecast/validateMilestoneContract.ts
+var CONFLUENCE_SIGNALS = /* @__PURE__ */ new Set([
+  "company_fundamentals",
+  "property_state",
+  "discount_rate_adr",
+  "market_absorption"
+]);
+var PHASES = ["setup", "catalyst", "confirmation"];
+var CRITERION_MODES = /* @__PURE__ */ new Set(["all", "any", "at_least"]);
+var CRITERION_STATUSES = /* @__PURE__ */ new Set(["pending", "met", "not_met", "unavailable"]);
+var VALIDATION_OPERATORS = /* @__PURE__ */ new Set(["gte", "lte"]);
+var VALIDATION_UNITS = /* @__PURE__ */ new Set(["USD", "%", "pp", "x", "bp", "count"]);
+function isRecord4(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+function isDateOnly(value) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T00:00:00Z`));
+}
+function calendarDateInTimezone(value, timezone) {
+  const instant = new Date(value);
+  if (!Number.isFinite(instant.getTime())) return void 0;
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(instant);
+    const part = (type) => parts.find((item) => item.type === type)?.value;
+    const year = part("year");
+    const month = part("month");
+    const day = part("day");
+    return year && month && day ? `${year}-${month}-${day}` : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function addIssue(issues, code, path, message) {
+  issues.push({ code, path, message });
+}
+function stringIds(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+}
+function sameStringSet(left, right) {
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  return leftSet.size === left.length && rightSet.size === right.length && leftSet.size === rightSet.size && [...leftSet].every((value) => rightSet.has(value)) && [...rightSet].every((value) => leftSet.has(value));
+}
+function safeXnysIssueDate(value) {
+  if (typeof value !== "string") return void 0;
+  try {
+    return xnysIssueSessionDate(value);
+  } catch {
+    return void 0;
+  }
+}
+function safeXnysMarketDate(value) {
+  if (typeof value !== "string") return void 0;
+  try {
+    return xnysMarketDate(value);
+  } catch {
+    return void 0;
+  }
+}
+function isKnownTarget(value) {
+  return isTargetPrice(value);
+}
+function hasMeasurableStatement(value) {
+  return typeof value === "string" && value.trim().length > 0 && /\d/.test(value) && /[≥≤]/.test(value);
+}
+function hasNumericStatement(value) {
+  return typeof value === "string" && value.trim().length > 0 && /\d/.test(value);
+}
+function isValidationClause(value) {
+  if (!isRecord4(value)) return false;
+  return typeof value.metric === "string" && value.metric.trim().length > 0 && VALIDATION_OPERATORS.has(String(value.operator)) && typeof value.threshold === "number" && Number.isFinite(value.threshold) && VALIDATION_UNITS.has(String(value.unit)) && (value.windowSessions === void 0 || typeof value.windowSessions === "number" && Number.isInteger(value.windowSessions) && value.windowSessions > 0);
+}
+function validationCriterionShape(value) {
+  if (!isRecord4(value)) return false;
+  const milestoneIds = stringIds(value.milestoneIds);
+  const clauses = Array.isArray(value.clauses) ? value.clauses : [];
+  const validModeThreshold = value.mode === "at_least" ? typeof value.minimumClauses === "number" && Number.isInteger(value.minimumClauses) && value.minimumClauses >= 2 && value.minimumClauses <= clauses.length : value.minimumClauses === void 0;
+  return typeof value.id === "string" && value.id.trim().length > 0 && CONFLUENCE_SIGNALS.has(value.kind) && milestoneIds.length > 0 && new Set(milestoneIds).size === milestoneIds.length && CRITERION_MODES.has(String(value.mode)) && validModeThreshold && clauses.length > 0 && clauses.every(isValidationClause) && hasMeasurableStatement(value.statement) && CRITERION_STATUSES.has(String(value.status)) && (value.observed === void 0 || typeof value.observed === "string") && (value.observedAt === void 0 || typeof value.observedAt === "string" && Number.isFinite(Date.parse(value.observedAt)));
+}
+function peakRiskRuleShape(value) {
+  if (!isRecord4(value) || !Array.isArray(value.criteria)) return false;
+  const criteria = value.criteria;
+  const ids = criteria.filter(isRecord4).map((criterion) => criterion.id).filter((id) => typeof id === "string");
+  return value.activation === "after_first_touch" && typeof value.windowSessions === "number" && Number.isInteger(value.windowSessions) && value.windowSessions > 0 && typeof value.minimumSignals === "number" && Number.isInteger(value.minimumSignals) && value.minimumSignals > 0 && value.minimumSignals <= criteria.length && criteria.length > 0 && ids.length === criteria.length && new Set(ids).size === ids.length && criteria.every(
+    (criterion) => isRecord4(criterion) && typeof criterion.id === "string" && criterion.id.trim().length > 0 && Array.isArray(criterion.clauses) && criterion.clauses.length > 0 && criterion.clauses.every(isValidationClause) && hasNumericStatement(criterion.statement)
+  );
+}
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (!isRecord4(value)) return value;
+  return Object.fromEntries(
+    Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])])
+  );
+}
+function sameJson(left, right) {
+  return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
+}
+function criterionPolicyProjection(criteria) {
+  return criteria.map((criterion) => {
+    if (!isRecord4(criterion)) return criterion;
+    return {
+      id: criterion.id,
+      kind: criterion.kind,
+      milestoneIds: criterion.milestoneIds,
+      mode: criterion.mode,
+      minimumClauses: criterion.minimumClauses,
+      clauses: criterion.clauses,
+      statement: criterion.statement
+    };
+  });
+}
+function validateMilestoneContract(snapshot) {
+  const issues = [];
+  if (!isRecord4(snapshot) || !Array.isArray(snapshot.predictions) || !Array.isArray(snapshot.milestones)) {
+    addIssue(issues, "invalid_snapshot_shape", "snapshot", "Snapshot must expose predictions and milestones arrays.");
+    return { valid: false, issues };
+  }
+  const milestonesById = /* @__PURE__ */ new Map();
+  snapshot.milestones.forEach((milestone, index) => {
+    const path = `milestones[${index}]`;
+    if (!isRecord4(milestone) || typeof milestone.id !== "string" || milestone.id.length === 0) {
+      addIssue(issues, "invalid_milestone_shape", path, "Milestone must have a non-empty string id.");
+      return;
+    }
+    if (milestonesById.has(milestone.id)) {
+      addIssue(issues, "duplicate_milestone_id", `${path}.id`, `Milestone id ${milestone.id} is duplicated.`);
+      return;
+    }
+    if (!isDateOnly(milestone.start) || !isDateOnly(milestone.end) || milestone.start > milestone.end) {
+      addIssue(issues, "invalid_milestone_range", path, `Milestone ${milestone.id} must use an ordered ISO date range.`);
+      return;
+    }
+    const requiresScheduledInstant = milestone.certainty === "official_schedule" && (milestone.kind === "macro_release" || milestone.kind === "property_release");
+    if (requiresScheduledInstant) {
+      const scheduledDate = typeof milestone.scheduledAt === "string" && typeof milestone.timezone === "string" ? calendarDateInTimezone(milestone.scheduledAt, milestone.timezone) : void 0;
+      if (!scheduledDate || scheduledDate < milestone.start || scheduledDate > milestone.end) {
+        addIssue(
+          issues,
+          "invalid_scheduled_release",
+          `${path}.scheduledAt`,
+          `Official release ${milestone.id} must expose a valid instant in its source timezone and date range.`
+        );
+      }
+    }
+    milestonesById.set(milestone.id, milestone);
+  });
+  snapshot.predictions.forEach((prediction, predictionIndex) => {
+    const predictionPath = `predictions[${predictionIndex}]`;
+    if (!isRecord4(prediction) || !isRecord4(prediction.pathForecast)) {
+      addIssue(issues, "missing_path_forecast", `${predictionPath}.pathForecast`, "Every prediction must publish milestone-path-v4.");
+      return;
+    }
+    const path = prediction.pathForecast;
+    if (path.schemaVersion !== "milestone-path-v4" || path.modelName !== CURRENT_TIMING_MODEL_VERSION || path.timingBasis !== "multi_event_confluence") {
+      addIssue(issues, "obsolete_path_contract", `${predictionPath}.pathForecast`, "Path forecast does not use the current multi-event confluence contract.");
+    }
+    if (path.target !== prediction.target) {
+      addIssue(issues, "path_target_mismatch", `${predictionPath}.pathForecast.target`, "Path target must equal its prediction target.");
+    }
+    if (path.terminalProbability !== prediction.probability) {
+      addIssue(issues, "terminal_probability_mismatch", `${predictionPath}.pathForecast.terminalProbability`, "Timing must not alter the authoritative 90-day probability.");
+    }
+    if (!Array.isArray(path.stages) || !Array.isArray(path.checkpoints)) {
+      addIssue(issues, "obsolete_path_contract", `${predictionPath}.pathForecast`, "Path must expose confluence stages and checkpoints.");
+      return;
+    }
+    const forecastStatus = isRecord4(prediction.forecastQuestion) ? prediction.forecastQuestion.status : void 0;
+    const forecastIssuedDate = isRecord4(prediction.forecastQuestion) ? safeXnysIssueDate(prediction.forecastQuestion.issuedAt) : void 0;
+    const forecastHorizonDate = isRecord4(prediction.forecastQuestion) ? safeXnysMarketDate(prediction.forecastQuestion.horizonEnd) : void 0;
+    if (path.status !== forecastStatus) {
+      addIssue(issues, "forecast_status_mismatch", `${predictionPath}.pathForecast.status`, "Path status must match the audited forecast question.");
+    }
+    if (path.status === "resolved_at_issue") {
+      if (prediction.probability !== 100 || path.terminalProbability !== 100) {
+        addIssue(
+          issues,
+          "resolved_probability_mismatch",
+          predictionPath,
+          "A target already touched at issue must publish 100% prediction and terminal probabilities."
+        );
+      }
+      if (path.confluenceWindow !== void 0 || path.confluenceRule !== void 0 || path.stages.length > 0 || path.checkpoints.length > 0) {
+        addIssue(issues, "resolved_path_has_future_references", `${predictionPath}.pathForecast`, "A target already touched at issue cannot publish future confluence references.");
+      }
+      return;
+    }
+    if (path.status !== "open") {
+      addIssue(issues, "forecast_status_mismatch", `${predictionPath}.pathForecast.status`, "An unresolved target must publish an open confluence path.");
+      return;
+    }
+    if (!isRecord4(path.confluenceWindow)) {
+      addIssue(issues, "missing_confluence_window", `${predictionPath}.pathForecast.confluenceWindow`, "An open path requires one multi-event observation window.");
+      return;
+    }
+    if (!isRecord4(path.confluenceRule)) {
+      addIssue(issues, "missing_confluence_rule", `${predictionPath}.pathForecast.confluenceRule`, "An open path requires an independent-signal rule.");
+      return;
+    }
+    const window = path.confluenceWindow;
+    const rule = path.confluenceRule;
+    const basisIds = stringIds(window.basisMilestoneIds);
+    const signalKinds = stringIds(rule.signalKinds);
+    const mandatoryKinds = stringIds(rule.mandatoryKinds);
+    const exhaustionSignals = stringIds(rule.exhaustionSignals);
+    const distinctSignals = new Set(signalKinds);
+    const minimumSignals = rule.minimumSignals;
+    if (basisIds.length < 2 || distinctSignals.size < 2 || signalKinds.some((signal) => !CONFLUENCE_SIGNALS.has(signal)) || typeof minimumSignals !== "number" || !Number.isInteger(minimumSignals) || minimumSignals < 2 || minimumSignals > distinctSignals.size) {
+      addIssue(issues, "insufficient_confluence_signals", `${predictionPath}.pathForecast.confluenceRule`, "A confluence window requires at least two independent, valid signals and a feasible minimum.");
+    }
+    if (mandatoryKinds.length === 0 || new Set(mandatoryKinds).size !== mandatoryKinds.length || mandatoryKinds.some((signal) => !distinctSignals.has(signal))) {
+      addIssue(issues, "invalid_mandatory_signal", `${predictionPath}.pathForecast.confluenceRule.mandatoryKinds`, "Mandatory signals must be unique members of the declared signal set.");
+    }
+    if (exhaustionSignals.length === 0 || exhaustionSignals.length > 3 || new Set(exhaustionSignals).size !== exhaustionSignals.length || exhaustionSignals.some((signal) => signal.trim().length === 0)) {
+      addIssue(
+        issues,
+        "missing_exhaustion_signals",
+        `${predictionPath}.pathForecast.confluenceRule.exhaustionSignals`,
+        "An open path must preserve one to three distinct signals for identifying post-touch buying exhaustion."
+      );
+    }
+    const rawValidationCriteria = rule.validationCriteria;
+    const validationCriteria = Array.isArray(rawValidationCriteria) ? rawValidationCriteria : [];
+    if (validationCriteria.length === 0) {
+      addIssue(
+        issues,
+        "missing_validation_criteria",
+        `${predictionPath}.pathForecast.confluenceRule.validationCriteria`,
+        "An open path must publish target-specific measurable validation criteria."
+      );
+    } else {
+      const criterionIds = validationCriteria.filter(isRecord4).map((criterion) => criterion.id).filter((id) => typeof id === "string");
+      if (criterionIds.length !== validationCriteria.length || new Set(criterionIds).size !== criterionIds.length) {
+        addIssue(
+          issues,
+          "invalid_validation_criterion",
+          `${predictionPath}.pathForecast.confluenceRule.validationCriteria`,
+          "Validation criterion ids must be non-empty and unique."
+        );
+      }
+      validationCriteria.forEach((criterion, criterionIndex) => {
+        const criterionPath = `${predictionPath}.pathForecast.confluenceRule.validationCriteria[${criterionIndex}]`;
+        if (!validationCriterionShape(criterion)) {
+          addIssue(
+            issues,
+            "invalid_validation_criterion",
+            criterionPath,
+            "Each validation criterion requires a declared signal, measurable clauses, milestone references and a numeric threshold statement."
+          );
+          return;
+        }
+        if (!distinctSignals.has(criterion.kind)) {
+          addIssue(
+            issues,
+            "invalid_validation_criterion",
+            `${criterionPath}.kind`,
+            `Criterion ${criterion.id} uses signal ${criterion.kind} outside the declared target rule.`
+          );
+        }
+        criterion.milestoneIds.forEach((id, idIndex) => {
+          if (!milestonesById.has(id)) {
+            addIssue(
+              issues,
+              "unknown_criterion_milestone_reference",
+              `${criterionPath}.milestoneIds[${idIndex}]`,
+              `Criterion ${criterion.id} references unpublished milestone ${id}.`
+            );
+          } else if (!basisIds.includes(id)) {
+            addIssue(
+              issues,
+              "invalid_validation_criterion",
+              `${criterionPath}.milestoneIds[${idIndex}]`,
+              `Criterion ${criterion.id} must be bound to a milestone in the target observation window.`
+            );
+          }
+        });
+      });
+      const coveredKinds = new Set(
+        validationCriteria.filter(validationCriterionShape).map((criterion) => criterion.kind)
+      );
+      if (signalKinds.some((kind) => !coveredKinds.has(kind)) || mandatoryKinds.some((kind) => !coveredKinds.has(kind))) {
+        addIssue(
+          issues,
+          "invalid_validation_criterion",
+          `${predictionPath}.pathForecast.confluenceRule.validationCriteria`,
+          "Measurable criteria must cover every declared and mandatory signal domain."
+        );
+      }
+    }
+    const rawPeakRiskRule = rule.peakRiskRule;
+    if (!peakRiskRuleShape(rawPeakRiskRule)) {
+      addIssue(
+        issues,
+        "invalid_peak_risk_rule",
+        `${predictionPath}.pathForecast.confluenceRule.peakRiskRule`,
+        "Post-touch risk requires a feasible multi-signal rule with measurable clauses and unique criteria."
+      );
+    } else if (!sameJson(
+      exhaustionSignals,
+      rawPeakRiskRule.criteria.map((criterion) => criterion.statement)
+    )) {
+      addIssue(
+        issues,
+        "exhaustion_signal_mismatch",
+        `${predictionPath}.pathForecast.confluenceRule.exhaustionSignals`,
+        "The compatibility exhaustion-signal list must exactly mirror the structured post-touch risk criteria."
+      );
+    }
+    const targetPolicy = isKnownTarget(prediction.target) ? confluencePolicyForTarget(prediction.target) : void 0;
+    if (!targetPolicy || minimumSignals !== targetPolicy.minimumSignals || !sameStringSet(signalKinds, targetPolicy.signalKinds) || !sameStringSet(mandatoryKinds, targetPolicy.mandatoryKinds)) {
+      addIssue(
+        issues,
+        "target_policy_mismatch",
+        `${predictionPath}.pathForecast.confluenceRule`,
+        "The confluence rule must preserve the versioned evidence threshold for its target."
+      );
+    }
+    if (targetPolicy && isKnownTarget(prediction.target)) {
+      try {
+        const expectedCriteria = buildTargetValidationCriteria(
+          prediction.target,
+          snapshot.milestones,
+          path.stages
+        );
+        const expectedPeakRiskRule = targetPeakRiskRule(prediction.target);
+        const expectedExhaustionSignals = expectedPeakRiskRule.criteria.map((criterion) => criterion.statement);
+        if (!sameJson(
+          criterionPolicyProjection(validationCriteria),
+          criterionPolicyProjection(expectedCriteria)
+        ) || !sameJson(rawPeakRiskRule, expectedPeakRiskRule) || !sameJson(exhaustionSignals, expectedExhaustionSignals)) {
+          addIssue(
+            issues,
+            "target_policy_mismatch",
+            `${predictionPath}.pathForecast.confluenceRule`,
+            "The measurable validation and post-touch risk thresholds must match the current target policy and rolling milestone set."
+          );
+        }
+      } catch {
+        addIssue(
+          issues,
+          "target_policy_mismatch",
+          `${predictionPath}.pathForecast.confluenceRule`,
+          "The target policy cannot be rebuilt from the published rolling milestone set."
+        );
+      }
+    }
+    const stages = path.stages;
+    if (stages.length !== PHASES.length || stages.some(
+      (stage, index) => !isRecord4(stage) || stage.phase !== PHASES[index] || typeof stage.label !== "string" || stage.label.length === 0 || stringIds(stage.milestoneIds).length === 0
+    )) {
+      addIssue(issues, "missing_confluence_stage", `${predictionPath}.pathForecast.stages`, "An open path must publish setup, catalyst and confirmation stages in order.");
+    }
+    const stageIds = stages.flatMap(
+      (stage) => isRecord4(stage) ? stringIds(stage.milestoneIds) : []
+    );
+    for (const [index, id] of basisIds.entries()) {
+      if (!milestonesById.has(id)) {
+        addIssue(issues, "unknown_milestone_reference", `${predictionPath}.pathForecast.confluenceWindow.basisMilestoneIds[${index}]`, `Basis milestone ${id} is not published.`);
+      }
+    }
+    for (const [index, id] of stageIds.entries()) {
+      if (!milestonesById.has(id)) {
+        addIssue(issues, "unknown_milestone_reference", `${predictionPath}.pathForecast.stages[${index}]`, `Stage milestone ${id} is not published.`);
+      }
+      if (!basisIds.includes(id)) {
+        addIssue(issues, "stage_reference_mismatch", `${predictionPath}.pathForecast.stages`, `Stage milestone ${id} is missing from the observation window basis.`);
+      }
+    }
+    if (!sameStringSet(basisIds, stageIds)) {
+      addIssue(
+        issues,
+        "stage_reference_mismatch",
+        `${predictionPath}.pathForecast.confluenceWindow.basisMilestoneIds`,
+        "The observation-window basis must exactly match the distinct milestones used by its three stages."
+      );
+    }
+    for (const [index, id] of basisIds.entries()) {
+      const milestone = milestonesById.get(id);
+      if (milestone && (!isDateOnly(forecastIssuedDate) || !isDateOnly(forecastHorizonDate) || typeof milestone.start === "string" && milestone.start < forecastIssuedDate || typeof milestone.end === "string" && milestone.end > forecastHorizonDate)) {
+        addIssue(
+          issues,
+          "milestone_outside_forecast_horizon",
+          `${predictionPath}.pathForecast.confluenceWindow.basisMilestoneIds[${index}]`,
+          `Basis milestone ${id} must remain within the audited forecast horizon.`
+        );
+      }
+    }
+    const setupStage = stages.find((stage) => isRecord4(stage) && stage.phase === "setup");
+    const catalystStage = stages.find((stage) => isRecord4(stage) && stage.phase === "catalyst");
+    const confirmationStage = stages.find((stage) => isRecord4(stage) && stage.phase === "confirmation");
+    const setups = isRecord4(setupStage) ? stringIds(setupStage.milestoneIds).map((id) => milestonesById.get(id)).filter((milestone) => milestone !== void 0) : [];
+    const catalysts = isRecord4(catalystStage) ? stringIds(catalystStage.milestoneIds).map((id) => milestonesById.get(id)).filter(
+      (milestone) => milestone !== void 0 && milestone.certainty !== "conditional_trigger"
+    ) : [];
+    const confirmations = isRecord4(confirmationStage) ? stringIds(confirmationStage.milestoneIds).map((id) => milestonesById.get(id)).filter((milestone) => milestone !== void 0) : [];
+    const fixedCatalysts = catalysts.filter(
+      (milestone) => milestone.certainty === "official_schedule"
+    );
+    const forecastIssuedMs = isRecord4(prediction.forecastQuestion) && typeof prediction.forecastQuestion.issuedAt === "string" ? Date.parse(prediction.forecastQuestion.issuedAt) : Number.NaN;
+    if (fixedCatalysts.some(
+      (milestone) => typeof milestone.scheduledAt !== "string" || !Number.isFinite(Date.parse(milestone.scheduledAt)) || Date.parse(milestone.scheduledAt) <= forecastIssuedMs
+    )) {
+      addIssue(
+        issues,
+        "elapsed_catalyst_reference",
+        `${predictionPath}.pathForecast.stages`,
+        "An official catalyst must still be unpublished at the audited research timestamp."
+      );
+    }
+    const setupEnd = setups.map((milestone) => milestone.end).filter((value) => typeof value === "string").sort().at(-1);
+    const firstFixedCatalystStart = fixedCatalysts.map((milestone) => milestone.start).filter((value) => typeof value === "string").sort()[0];
+    const lastCatalystEnd = catalysts.map((milestone) => milestone.end).filter((value) => typeof value === "string").sort().at(-1);
+    const confirmationStart = confirmations.map((milestone) => milestone.start).filter((value) => typeof value === "string").sort()[0];
+    if (!setupEnd || !firstFixedCatalystStart || !lastCatalystEnd || !confirmationStart || setupEnd >= firstFixedCatalystStart || lastCatalystEnd >= confirmationStart) {
+      addIssue(
+        issues,
+        "stage_order_violation",
+        `${predictionPath}.pathForecast.stages`,
+        "The market setup must precede the first fixed catalyst, and confirmation must follow every scheduled catalyst."
+      );
+    }
+    const representedSignals = /* @__PURE__ */ new Set();
+    if (setups.some((milestone) => milestone.kind === "technical_checkpoint") && confirmations.some((milestone) => milestone.kind === "technical_checkpoint")) {
+      representedSignals.add("market_absorption");
+    }
+    if (catalysts.some((milestone) => milestone.kind === "earnings")) {
+      representedSignals.add("company_fundamentals");
+    }
+    if (catalysts.some((milestone) => milestone.kind === "property_release")) {
+      representedSignals.add("property_state");
+    }
+    if (catalysts.some(
+      (milestone) => milestone.kind === "macro_release" || milestone.kind === "china_adr_event"
+    )) {
+      representedSignals.add("discount_rate_adr");
+    }
+    const unsupportedSignals = [...distinctSignals].filter(
+      (signal) => CONFLUENCE_SIGNALS.has(signal) && !representedSignals.has(signal)
+    );
+    if (unsupportedSignals.length > 0 || typeof minimumSignals === "number" && minimumSignals > representedSignals.size) {
+      addIssue(
+        issues,
+        "stage_signal_mismatch",
+        `${predictionPath}.pathForecast.stages`,
+        "Every declared independent signal must be represented by its corresponding event or market-confirmation stage."
+      );
+    }
+    const expectedStart = setups.map((milestone) => milestone.start).filter((value) => typeof value === "string").sort()[0];
+    const expectedEnd = confirmations.map((milestone) => milestone.end).filter((value) => typeof value === "string").sort().at(-1);
+    if (!isDateOnly(window.start) || !isDateOnly(window.end) || window.start >= window.end || window.start !== expectedStart || window.end !== expectedEnd) {
+      addIssue(issues, "confluence_window_mismatch", `${predictionPath}.pathForecast.confluenceWindow`, "The observation window must span market setup, scheduled catalysts and subsequent confirmation.");
+    }
+    if (prediction.target === 30 && window.start === window.end) {
+      addIssue(issues, "single_day_tail_window", `${predictionPath}.pathForecast.confluenceWindow`, "The 30-dollar tail scenario cannot be bound to one calendar day.");
+    }
+    let previousStart;
+    const checkpointIds = /* @__PURE__ */ new Set();
+    path.checkpoints.forEach((checkpoint, checkpointIndex) => {
+      const checkpointPath = `${predictionPath}.pathForecast.checkpoints[${checkpointIndex}]`;
+      if (!isRecord4(checkpoint) || typeof checkpoint.milestoneId !== "string") {
+        addIssue(issues, "unknown_milestone_reference", checkpointPath, "Checkpoint must reference a published milestone.");
+        return;
+      }
+      if (checkpointIds.has(checkpoint.milestoneId)) {
+        addIssue(issues, "duplicate_checkpoint", checkpointPath, `Checkpoint ${checkpoint.milestoneId} is duplicated.`);
+      }
+      checkpointIds.add(checkpoint.milestoneId);
+      const milestone = milestonesById.get(checkpoint.milestoneId);
+      if (!milestone) {
+        addIssue(issues, "unknown_milestone_reference", `${checkpointPath}.milestoneId`, `Checkpoint milestone ${checkpoint.milestoneId} is not published.`);
+        return;
+      }
+      if (checkpoint.start !== milestone.start || checkpoint.end !== milestone.end) {
+        addIssue(issues, "checkpoint_range_mismatch", checkpointPath, `Checkpoint ${checkpoint.milestoneId} must preserve the source milestone range.`);
+      }
+      if (!isDateOnly(forecastIssuedDate) || !isDateOnly(forecastHorizonDate) || typeof milestone.start === "string" && milestone.start < forecastIssuedDate || typeof milestone.end === "string" && milestone.end > forecastHorizonDate) {
+        addIssue(
+          issues,
+          "milestone_outside_forecast_horizon",
+          checkpointPath,
+          `Checkpoint ${checkpoint.milestoneId} must remain within the audited forecast horizon.`
+        );
+      }
+      if (typeof checkpoint.start !== "string" || typeof checkpoint.end !== "string" || checkpoint.start > checkpoint.end) {
+        addIssue(issues, "checkpoint_range_mismatch", checkpointPath, `Checkpoint ${checkpoint.milestoneId} has an invalid date range.`);
+      }
+      if (previousStart && typeof checkpoint.start === "string" && checkpoint.start < previousStart) {
+        addIssue(issues, "checkpoint_order_violation", checkpointPath, "Checkpoints must be ordered chronologically.");
+      }
+      if (typeof checkpoint.start === "string") previousStart = checkpoint.start;
+    });
+    if (stageIds.some((id) => !checkpointIds.has(id))) {
+      addIssue(issues, "stage_reference_mismatch", `${predictionPath}.pathForecast.checkpoints`, "Every confluence-stage milestone must remain in the chronological checkpoint path.");
+    }
+    const lastCheckpoint = path.checkpoints.at(-1);
+    const expectedHorizonId = isDateOnly(forecastHorizonDate) ? `forecast-horizon-${forecastHorizonDate}` : void 0;
+    if (!isRecord4(lastCheckpoint) || typeof lastCheckpoint.milestoneId !== "string" || !lastCheckpoint.milestoneId.startsWith("forecast-horizon-")) {
+      addIssue(issues, "missing_horizon_checkpoint", `${predictionPath}.pathForecast.checkpoints`, "An open path must end at the explicit 90-day horizon milestone.");
+    } else if (!expectedHorizonId || lastCheckpoint.milestoneId !== expectedHorizonId || lastCheckpoint.start !== forecastHorizonDate || lastCheckpoint.end !== forecastHorizonDate) {
+      addIssue(
+        issues,
+        "horizon_checkpoint_mismatch",
+        `${predictionPath}.pathForecast.checkpoints`,
+        "The final checkpoint must exactly match the audited forecast horizon date."
+      );
+    }
+  });
+  return { valid: issues.length === 0, issues };
+}
+function hasValidMilestoneContract(snapshot) {
+  return validateMilestoneContract(snapshot).valid;
+}
+
+// src/research/engines/riskReview.ts
+var blockedTerms = [
+  "\u5EFA\u8BAE\u4E70\u5165",
+  "\u5EFA\u8BAE\u5356\u51FA",
+  "\u5EFA\u8BAE\u6301\u6709",
+  "\u6EE1\u4ED3",
+  "\u91CD\u4ED3",
+  "\u6284\u5E95",
+  "\u6B62\u635F",
+  "\u6B62\u76C8",
+  "\u7A33\u8D5A",
+  "\u5FC5\u6DA8",
+  "\u4E00\u5B9A\u4F1A\u6DA8",
+  "\u65E0\u98CE\u9669",
+  "\u76EE\u6807\u4EF7\u5FC5\u8FBE",
+  "\u81EA\u52A8\u4E0B\u5355",
+  "\u4ED3\u4F4D\u7BA1\u7406",
+  "\u5238\u5546\u63A5\u5165",
+  "broker integration",
+  "order placement",
+  "position sizing",
+  "buy",
+  "sell",
+  "hold"
+];
+var BLOCKED_TERM_REPLACEMENTS = [
+  [/建议买入/g, "\u89C2\u5BDF\u4E0A\u884C\u6761\u4EF6"],
+  [/建议卖出/g, "\u89C2\u5BDF\u4E0B\u884C\u6761\u4EF6"],
+  [/建议持有/g, "\u7EE7\u7EED\u8DDF\u8E2A\u65E2\u6709\u6761\u4EF6"],
+  [/满仓/g, "\u9AD8\u655E\u53E3\u8868\u8FF0"],
+  [/重仓/g, "\u9AD8\u655E\u53E3\u8868\u8FF0"],
+  [/抄底/g, "\u9022\u4F4E\u535A\u5F08\u8868\u8FF0"],
+  [/止损/g, "\u5931\u6548\u6761\u4EF6"],
+  [/止盈/g, "\u5151\u73B0\u6761\u4EF6"],
+  [/稳赚/g, "\u9AD8\u786E\u5B9A\u6027\u8868\u8FF0"],
+  [/必涨/g, "\u4E0A\u884C\u504F\u7F6E\u8868\u8FF0"],
+  [/一定会涨/g, "\u4E0A\u884C\u504F\u7F6E\u8868\u8FF0"],
+  [/无风险(?!利率)/g, "\u4F4E\u98CE\u9669\u8868\u8FF0"],
+  [/目标价必达/g, "\u76EE\u6807\u89E6\u8FBE\u786E\u5B9A\u6027\u8868\u8FF0"],
+  [/自动下单/g, "\u81EA\u52A8\u5316\u4EA4\u6613\u8868\u8FF0"],
+  [/仓位管理/g, "\u655E\u53E3\u7BA1\u7406\u8868\u8FF0"],
+  [/券商接入/g, "\u4EA4\u6613\u901A\u9053\u8868\u8FF0"],
+  [/broker integration/gi, "broker connectivity"],
+  [/order placement/gi, "order workflow"],
+  [/position sizing/gi, "exposure sizing"],
+  [/\bbuy\b/gi, "upside"],
+  [/\bsell\b/gi, "downside"],
+  [/\bhold\b/gi, "monitor"]
+];
+function scrubBlockedTradingLanguage(text) {
+  return BLOCKED_TERM_REPLACEMENTS.reduce(
+    (current, [pattern, replacement]) => current.replace(pattern, replacement),
+    text
+  );
+}
+function scrubPublicResearchStrings(value) {
+  if (typeof value === "string") {
+    return scrubBlockedTradingLanguage(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => scrubPublicResearchStrings(item));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nested]) => [
+        key,
+        scrubPublicResearchStrings(nested)
+      ])
+    );
+  }
+  return value;
+}
+function reviewBlockedTerms(text) {
+  const normalized = text.toLowerCase();
+  return blockedTerms.filter((term) => {
+    if (term === "\u65E0\u98CE\u9669") return /无风险(?!利率)/.test(normalized);
+    if (["buy", "sell", "hold"].includes(term)) {
+      return new RegExp(`\\b${term}\\b`, "i").test(normalized);
+    }
+    return normalized.includes(term.toLowerCase());
+  }).map((term) => ({
+    code: "BLOCKED_TERM",
+    severity: "high",
+    message: `\u7981\u6B62\u6295\u8D44\u5EFA\u8BAE\u8BED\u8A00: ${term}`
+  }));
+}
+function reviewProbabilityOrdering(predictions) {
+  const issues = [];
+  const openByDirection = (direction) => predictions.filter(
+    (prediction) => prediction.forecastQuestion?.status !== "resolved_at_issue" && (prediction.forecastQuestion?.direction ?? (prediction.forecastQuestion?.priceMeasure === "regular_session_low" ? "down" : "up")) === direction
+  ).sort((left, right) => left.target - right.target);
+  const up = openByDirection("up");
+  for (let i = 1; i < up.length; i++) {
+    if (up[i].probability > up[i - 1].probability) {
+      issues.push({
+        code: "PROBABILITY_ORDER",
+        severity: "high",
+        message: `\u4E0A\u884C\u68AF P${up[i].target} (${up[i].probability}%) > P${up[i - 1].target} (${up[i - 1].probability}%)`
+      });
+    }
+  }
+  const down = openByDirection("down");
+  for (let i = 1; i < down.length; i++) {
+    if (down[i].probability < down[i - 1].probability) {
+      issues.push({
+        code: "PROBABILITY_ORDER",
+        severity: "high",
+        message: `\u4E0B\u884C\u68AF P${down[i].target} (${down[i].probability}%) < P${down[i - 1].target} (${down[i - 1].probability}%)`
+      });
+    }
+  }
+  return issues;
+}
+function reviewTargetUniverse(predictions) {
+  const actual = predictions.map((prediction) => prediction.target);
+  const exactOrderedUniverse = actual.length === TARGET_PRICES.length && actual.every((target, index) => target === TARGET_PRICES[index]);
+  if (exactOrderedUniverse) return [];
+  return [{
+    code: "TARGET_UNIVERSE",
+    severity: "high",
+    message: `\u76EE\u6807\u96C6\u5408\u5FC5\u987B\u7CBE\u786E\u4E14\u6709\u5E8F\u4E3A ${TARGET_PRICES.join("/")}\uFF0C\u5B9E\u9645\u4E3A ${actual.join("/") || "\u7A7A"}`
+  }];
+}
+function reviewForecastContract(predictions) {
+  return predictions.flatMap((prediction) => {
+    const question = prediction.forecastQuestion;
+    return isCurrentForecastQuestion(question, prediction.target) ? [] : [{
+      code: "FORECAST_CONTRACT",
+      severity: "high",
+      message: `${prediction.target} \u7F8E\u5143\u9884\u6D4B\u5FC5\u987B\u4F7F\u7528 ${FORECAST_HORIZON_CALENDAR_DAYS} \u5929\u3001\u6309\u73B0\u4EF7\u6BD4\u8F83\u65B9\u5411\u7684\u5E38\u89C4\u65F6\u6BB5\u9996\u6B21\u89E6\u8FBE\u5408\u540C\u3002`
+    }];
+  });
+}
+function reviewProbabilityBounds(predictions) {
+  return predictions.filter((p) => {
+    if (!Number.isFinite(p.probability)) return true;
+    if (p.forecastQuestion?.status === "resolved_at_issue") {
+      return p.probability !== 100;
+    }
+    return p.probability < 5 || p.probability > 95;
+  }).map((p) => ({
+    code: "PROBABILITY_BOUNDS",
+    severity: "high",
+    message: p.forecastQuestion?.status === "resolved_at_issue" && Number.isFinite(p.probability) ? `P${p.target} \u5728\u7814\u7A76\u8D77\u70B9\u5DF2\u89E6\u8FBE\uFF0C\u6982\u7387\u5FC5\u987B\u4E3A 100%\uFF0C\u5B9E\u9645\u4E3A ${p.probability}%` : Number.isFinite(p.probability) ? `P${p.target} \u6982\u7387 ${p.probability}% \u8D85\u51FA 5%-95% \u8303\u56F4` : `P${p.target} \u6982\u7387\u4E0D\u662F\u6709\u9650\u6570\u503C`
+  }));
+}
+function qualitySeverityToRisk(severity) {
+  if (severity === "critical") return "high";
+  if (severity === "warning") return "medium";
+  return "low";
+}
+function reviewResearchQuality(snapshot) {
+  const issues = [];
+  if (snapshot.analysis.generation?.mode === "deterministic_fallback" && !/market-MockMarketProvider/.test(snapshot.dataVersion)) {
+    issues.push({
+      code: "MODEL_RESEARCH_FALLBACK",
+      severity: "high",
+      message: "\u4E13\u4E1A\u6A21\u578B\u5206\u6790\u672A\u5B8C\u6210\uFF1B\u4FDD\u7559\u4E0A\u4E00\u4EFD\u6709\u6548\u7814\u7A76\uFF0C\u4E0D\u53D1\u5E03\u4EE3\u7801\u6A21\u677F\u751F\u6210\u7684\u65B0\u7ED3\u8BBA\u3002"
+    });
+  }
+  if (!snapshot.calibration || !snapshot.quality) {
+    return [
+      {
+        code: "MISSING_RESEARCH_QUALITY_AUDIT",
+        severity: "high",
+        message: "\u7F3A\u5C11\u6821\u51C6\u62A5\u544A\u6216\u7814\u7A76\u8D28\u91CF\u62A5\u544A\uFF0C\u4E0D\u80FD\u53D1\u5E03\u3002"
+      }
+    ];
+  }
+  for (const finding of snapshot.quality.findings) {
+    issues.push({
+      code: finding.code,
+      severity: qualitySeverityToRisk(finding.severity),
+      message: finding.message
+    });
+  }
+  if (snapshot.quality.overallScore < 70) {
+    issues.push({
+      code: "RESEARCH_QUALITY_SCORE",
+      severity: "high",
+      message: `\u7814\u7A76\u8D28\u91CF ${snapshot.quality.overallScore}/100 \u4F4E\u4E8E\u53D1\u5E03\u9608\u503C\u3002`
+    });
+  } else if (snapshot.quality.overallScore < 85) {
+    issues.push({
+      code: "RESEARCH_QUALITY_SCORE",
+      severity: "medium",
+      message: `\u7814\u7A76\u8D28\u91CF ${snapshot.quality.overallScore}/100 \u504F\u4F4E\uFF0C\u5EFA\u8BAE\u8865\u5145\u8BC1\u636E\u3002`
+    });
+  }
+  if (snapshot.calibration.status === "ready" && snapshot.calibration.brierScore !== null && snapshot.calibration.brierScore > 0.35) {
+    issues.push({
+      code: "CALIBRATION_BRIER_WEAK",
+      severity: "medium",
+      message: `Brier score ${snapshot.calibration.brierScore} \u504F\u9AD8\uFF0C\u9700\u8981\u590D\u6838\u6982\u7387\u6A21\u578B\u3002`
+    });
+  }
+  return issues;
+}
+function reviewSnapshot(snapshot, previousSnapshot, events = []) {
+  const issues = [];
+  issues.push(...reviewBlockedTerms(JSON.stringify(snapshot.analysis)));
+  issues.push(...reviewTargetUniverse(snapshot.predictions));
+  if (snapshot.modelVersion === CURRENT_PROBABILITY_MODEL_VERSION) {
+    issues.push(...reviewForecastContract(snapshot.predictions));
+    if (!hasCurrentForecastQuestionSet(snapshot.predictions)) {
+      issues.push({
+        code: "FORECAST_CONTRACT_SET",
+        severity: "high",
+        message: `${TARGET_PRICES.join("/")} \u7F8E\u5143\u9884\u6D4B\u5FC5\u987B\u5171\u4EAB\u540C\u4E00 90 \u5929\u8D77\u6B62\u65F6\u95F4\u3002`
+      });
+    }
+  }
+  issues.push(...reviewProbabilityOrdering(snapshot.predictions));
+  issues.push(...reviewProbabilityBounds(snapshot.predictions));
+  const dataVersion = snapshot.dataVersion ?? "";
+  const usesMilestoneRuntime = dataVersion.includes(RESEARCH_RUNTIME_VERSION) || dataVersion.includes("official-event-calendar-rolling-v3-xnys") || dataVersion.includes("official-event-calendar-rolling-v2") || dataVersion.includes("official-event-calendar-2026q3-v1") || snapshot.predictions.some((prediction) => prediction.pathForecast !== void 0);
+  issues.push(...usesMilestoneRuntime ? reviewMilestoneForecasts(snapshot) : reviewNearTermForecasts(snapshot.predictions));
+  issues.push(...reviewResearchQuality(snapshot));
+  if (snapshot.analysis.generation?.mode === "model_loop") {
+    for (const target of TARGET_PRICES) {
+      const view = snapshot.analysis.targetViews?.[target];
+      const guidanceCount = view?.guidance?.length ?? 0;
+      const bases = new Set(view?.claimLedger?.map((claim) => claim.basis) ?? []);
+      if (!view?.headline || !view.historicalAnchor || !view.panoramicAnalysis || guidanceCount < 1 || guidanceCount > 3 || !bases.has("historical_precedent") || !bases.has("bounded_inference")) {
+        issues.push({
+          code: "PROFESSIONAL_CONCLUSION_INCOMPLETE",
+          severity: "high",
+          message: `${target} \u7F8E\u5143\u7F3A\u5C11\u4E13\u5BB6\u65AD\u8A00\u3001\u5386\u53F2\u6EAF\u6E90\u3001\u5168\u7EF4\u666F\u5206\u6790\u30011-3 \u6761\u6307\u5BFC\u5EFA\u8BAE\u6216\u5206\u5C42 claim\u3002`
+        });
+        continue;
+      }
+      if (PROFESSIONAL_CONCLUSION_REFUSAL_PATTERN.test(view.headline)) {
+        issues.push({
+          code: "PROFESSIONAL_CONCLUSION_REFUSAL",
+          severity: "high",
+          message: `${target} \u7F8E\u5143\u4E13\u5BB6\u65AD\u8A00\u60AC\u7F6E\u5224\u65AD\u6216\u4F7F\u7528\u63A8\u8BFF\u8868\u8FBE\u3002`
+        });
+      }
+    }
+  }
+  const previousSnapshotMatchesContract = previousSnapshot && previousSnapshot.modelVersion === snapshot.modelVersion && hasCurrentForecastQuestionSet(snapshot.predictions) && hasCurrentForecastQuestionSet(previousSnapshot.predictions);
+  if (previousSnapshotMatchesContract) {
+    for (const prediction of snapshot.predictions) {
+      const previousPrediction = previousSnapshot.predictions.find((p) => p.target === prediction.target);
+      issues.push(...reviewProbabilityJump(
+        prediction,
+        previousPrediction?.probability,
+        events,
+        5,
+        10,
+        previousSnapshot.updatedAt
+      ));
+    }
+  }
+  if (!snapshot.analysis.headline) {
+    issues.push({
+      code: "MISSING_HEADLINE",
+      severity: "medium",
+      message: "\u7F3A\u5C11 headline"
+    });
+  }
+  if (snapshot.analysis.positives.length !== 3) {
+    issues.push({
+      code: "POSITIVES_COUNT",
+      severity: "medium",
+      message: `\u6B63\u9762\u56E0\u7D20\u5E94\u4E3A 3 \u6761\uFF0C\u5B9E\u9645 ${snapshot.analysis.positives.length} \u6761`
+    });
+  }
+  if (snapshot.analysis.negatives.length !== 3) {
+    issues.push({
+      code: "NEGATIVES_COUNT",
+      severity: "medium",
+      message: `\u8D1F\u9762\u56E0\u7D20\u5E94\u4E3A 3 \u6761\uFF0C\u5B9E\u9645 ${snapshot.analysis.negatives.length} \u6761`
+    });
+  }
+  if (snapshot.analysis.watch.length !== 3) {
+    issues.push({
+      code: "WATCH_COUNT",
+      severity: "medium",
+      message: `\u89C2\u5BDF\u70B9\u5E94\u4E3A 3 \u6761\uFF0C\u5B9E\u9645 ${snapshot.analysis.watch.length} \u6761`
+    });
+  }
+  const highSeverity = issues.filter((i) => i.severity === "high");
+  return {
+    approved: highSeverity.length === 0,
+    issues
+  };
+}
+function reviewProbabilityJump(prediction, previousProbability, events, normalLimit = 5, majorEventLimit = 10, previousPublishedAt) {
+  if (previousProbability === void 0) return [];
+  if (prediction.forecastQuestion?.status === "resolved_at_issue" && prediction.probability === 100) return [];
+  const jump = Math.abs(prediction.probability - previousProbability);
+  const previousCutoff = Date.parse(previousPublishedAt ?? "");
+  const hasMajorEvent = events.some(
+    (event) => event.importance >= 8 && event.confidence >= 0.75 && event.affectedTargets.includes(prediction.target) && (!Number.isFinite(previousCutoff) || Date.parse(event.publishedAt ?? "") > previousCutoff)
+  );
+  const limit = hasMajorEvent ? majorEventLimit : normalLimit;
+  if (jump > limit) {
+    return [
+      {
+        code: "PROBABILITY_JUMP",
+        severity: "high",
+        message: `P${prediction.target} \u6982\u7387\u8DF3\u53D8 ${jump.toFixed(1)} pct\uFF0C\u8D85\u8FC7\u9650\u5236 ${limit} pct`
+      }
+    ];
+  }
+  return [];
+}
+function reviewNearTermForecasts(predictions) {
+  const issues = [];
+  for (const prediction of predictions) {
+    const forecast = prediction.nearTermForecast;
+    if (!forecast) {
+      issues.push({
+        code: "MISSING_NEAR_TERM_FORECAST",
+        severity: "high",
+        message: `P${prediction.target} \u7F3A\u5C11\u4E00\u5468\u5927\u80C6\u9884\u6D4B\u7A97\u53E3`
+      });
+      continue;
+    }
+    issues.push(...reviewBlockedTerms(`${forecast.label} ${forecast.thesis} ${forecast.trigger} ${forecast.invalidation}`));
+    const start = Date.parse(`${forecast.windowStart}T00:00:00Z`);
+    const end = Date.parse(`${forecast.windowEnd}T00:00:00Z`);
+    const spanDays = (end - start) / (24 * 60 * 60 * 1e3);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || spanDays !== 6) {
+      issues.push({
+        code: "NEAR_TERM_FORECAST_WINDOW",
+        severity: "high",
+        message: `P${prediction.target} \u5927\u80C6\u9884\u6D4B\u5FC5\u987B\u7CBE\u786E\u4E3A 7 \u5929\u7A97\u53E3`
+      });
+    }
+    if (!forecast.label || !forecast.thesis || !forecast.trigger || !forecast.invalidation) {
+      issues.push({
+        code: "NEAR_TERM_FORECAST_COPY",
+        severity: "medium",
+        message: `P${prediction.target} \u5927\u80C6\u9884\u6D4B\u7F3A\u5C11\u89E3\u91CA\u3001\u89E6\u53D1\u5668\u6216\u5931\u6548\u70B9`
+      });
+    }
+    if (forecast.modelName !== "context-weighted-week-forecast-v0.2" || typeof forecast.contextScore !== "number" || !forecast.evidenceSummary || !forecast.agentDebate) {
+      issues.push({
+        code: "NEAR_TERM_FORECAST_CONTEXT",
+        severity: "high",
+        message: `P${prediction.target} \u5927\u80C6\u9884\u6D4B\u7F3A\u5C11\u4E0A\u4E0B\u6587\u6A21\u578B\u3001\u8BC1\u636E\u6458\u8981\u6216 agent debate`
+      });
+    }
+  }
+  return issues;
+}
+function reviewMilestoneForecasts(snapshot) {
+  const issues = [];
+  const milestones = snapshot.milestones ?? [];
+  if (milestones.length === 0) {
+    return [{
+      code: "MILESTONE_PLAN_MISSING",
+      severity: "high",
+      message: "\u5F53\u524D\u8FD0\u884C\u65F6\u7F3A\u5C11\u672A\u6765 90 \u5929\u4E8B\u4EF6\u91CC\u7A0B\u7891\u8BA1\u5212\u3002"
+    }];
+  }
+  const milestoneIds = /* @__PURE__ */ new Set();
+  const requiredKinds = /* @__PURE__ */ new Set([
+    "earnings",
+    "property_release",
+    "macro_release",
+    "technical_checkpoint",
+    "china_adr_event"
+  ]);
+  const sharedQuestion = snapshot.predictions[0]?.forecastQuestion;
+  const issuedDate = sharedQuestion ? xnysIssueSessionDate(sharedQuestion.issuedAt) : void 0;
+  const horizonDate = sharedQuestion ? xnysMarketDate(sharedQuestion.horizonEnd) : void 0;
+  for (const milestone of milestones) {
+    if (milestoneIds.has(milestone.id)) {
+      issues.push({
+        code: "MILESTONE_TIMING_INVALID",
+        severity: "high",
+        message: `\u91CC\u7A0B\u7891 ${milestone.id} \u91CD\u590D\u3002`
+      });
+    }
+    milestoneIds.add(milestone.id);
+    requiredKinds.delete(milestone.kind);
+    const validRange = /^\d{4}-\d{2}-\d{2}$/.test(milestone.start) && /^\d{4}-\d{2}-\d{2}$/.test(milestone.end) && milestone.start <= milestone.end;
+    if (!validRange || issuedDate && milestone.start < issuedDate || horizonDate && milestone.end > horizonDate) {
+      issues.push({
+        code: "MILESTONE_TIMING_INVALID",
+        severity: "high",
+        message: `\u91CC\u7A0B\u7891 ${milestone.id} \u7684\u65F6\u95F4\u8303\u56F4\u4E0D\u5728\u5F53\u524D 90 \u5929\u7814\u7A76\u7A97\u53E3\u5185\u3002`
+      });
+    }
+    if (!milestone.source || !/^https:\/\//.test(milestone.sourceUrl)) {
+      issues.push({
+        code: "MILESTONE_PROVENANCE_MISSING",
+        severity: "high",
+        message: `\u91CC\u7A0B\u7891 ${milestone.id} \u7F3A\u5C11\u53EF\u6838\u9A8C\u6765\u6E90\u3002`
+      });
+    }
+    if (milestone.certainty === "historical_estimate" && milestone.start === milestone.end) {
+      issues.push({
+        code: "MILESTONE_FALSE_PRECISION",
+        severity: "high",
+        message: `\u6309\u5386\u53F2\u8282\u594F\u5F62\u6210\u7684\u91CC\u7A0B\u7891 ${milestone.id} \u4E0D\u5F97\u4F2A\u88C5\u6210\u5355\u4E00\u786E\u5B9A\u65E5\u671F\u3002`
+      });
+    }
+  }
+  if (requiredKinds.size > 0) {
+    issues.push({
+      code: "MILESTONE_COVERAGE_GAP",
+      severity: "high",
+      message: `\u91CC\u7A0B\u7891\u7F3A\u5C11\u8986\u76D6\uFF1A${[...requiredKinds].join(" / ")}\u3002`
+    });
+  }
+  const paths = snapshot.predictions.map((prediction) => prediction.pathForecast);
+  if (paths.some((path) => !path)) {
+    issues.push({
+      code: "MILESTONE_CONTEXT_MISMATCH",
+      severity: "high",
+      message: "\u81F3\u5C11\u4E00\u4E2A\u76EE\u6807\u7F3A\u5C11\u4E8B\u4EF6\u8DEF\u5F84\u9884\u6D4B\u3002"
+    });
+    return issues;
+  }
+  for (const prediction of snapshot.predictions) {
+    const path = prediction.pathForecast;
+    if (path.schemaVersion !== "milestone-path-v4" || path.modelName !== CURRENT_TIMING_MODEL_VERSION || path.timingBasis !== "multi_event_confluence" || path.target !== prediction.target) {
+      issues.push({
+        code: "MILESTONE_CONTEXT_MISMATCH",
+        severity: "high",
+        message: `P${prediction.target} \u4E8B\u4EF6\u8DEF\u5F84\u6A21\u578B\u6216\u76EE\u6807\u4E0A\u4E0B\u6587\u4E0D\u5339\u914D\u3002`
+      });
+    }
+    if (path.terminalProbability !== prediction.probability) {
+      issues.push({
+        code: "PATH_TERMINAL_MISMATCH",
+        severity: "high",
+        message: `P${prediction.target} \u9A8C\u8BC1\u8DEF\u5F84\u6CA1\u6709\u955C\u50CF\u6743\u5A01 90 \u5929\u6982\u7387 ${prediction.probability}%\u3002`
+      });
+    }
+    const questionStatus = prediction.forecastQuestion?.status;
+    if (path.status !== questionStatus) {
+      issues.push({
+        code: "MILESTONE_CONTEXT_MISMATCH",
+        severity: "high",
+        message: `P${prediction.target} \u9A8C\u8BC1\u8DEF\u5F84\u72B6\u6001\u4E0E\u9996\u6B21\u89E6\u8FBE\u5408\u540C\u4E0D\u4E00\u81F4\u3002`
+      });
+    }
+    if (path.status === "resolved_at_issue") {
+      if (prediction.probability !== 100 || path.terminalProbability !== 100) {
+        issues.push({
+          code: "RESOLVED_PROBABILITY_MISMATCH",
+          severity: "high",
+          message: `P${prediction.target} \u5728\u7814\u7A76\u8D77\u70B9\u5DF2\u89E6\u8FBE\uFF0C\u4F46\u53D1\u5E03\u6982\u7387\u672A\u56FA\u5B9A\u4E3A 100%\u3002`
+        });
+      }
+      if (path.confluenceWindow !== void 0 || path.confluenceRule !== void 0 || path.stages.length > 0 || path.checkpoints.length > 0) {
+        issues.push({
+          code: "RESOLVED_PATH_HAS_FUTURE_WINDOW",
+          severity: "high",
+          message: `P${prediction.target} \u5728\u7814\u7A76\u8D77\u70B9\u5DF2\u89E6\u8FBE\uFF0C\u5374\u4ECD\u88AB\u5206\u914D\u672A\u6765\u9A8C\u8BC1\u7A97\u53E3\u3002`
+        });
+      }
+      if (!prediction.nearTermForecast || prediction.nearTermForecast.modelName !== "event-confluence-forecast-v4.0" || !prediction.nearTermForecast.thesis.includes("\u5DF2\u7ECF")) {
+        issues.push({
+          code: "FORECAST_COPY_ANCHOR_MISMATCH",
+          severity: "high",
+          message: `P${prediction.target} \u7684\u7ED3\u7B97\u6587\u6848\u6CA1\u6709\u8BF4\u660E\u7814\u7A76\u8D77\u70B9\u5DF2\u7ECF\u89E6\u8FBE\u3002`
+        });
+      }
+      continue;
+    }
+    const window = path.confluenceWindow;
+    const rule = path.confluenceRule;
+    const stageIds = path.stages.flatMap((stage) => stage.milestoneIds);
+    if (!window || !rule || window.basisMilestoneIds.length < 2 || path.stages.length !== 3) {
+      issues.push({
+        code: "PATH_ORPHAN_CHECKPOINT",
+        severity: "high",
+        message: `P${prediction.target} \u7F3A\u5C11\u5B8C\u6574\u7684\u591A\u4E8B\u4EF6\u5171\u632F\u6761\u4EF6\u6216\u89C2\u5BDF\u9636\u6BB5\u3002`
+      });
+      continue;
+    }
+    const checkpointMilestones = path.checkpoints.map((checkpoint) => ({
+      checkpoint,
+      milestone: milestones.find((milestone) => milestone.id === checkpoint.milestoneId)
+    }));
+    if (window.basisMilestoneIds.some((id) => !milestoneIds.has(id)) || stageIds.some((id) => !milestoneIds.has(id)) || checkpointMilestones.some(({ milestone }) => !milestone)) {
+      issues.push({
+        code: "PATH_ORPHAN_CHECKPOINT",
+        severity: "high",
+        message: `P${prediction.target} \u9A8C\u8BC1\u8DEF\u5F84\u5F15\u7528\u4E86\u5171\u4EAB\u65E5\u5386\u4E4B\u5916\u7684\u8282\u70B9\u3002`
+      });
+    }
+    for (let index = 0; index < checkpointMilestones.length; index += 1) {
+      const { checkpoint, milestone } = checkpointMilestones[index];
+      const previous = checkpointMilestones[index - 1]?.checkpoint;
+      if (!milestone || checkpoint.start !== milestone.start || checkpoint.end !== milestone.end || checkpoint.start > checkpoint.end || previous && checkpoint.start < previous.start) {
+        issues.push({
+          code: "PATH_TIME_ORDER",
+          severity: "high",
+          message: `P${prediction.target} \u7684\u9A8C\u8BC1\u8282\u70B9\u65E5\u671F\u4E0E\u5171\u4EAB\u65E5\u5386\u4E0D\u4E00\u81F4\u6216\u987A\u5E8F\u9519\u8BEF\u3002`
+        });
+        break;
+      }
+    }
+    const finalMilestoneId = path.checkpoints.at(-1)?.milestoneId;
+    if (!finalMilestoneId?.startsWith("forecast-horizon-")) {
+      issues.push({
+        code: "PATH_HORIZON_MISSING",
+        severity: "high",
+        message: `P${prediction.target} \u9A8C\u8BC1\u8DEF\u5F84\u7F3A\u5C11 90 \u5929\u7ED3\u7B97\u8282\u70B9\u3002`
+      });
+    }
+    const validationStatements = Array.isArray(rule.validationCriteria) ? rule.validationCriteria.map((criterion) => criterion.statement) : [];
+    const peakRiskStatements = Array.isArray(rule.peakRiskRule?.criteria) ? rule.peakRiskRule.criteria.map((criterion) => criterion.statement) : [];
+    if (!prediction.nearTermForecast || prediction.nearTermForecast.modelName !== "event-confluence-forecast-v4.0" || validationStatements.length === 0 || peakRiskStatements.length === 0 || validationStatements.some(
+      (statement) => !prediction.nearTermForecast.trigger.includes(statement)
+    ) || peakRiskStatements.some(
+      (statement) => !prediction.nearTermForecast.invalidation.includes(statement)
+    )) {
+      issues.push({
+        code: "FORECAST_COPY_ANCHOR_MISMATCH",
+        severity: "high",
+        message: `P${prediction.target} \u7684\u65F6\u95F4\u6587\u6848\u6CA1\u6709\u5B8C\u6574\u5448\u73B0\u53EF\u91CF\u5316\u786E\u8BA4\u6761\u4EF6\u6216\u89E6\u8FBE\u540E\u8B66\u62A5\u3002`
+      });
+    }
+  }
+  const contractCodeMap = {
+    invalid_snapshot_shape: "MILESTONE_CONTEXT_MISMATCH",
+    invalid_milestone_shape: "MILESTONE_CONTEXT_MISMATCH",
+    duplicate_milestone_id: "MILESTONE_TIMING_INVALID",
+    invalid_milestone_range: "MILESTONE_TIMING_INVALID",
+    invalid_scheduled_release: "MILESTONE_TIMING_INVALID",
+    missing_path_forecast: "MILESTONE_CONTEXT_MISMATCH",
+    obsolete_path_contract: "MILESTONE_CONTEXT_MISMATCH",
+    path_target_mismatch: "MILESTONE_CONTEXT_MISMATCH",
+    terminal_probability_mismatch: "PATH_TERMINAL_MISMATCH",
+    forecast_status_mismatch: "MILESTONE_CONTEXT_MISMATCH",
+    resolved_probability_mismatch: "RESOLVED_PROBABILITY_MISMATCH",
+    resolved_path_has_future_references: "RESOLVED_PATH_HAS_FUTURE_WINDOW",
+    missing_confluence_window: "MILESTONE_CONTEXT_MISMATCH",
+    missing_confluence_rule: "MILESTONE_CONTEXT_MISMATCH",
+    missing_confluence_stage: "PATH_ORPHAN_CHECKPOINT",
+    insufficient_confluence_signals: "MILESTONE_CONTEXT_MISMATCH",
+    invalid_mandatory_signal: "MILESTONE_CONTEXT_MISMATCH",
+    missing_exhaustion_signals: "MILESTONE_CONTEXT_MISMATCH",
+    missing_validation_criteria: "MILESTONE_CONTEXT_MISMATCH",
+    invalid_validation_criterion: "MILESTONE_CONTEXT_MISMATCH",
+    unknown_criterion_milestone_reference: "PATH_ORPHAN_CHECKPOINT",
+    invalid_peak_risk_rule: "MILESTONE_CONTEXT_MISMATCH",
+    exhaustion_signal_mismatch: "MILESTONE_CONTEXT_MISMATCH",
+    target_policy_mismatch: "MILESTONE_CONTEXT_MISMATCH",
+    stage_signal_mismatch: "MILESTONE_CONTEXT_MISMATCH",
+    unknown_milestone_reference: "PATH_ORPHAN_CHECKPOINT",
+    stage_reference_mismatch: "PATH_ORPHAN_CHECKPOINT",
+    stage_order_violation: "PATH_TIME_ORDER",
+    elapsed_catalyst_reference: "PATH_TIME_ORDER",
+    confluence_window_mismatch: "MILESTONE_CONTEXT_MISMATCH",
+    single_day_tail_window: "MILESTONE_CONTEXT_MISMATCH",
+    checkpoint_range_mismatch: "PATH_TIME_ORDER",
+    checkpoint_order_violation: "PATH_TIME_ORDER",
+    duplicate_checkpoint: "PATH_TIME_ORDER",
+    missing_horizon_checkpoint: "PATH_HORIZON_MISSING",
+    horizon_checkpoint_mismatch: "PATH_HORIZON_MISSING",
+    milestone_outside_forecast_horizon: "PATH_TIME_ORDER"
+  };
+  for (const contractIssue of validateMilestoneContract(snapshot).issues) {
+    const code = contractCodeMap[contractIssue.code];
+    if (issues.some((issue2) => issue2.code === code && issue2.message.includes(contractIssue.message))) {
+      continue;
+    }
+    issues.push({
+      code,
+      severity: "high",
+      message: contractIssue.message
+    });
+  }
+  return issues;
+}
+
 // src/research/repositories/InMemorySnapshotRepository.ts
 var InMemorySnapshotRepository = class {
   snapshots = /* @__PURE__ */ new Map();
@@ -23122,1051 +24214,6 @@ var EvidenceCompletionAgent = class {
   }
 };
 
-// src/research/forecast/validateMilestoneContract.ts
-var CONFLUENCE_SIGNALS = /* @__PURE__ */ new Set([
-  "company_fundamentals",
-  "property_state",
-  "discount_rate_adr",
-  "market_absorption"
-]);
-var PHASES = ["setup", "catalyst", "confirmation"];
-var CRITERION_MODES = /* @__PURE__ */ new Set(["all", "any", "at_least"]);
-var CRITERION_STATUSES = /* @__PURE__ */ new Set(["pending", "met", "not_met", "unavailable"]);
-var VALIDATION_OPERATORS = /* @__PURE__ */ new Set(["gte", "lte"]);
-var VALIDATION_UNITS = /* @__PURE__ */ new Set(["USD", "%", "pp", "x", "bp", "count"]);
-function isRecord4(value) {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-function isDateOnly(value) {
-  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T00:00:00Z`));
-}
-function calendarDateInTimezone(value, timezone) {
-  const instant = new Date(value);
-  if (!Number.isFinite(instant.getTime())) return void 0;
-  try {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: timezone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit"
-    }).formatToParts(instant);
-    const part = (type) => parts.find((item) => item.type === type)?.value;
-    const year = part("year");
-    const month = part("month");
-    const day = part("day");
-    return year && month && day ? `${year}-${month}-${day}` : void 0;
-  } catch {
-    return void 0;
-  }
-}
-function addIssue(issues, code, path, message) {
-  issues.push({ code, path, message });
-}
-function stringIds(value) {
-  return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
-}
-function sameStringSet(left, right) {
-  const leftSet = new Set(left);
-  const rightSet = new Set(right);
-  return leftSet.size === left.length && rightSet.size === right.length && leftSet.size === rightSet.size && [...leftSet].every((value) => rightSet.has(value)) && [...rightSet].every((value) => leftSet.has(value));
-}
-function safeXnysIssueDate(value) {
-  if (typeof value !== "string") return void 0;
-  try {
-    return xnysIssueSessionDate(value);
-  } catch {
-    return void 0;
-  }
-}
-function safeXnysMarketDate(value) {
-  if (typeof value !== "string") return void 0;
-  try {
-    return xnysMarketDate(value);
-  } catch {
-    return void 0;
-  }
-}
-function isKnownTarget(value) {
-  return isTargetPrice(value);
-}
-function hasMeasurableStatement(value) {
-  return typeof value === "string" && value.trim().length > 0 && /\d/.test(value) && /[≥≤]/.test(value);
-}
-function hasNumericStatement(value) {
-  return typeof value === "string" && value.trim().length > 0 && /\d/.test(value);
-}
-function isValidationClause(value) {
-  if (!isRecord4(value)) return false;
-  return typeof value.metric === "string" && value.metric.trim().length > 0 && VALIDATION_OPERATORS.has(String(value.operator)) && typeof value.threshold === "number" && Number.isFinite(value.threshold) && VALIDATION_UNITS.has(String(value.unit)) && (value.windowSessions === void 0 || typeof value.windowSessions === "number" && Number.isInteger(value.windowSessions) && value.windowSessions > 0);
-}
-function validationCriterionShape(value) {
-  if (!isRecord4(value)) return false;
-  const milestoneIds = stringIds(value.milestoneIds);
-  const clauses = Array.isArray(value.clauses) ? value.clauses : [];
-  const validModeThreshold = value.mode === "at_least" ? typeof value.minimumClauses === "number" && Number.isInteger(value.minimumClauses) && value.minimumClauses >= 2 && value.minimumClauses <= clauses.length : value.minimumClauses === void 0;
-  return typeof value.id === "string" && value.id.trim().length > 0 && CONFLUENCE_SIGNALS.has(value.kind) && milestoneIds.length > 0 && new Set(milestoneIds).size === milestoneIds.length && CRITERION_MODES.has(String(value.mode)) && validModeThreshold && clauses.length > 0 && clauses.every(isValidationClause) && hasMeasurableStatement(value.statement) && CRITERION_STATUSES.has(String(value.status)) && (value.observed === void 0 || typeof value.observed === "string") && (value.observedAt === void 0 || typeof value.observedAt === "string" && Number.isFinite(Date.parse(value.observedAt)));
-}
-function peakRiskRuleShape(value) {
-  if (!isRecord4(value) || !Array.isArray(value.criteria)) return false;
-  const criteria = value.criteria;
-  const ids = criteria.filter(isRecord4).map((criterion) => criterion.id).filter((id) => typeof id === "string");
-  return value.activation === "after_first_touch" && typeof value.windowSessions === "number" && Number.isInteger(value.windowSessions) && value.windowSessions > 0 && typeof value.minimumSignals === "number" && Number.isInteger(value.minimumSignals) && value.minimumSignals > 0 && value.minimumSignals <= criteria.length && criteria.length > 0 && ids.length === criteria.length && new Set(ids).size === ids.length && criteria.every(
-    (criterion) => isRecord4(criterion) && typeof criterion.id === "string" && criterion.id.trim().length > 0 && Array.isArray(criterion.clauses) && criterion.clauses.length > 0 && criterion.clauses.every(isValidationClause) && hasNumericStatement(criterion.statement)
-  );
-}
-function canonicalJson(value) {
-  if (Array.isArray(value)) return value.map(canonicalJson);
-  if (!isRecord4(value)) return value;
-  return Object.fromEntries(
-    Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])])
-  );
-}
-function sameJson(left, right) {
-  return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
-}
-function criterionPolicyProjection(criteria) {
-  return criteria.map((criterion) => {
-    if (!isRecord4(criterion)) return criterion;
-    return {
-      id: criterion.id,
-      kind: criterion.kind,
-      milestoneIds: criterion.milestoneIds,
-      mode: criterion.mode,
-      minimumClauses: criterion.minimumClauses,
-      clauses: criterion.clauses,
-      statement: criterion.statement
-    };
-  });
-}
-function validateMilestoneContract(snapshot) {
-  const issues = [];
-  if (!isRecord4(snapshot) || !Array.isArray(snapshot.predictions) || !Array.isArray(snapshot.milestones)) {
-    addIssue(issues, "invalid_snapshot_shape", "snapshot", "Snapshot must expose predictions and milestones arrays.");
-    return { valid: false, issues };
-  }
-  const milestonesById = /* @__PURE__ */ new Map();
-  snapshot.milestones.forEach((milestone, index) => {
-    const path = `milestones[${index}]`;
-    if (!isRecord4(milestone) || typeof milestone.id !== "string" || milestone.id.length === 0) {
-      addIssue(issues, "invalid_milestone_shape", path, "Milestone must have a non-empty string id.");
-      return;
-    }
-    if (milestonesById.has(milestone.id)) {
-      addIssue(issues, "duplicate_milestone_id", `${path}.id`, `Milestone id ${milestone.id} is duplicated.`);
-      return;
-    }
-    if (!isDateOnly(milestone.start) || !isDateOnly(milestone.end) || milestone.start > milestone.end) {
-      addIssue(issues, "invalid_milestone_range", path, `Milestone ${milestone.id} must use an ordered ISO date range.`);
-      return;
-    }
-    const requiresScheduledInstant = milestone.certainty === "official_schedule" && (milestone.kind === "macro_release" || milestone.kind === "property_release");
-    if (requiresScheduledInstant) {
-      const scheduledDate = typeof milestone.scheduledAt === "string" && typeof milestone.timezone === "string" ? calendarDateInTimezone(milestone.scheduledAt, milestone.timezone) : void 0;
-      if (!scheduledDate || scheduledDate < milestone.start || scheduledDate > milestone.end) {
-        addIssue(
-          issues,
-          "invalid_scheduled_release",
-          `${path}.scheduledAt`,
-          `Official release ${milestone.id} must expose a valid instant in its source timezone and date range.`
-        );
-      }
-    }
-    milestonesById.set(milestone.id, milestone);
-  });
-  snapshot.predictions.forEach((prediction, predictionIndex) => {
-    const predictionPath = `predictions[${predictionIndex}]`;
-    if (!isRecord4(prediction) || !isRecord4(prediction.pathForecast)) {
-      addIssue(issues, "missing_path_forecast", `${predictionPath}.pathForecast`, "Every prediction must publish milestone-path-v4.");
-      return;
-    }
-    const path = prediction.pathForecast;
-    if (path.schemaVersion !== "milestone-path-v4" || path.modelName !== CURRENT_TIMING_MODEL_VERSION || path.timingBasis !== "multi_event_confluence") {
-      addIssue(issues, "obsolete_path_contract", `${predictionPath}.pathForecast`, "Path forecast does not use the current multi-event confluence contract.");
-    }
-    if (path.target !== prediction.target) {
-      addIssue(issues, "path_target_mismatch", `${predictionPath}.pathForecast.target`, "Path target must equal its prediction target.");
-    }
-    if (path.terminalProbability !== prediction.probability) {
-      addIssue(issues, "terminal_probability_mismatch", `${predictionPath}.pathForecast.terminalProbability`, "Timing must not alter the authoritative 90-day probability.");
-    }
-    if (!Array.isArray(path.stages) || !Array.isArray(path.checkpoints)) {
-      addIssue(issues, "obsolete_path_contract", `${predictionPath}.pathForecast`, "Path must expose confluence stages and checkpoints.");
-      return;
-    }
-    const forecastStatus = isRecord4(prediction.forecastQuestion) ? prediction.forecastQuestion.status : void 0;
-    const forecastIssuedDate = isRecord4(prediction.forecastQuestion) ? safeXnysIssueDate(prediction.forecastQuestion.issuedAt) : void 0;
-    const forecastHorizonDate = isRecord4(prediction.forecastQuestion) ? safeXnysMarketDate(prediction.forecastQuestion.horizonEnd) : void 0;
-    if (path.status !== forecastStatus) {
-      addIssue(issues, "forecast_status_mismatch", `${predictionPath}.pathForecast.status`, "Path status must match the audited forecast question.");
-    }
-    if (path.status === "resolved_at_issue") {
-      if (prediction.probability !== 100 || path.terminalProbability !== 100) {
-        addIssue(
-          issues,
-          "resolved_probability_mismatch",
-          predictionPath,
-          "A target already touched at issue must publish 100% prediction and terminal probabilities."
-        );
-      }
-      if (path.confluenceWindow !== void 0 || path.confluenceRule !== void 0 || path.stages.length > 0 || path.checkpoints.length > 0) {
-        addIssue(issues, "resolved_path_has_future_references", `${predictionPath}.pathForecast`, "A target already touched at issue cannot publish future confluence references.");
-      }
-      return;
-    }
-    if (path.status !== "open") {
-      addIssue(issues, "forecast_status_mismatch", `${predictionPath}.pathForecast.status`, "An unresolved target must publish an open confluence path.");
-      return;
-    }
-    if (!isRecord4(path.confluenceWindow)) {
-      addIssue(issues, "missing_confluence_window", `${predictionPath}.pathForecast.confluenceWindow`, "An open path requires one multi-event observation window.");
-      return;
-    }
-    if (!isRecord4(path.confluenceRule)) {
-      addIssue(issues, "missing_confluence_rule", `${predictionPath}.pathForecast.confluenceRule`, "An open path requires an independent-signal rule.");
-      return;
-    }
-    const window = path.confluenceWindow;
-    const rule = path.confluenceRule;
-    const basisIds = stringIds(window.basisMilestoneIds);
-    const signalKinds = stringIds(rule.signalKinds);
-    const mandatoryKinds = stringIds(rule.mandatoryKinds);
-    const exhaustionSignals = stringIds(rule.exhaustionSignals);
-    const distinctSignals = new Set(signalKinds);
-    const minimumSignals = rule.minimumSignals;
-    if (basisIds.length < 2 || distinctSignals.size < 2 || signalKinds.some((signal) => !CONFLUENCE_SIGNALS.has(signal)) || typeof minimumSignals !== "number" || !Number.isInteger(minimumSignals) || minimumSignals < 2 || minimumSignals > distinctSignals.size) {
-      addIssue(issues, "insufficient_confluence_signals", `${predictionPath}.pathForecast.confluenceRule`, "A confluence window requires at least two independent, valid signals and a feasible minimum.");
-    }
-    if (mandatoryKinds.length === 0 || new Set(mandatoryKinds).size !== mandatoryKinds.length || mandatoryKinds.some((signal) => !distinctSignals.has(signal))) {
-      addIssue(issues, "invalid_mandatory_signal", `${predictionPath}.pathForecast.confluenceRule.mandatoryKinds`, "Mandatory signals must be unique members of the declared signal set.");
-    }
-    if (exhaustionSignals.length === 0 || exhaustionSignals.length > 3 || new Set(exhaustionSignals).size !== exhaustionSignals.length || exhaustionSignals.some((signal) => signal.trim().length === 0)) {
-      addIssue(
-        issues,
-        "missing_exhaustion_signals",
-        `${predictionPath}.pathForecast.confluenceRule.exhaustionSignals`,
-        "An open path must preserve one to three distinct signals for identifying post-touch buying exhaustion."
-      );
-    }
-    const rawValidationCriteria = rule.validationCriteria;
-    const validationCriteria = Array.isArray(rawValidationCriteria) ? rawValidationCriteria : [];
-    if (validationCriteria.length === 0) {
-      addIssue(
-        issues,
-        "missing_validation_criteria",
-        `${predictionPath}.pathForecast.confluenceRule.validationCriteria`,
-        "An open path must publish target-specific measurable validation criteria."
-      );
-    } else {
-      const criterionIds = validationCriteria.filter(isRecord4).map((criterion) => criterion.id).filter((id) => typeof id === "string");
-      if (criterionIds.length !== validationCriteria.length || new Set(criterionIds).size !== criterionIds.length) {
-        addIssue(
-          issues,
-          "invalid_validation_criterion",
-          `${predictionPath}.pathForecast.confluenceRule.validationCriteria`,
-          "Validation criterion ids must be non-empty and unique."
-        );
-      }
-      validationCriteria.forEach((criterion, criterionIndex) => {
-        const criterionPath = `${predictionPath}.pathForecast.confluenceRule.validationCriteria[${criterionIndex}]`;
-        if (!validationCriterionShape(criterion)) {
-          addIssue(
-            issues,
-            "invalid_validation_criterion",
-            criterionPath,
-            "Each validation criterion requires a declared signal, measurable clauses, milestone references and a numeric threshold statement."
-          );
-          return;
-        }
-        if (!distinctSignals.has(criterion.kind)) {
-          addIssue(
-            issues,
-            "invalid_validation_criterion",
-            `${criterionPath}.kind`,
-            `Criterion ${criterion.id} uses signal ${criterion.kind} outside the declared target rule.`
-          );
-        }
-        criterion.milestoneIds.forEach((id, idIndex) => {
-          if (!milestonesById.has(id)) {
-            addIssue(
-              issues,
-              "unknown_criterion_milestone_reference",
-              `${criterionPath}.milestoneIds[${idIndex}]`,
-              `Criterion ${criterion.id} references unpublished milestone ${id}.`
-            );
-          } else if (!basisIds.includes(id)) {
-            addIssue(
-              issues,
-              "invalid_validation_criterion",
-              `${criterionPath}.milestoneIds[${idIndex}]`,
-              `Criterion ${criterion.id} must be bound to a milestone in the target observation window.`
-            );
-          }
-        });
-      });
-      const coveredKinds = new Set(
-        validationCriteria.filter(validationCriterionShape).map((criterion) => criterion.kind)
-      );
-      if (signalKinds.some((kind) => !coveredKinds.has(kind)) || mandatoryKinds.some((kind) => !coveredKinds.has(kind))) {
-        addIssue(
-          issues,
-          "invalid_validation_criterion",
-          `${predictionPath}.pathForecast.confluenceRule.validationCriteria`,
-          "Measurable criteria must cover every declared and mandatory signal domain."
-        );
-      }
-    }
-    const rawPeakRiskRule = rule.peakRiskRule;
-    if (!peakRiskRuleShape(rawPeakRiskRule)) {
-      addIssue(
-        issues,
-        "invalid_peak_risk_rule",
-        `${predictionPath}.pathForecast.confluenceRule.peakRiskRule`,
-        "Post-touch risk requires a feasible multi-signal rule with measurable clauses and unique criteria."
-      );
-    } else if (!sameJson(
-      exhaustionSignals,
-      rawPeakRiskRule.criteria.map((criterion) => criterion.statement)
-    )) {
-      addIssue(
-        issues,
-        "exhaustion_signal_mismatch",
-        `${predictionPath}.pathForecast.confluenceRule.exhaustionSignals`,
-        "The compatibility exhaustion-signal list must exactly mirror the structured post-touch risk criteria."
-      );
-    }
-    const targetPolicy = isKnownTarget(prediction.target) ? confluencePolicyForTarget(prediction.target) : void 0;
-    if (!targetPolicy || minimumSignals !== targetPolicy.minimumSignals || !sameStringSet(signalKinds, targetPolicy.signalKinds) || !sameStringSet(mandatoryKinds, targetPolicy.mandatoryKinds)) {
-      addIssue(
-        issues,
-        "target_policy_mismatch",
-        `${predictionPath}.pathForecast.confluenceRule`,
-        "The confluence rule must preserve the versioned evidence threshold for its target."
-      );
-    }
-    if (targetPolicy && isKnownTarget(prediction.target)) {
-      try {
-        const expectedCriteria = buildTargetValidationCriteria(
-          prediction.target,
-          snapshot.milestones,
-          path.stages
-        );
-        const expectedPeakRiskRule = targetPeakRiskRule(prediction.target);
-        const expectedExhaustionSignals = expectedPeakRiskRule.criteria.map((criterion) => criterion.statement);
-        if (!sameJson(
-          criterionPolicyProjection(validationCriteria),
-          criterionPolicyProjection(expectedCriteria)
-        ) || !sameJson(rawPeakRiskRule, expectedPeakRiskRule) || !sameJson(exhaustionSignals, expectedExhaustionSignals)) {
-          addIssue(
-            issues,
-            "target_policy_mismatch",
-            `${predictionPath}.pathForecast.confluenceRule`,
-            "The measurable validation and post-touch risk thresholds must match the current target policy and rolling milestone set."
-          );
-        }
-      } catch {
-        addIssue(
-          issues,
-          "target_policy_mismatch",
-          `${predictionPath}.pathForecast.confluenceRule`,
-          "The target policy cannot be rebuilt from the published rolling milestone set."
-        );
-      }
-    }
-    const stages = path.stages;
-    if (stages.length !== PHASES.length || stages.some(
-      (stage, index) => !isRecord4(stage) || stage.phase !== PHASES[index] || typeof stage.label !== "string" || stage.label.length === 0 || stringIds(stage.milestoneIds).length === 0
-    )) {
-      addIssue(issues, "missing_confluence_stage", `${predictionPath}.pathForecast.stages`, "An open path must publish setup, catalyst and confirmation stages in order.");
-    }
-    const stageIds = stages.flatMap(
-      (stage) => isRecord4(stage) ? stringIds(stage.milestoneIds) : []
-    );
-    for (const [index, id] of basisIds.entries()) {
-      if (!milestonesById.has(id)) {
-        addIssue(issues, "unknown_milestone_reference", `${predictionPath}.pathForecast.confluenceWindow.basisMilestoneIds[${index}]`, `Basis milestone ${id} is not published.`);
-      }
-    }
-    for (const [index, id] of stageIds.entries()) {
-      if (!milestonesById.has(id)) {
-        addIssue(issues, "unknown_milestone_reference", `${predictionPath}.pathForecast.stages[${index}]`, `Stage milestone ${id} is not published.`);
-      }
-      if (!basisIds.includes(id)) {
-        addIssue(issues, "stage_reference_mismatch", `${predictionPath}.pathForecast.stages`, `Stage milestone ${id} is missing from the observation window basis.`);
-      }
-    }
-    if (!sameStringSet(basisIds, stageIds)) {
-      addIssue(
-        issues,
-        "stage_reference_mismatch",
-        `${predictionPath}.pathForecast.confluenceWindow.basisMilestoneIds`,
-        "The observation-window basis must exactly match the distinct milestones used by its three stages."
-      );
-    }
-    for (const [index, id] of basisIds.entries()) {
-      const milestone = milestonesById.get(id);
-      if (milestone && (!isDateOnly(forecastIssuedDate) || !isDateOnly(forecastHorizonDate) || typeof milestone.start === "string" && milestone.start < forecastIssuedDate || typeof milestone.end === "string" && milestone.end > forecastHorizonDate)) {
-        addIssue(
-          issues,
-          "milestone_outside_forecast_horizon",
-          `${predictionPath}.pathForecast.confluenceWindow.basisMilestoneIds[${index}]`,
-          `Basis milestone ${id} must remain within the audited forecast horizon.`
-        );
-      }
-    }
-    const setupStage = stages.find((stage) => isRecord4(stage) && stage.phase === "setup");
-    const catalystStage = stages.find((stage) => isRecord4(stage) && stage.phase === "catalyst");
-    const confirmationStage = stages.find((stage) => isRecord4(stage) && stage.phase === "confirmation");
-    const setups = isRecord4(setupStage) ? stringIds(setupStage.milestoneIds).map((id) => milestonesById.get(id)).filter((milestone) => milestone !== void 0) : [];
-    const catalysts = isRecord4(catalystStage) ? stringIds(catalystStage.milestoneIds).map((id) => milestonesById.get(id)).filter(
-      (milestone) => milestone !== void 0 && milestone.certainty !== "conditional_trigger"
-    ) : [];
-    const confirmations = isRecord4(confirmationStage) ? stringIds(confirmationStage.milestoneIds).map((id) => milestonesById.get(id)).filter((milestone) => milestone !== void 0) : [];
-    const fixedCatalysts = catalysts.filter(
-      (milestone) => milestone.certainty === "official_schedule"
-    );
-    const forecastIssuedMs = isRecord4(prediction.forecastQuestion) && typeof prediction.forecastQuestion.issuedAt === "string" ? Date.parse(prediction.forecastQuestion.issuedAt) : Number.NaN;
-    if (fixedCatalysts.some(
-      (milestone) => typeof milestone.scheduledAt !== "string" || !Number.isFinite(Date.parse(milestone.scheduledAt)) || Date.parse(milestone.scheduledAt) <= forecastIssuedMs
-    )) {
-      addIssue(
-        issues,
-        "elapsed_catalyst_reference",
-        `${predictionPath}.pathForecast.stages`,
-        "An official catalyst must still be unpublished at the audited research timestamp."
-      );
-    }
-    const setupEnd = setups.map((milestone) => milestone.end).filter((value) => typeof value === "string").sort().at(-1);
-    const firstFixedCatalystStart = fixedCatalysts.map((milestone) => milestone.start).filter((value) => typeof value === "string").sort()[0];
-    const lastCatalystEnd = catalysts.map((milestone) => milestone.end).filter((value) => typeof value === "string").sort().at(-1);
-    const confirmationStart = confirmations.map((milestone) => milestone.start).filter((value) => typeof value === "string").sort()[0];
-    if (!setupEnd || !firstFixedCatalystStart || !lastCatalystEnd || !confirmationStart || setupEnd >= firstFixedCatalystStart || lastCatalystEnd >= confirmationStart) {
-      addIssue(
-        issues,
-        "stage_order_violation",
-        `${predictionPath}.pathForecast.stages`,
-        "The market setup must precede the first fixed catalyst, and confirmation must follow every scheduled catalyst."
-      );
-    }
-    const representedSignals = /* @__PURE__ */ new Set();
-    if (setups.some((milestone) => milestone.kind === "technical_checkpoint") && confirmations.some((milestone) => milestone.kind === "technical_checkpoint")) {
-      representedSignals.add("market_absorption");
-    }
-    if (catalysts.some((milestone) => milestone.kind === "earnings")) {
-      representedSignals.add("company_fundamentals");
-    }
-    if (catalysts.some((milestone) => milestone.kind === "property_release")) {
-      representedSignals.add("property_state");
-    }
-    if (catalysts.some(
-      (milestone) => milestone.kind === "macro_release" || milestone.kind === "china_adr_event"
-    )) {
-      representedSignals.add("discount_rate_adr");
-    }
-    const unsupportedSignals = [...distinctSignals].filter(
-      (signal) => CONFLUENCE_SIGNALS.has(signal) && !representedSignals.has(signal)
-    );
-    if (unsupportedSignals.length > 0 || typeof minimumSignals === "number" && minimumSignals > representedSignals.size) {
-      addIssue(
-        issues,
-        "stage_signal_mismatch",
-        `${predictionPath}.pathForecast.stages`,
-        "Every declared independent signal must be represented by its corresponding event or market-confirmation stage."
-      );
-    }
-    const expectedStart = setups.map((milestone) => milestone.start).filter((value) => typeof value === "string").sort()[0];
-    const expectedEnd = confirmations.map((milestone) => milestone.end).filter((value) => typeof value === "string").sort().at(-1);
-    if (!isDateOnly(window.start) || !isDateOnly(window.end) || window.start >= window.end || window.start !== expectedStart || window.end !== expectedEnd) {
-      addIssue(issues, "confluence_window_mismatch", `${predictionPath}.pathForecast.confluenceWindow`, "The observation window must span market setup, scheduled catalysts and subsequent confirmation.");
-    }
-    if (prediction.target === 30 && window.start === window.end) {
-      addIssue(issues, "single_day_tail_window", `${predictionPath}.pathForecast.confluenceWindow`, "The 30-dollar tail scenario cannot be bound to one calendar day.");
-    }
-    let previousStart;
-    const checkpointIds = /* @__PURE__ */ new Set();
-    path.checkpoints.forEach((checkpoint, checkpointIndex) => {
-      const checkpointPath = `${predictionPath}.pathForecast.checkpoints[${checkpointIndex}]`;
-      if (!isRecord4(checkpoint) || typeof checkpoint.milestoneId !== "string") {
-        addIssue(issues, "unknown_milestone_reference", checkpointPath, "Checkpoint must reference a published milestone.");
-        return;
-      }
-      if (checkpointIds.has(checkpoint.milestoneId)) {
-        addIssue(issues, "duplicate_checkpoint", checkpointPath, `Checkpoint ${checkpoint.milestoneId} is duplicated.`);
-      }
-      checkpointIds.add(checkpoint.milestoneId);
-      const milestone = milestonesById.get(checkpoint.milestoneId);
-      if (!milestone) {
-        addIssue(issues, "unknown_milestone_reference", `${checkpointPath}.milestoneId`, `Checkpoint milestone ${checkpoint.milestoneId} is not published.`);
-        return;
-      }
-      if (checkpoint.start !== milestone.start || checkpoint.end !== milestone.end) {
-        addIssue(issues, "checkpoint_range_mismatch", checkpointPath, `Checkpoint ${checkpoint.milestoneId} must preserve the source milestone range.`);
-      }
-      if (!isDateOnly(forecastIssuedDate) || !isDateOnly(forecastHorizonDate) || typeof milestone.start === "string" && milestone.start < forecastIssuedDate || typeof milestone.end === "string" && milestone.end > forecastHorizonDate) {
-        addIssue(
-          issues,
-          "milestone_outside_forecast_horizon",
-          checkpointPath,
-          `Checkpoint ${checkpoint.milestoneId} must remain within the audited forecast horizon.`
-        );
-      }
-      if (typeof checkpoint.start !== "string" || typeof checkpoint.end !== "string" || checkpoint.start > checkpoint.end) {
-        addIssue(issues, "checkpoint_range_mismatch", checkpointPath, `Checkpoint ${checkpoint.milestoneId} has an invalid date range.`);
-      }
-      if (previousStart && typeof checkpoint.start === "string" && checkpoint.start < previousStart) {
-        addIssue(issues, "checkpoint_order_violation", checkpointPath, "Checkpoints must be ordered chronologically.");
-      }
-      if (typeof checkpoint.start === "string") previousStart = checkpoint.start;
-    });
-    if (stageIds.some((id) => !checkpointIds.has(id))) {
-      addIssue(issues, "stage_reference_mismatch", `${predictionPath}.pathForecast.checkpoints`, "Every confluence-stage milestone must remain in the chronological checkpoint path.");
-    }
-    const lastCheckpoint = path.checkpoints.at(-1);
-    const expectedHorizonId = isDateOnly(forecastHorizonDate) ? `forecast-horizon-${forecastHorizonDate}` : void 0;
-    if (!isRecord4(lastCheckpoint) || typeof lastCheckpoint.milestoneId !== "string" || !lastCheckpoint.milestoneId.startsWith("forecast-horizon-")) {
-      addIssue(issues, "missing_horizon_checkpoint", `${predictionPath}.pathForecast.checkpoints`, "An open path must end at the explicit 90-day horizon milestone.");
-    } else if (!expectedHorizonId || lastCheckpoint.milestoneId !== expectedHorizonId || lastCheckpoint.start !== forecastHorizonDate || lastCheckpoint.end !== forecastHorizonDate) {
-      addIssue(
-        issues,
-        "horizon_checkpoint_mismatch",
-        `${predictionPath}.pathForecast.checkpoints`,
-        "The final checkpoint must exactly match the audited forecast horizon date."
-      );
-    }
-  });
-  return { valid: issues.length === 0, issues };
-}
-function hasValidMilestoneContract(snapshot) {
-  return validateMilestoneContract(snapshot).valid;
-}
-
-// src/research/engines/riskReview.ts
-var blockedTerms = [
-  "\u5EFA\u8BAE\u4E70\u5165",
-  "\u5EFA\u8BAE\u5356\u51FA",
-  "\u5EFA\u8BAE\u6301\u6709",
-  "\u6EE1\u4ED3",
-  "\u91CD\u4ED3",
-  "\u6284\u5E95",
-  "\u6B62\u635F",
-  "\u6B62\u76C8",
-  "\u7A33\u8D5A",
-  "\u5FC5\u6DA8",
-  "\u4E00\u5B9A\u4F1A\u6DA8",
-  "\u65E0\u98CE\u9669",
-  "\u76EE\u6807\u4EF7\u5FC5\u8FBE",
-  "\u81EA\u52A8\u4E0B\u5355",
-  "\u4ED3\u4F4D\u7BA1\u7406",
-  "\u5238\u5546\u63A5\u5165",
-  "broker integration",
-  "order placement",
-  "position sizing",
-  "buy",
-  "sell",
-  "hold"
-];
-function reviewBlockedTerms(text) {
-  const normalized = text.toLowerCase();
-  return blockedTerms.filter((term) => {
-    if (term === "\u65E0\u98CE\u9669") return /无风险(?!利率)/.test(normalized);
-    if (["buy", "sell", "hold"].includes(term)) {
-      return new RegExp(`\\b${term}\\b`, "i").test(normalized);
-    }
-    return normalized.includes(term.toLowerCase());
-  }).map((term) => ({
-    code: "BLOCKED_TERM",
-    severity: "high",
-    message: `\u7981\u6B62\u6295\u8D44\u5EFA\u8BAE\u8BED\u8A00: ${term}`
-  }));
-}
-function reviewProbabilityOrdering(predictions) {
-  const issues = [];
-  const openByDirection = (direction) => predictions.filter(
-    (prediction) => prediction.forecastQuestion?.status !== "resolved_at_issue" && (prediction.forecastQuestion?.direction ?? (prediction.forecastQuestion?.priceMeasure === "regular_session_low" ? "down" : "up")) === direction
-  ).sort((left, right) => left.target - right.target);
-  const up = openByDirection("up");
-  for (let i = 1; i < up.length; i++) {
-    if (up[i].probability > up[i - 1].probability) {
-      issues.push({
-        code: "PROBABILITY_ORDER",
-        severity: "high",
-        message: `\u4E0A\u884C\u68AF P${up[i].target} (${up[i].probability}%) > P${up[i - 1].target} (${up[i - 1].probability}%)`
-      });
-    }
-  }
-  const down = openByDirection("down");
-  for (let i = 1; i < down.length; i++) {
-    if (down[i].probability < down[i - 1].probability) {
-      issues.push({
-        code: "PROBABILITY_ORDER",
-        severity: "high",
-        message: `\u4E0B\u884C\u68AF P${down[i].target} (${down[i].probability}%) < P${down[i - 1].target} (${down[i - 1].probability}%)`
-      });
-    }
-  }
-  return issues;
-}
-function reviewTargetUniverse(predictions) {
-  const actual = predictions.map((prediction) => prediction.target);
-  const exactOrderedUniverse = actual.length === TARGET_PRICES.length && actual.every((target, index) => target === TARGET_PRICES[index]);
-  if (exactOrderedUniverse) return [];
-  return [{
-    code: "TARGET_UNIVERSE",
-    severity: "high",
-    message: `\u76EE\u6807\u96C6\u5408\u5FC5\u987B\u7CBE\u786E\u4E14\u6709\u5E8F\u4E3A ${TARGET_PRICES.join("/")}\uFF0C\u5B9E\u9645\u4E3A ${actual.join("/") || "\u7A7A"}`
-  }];
-}
-function reviewForecastContract(predictions) {
-  return predictions.flatMap((prediction) => {
-    const question = prediction.forecastQuestion;
-    return isCurrentForecastQuestion(question, prediction.target) ? [] : [{
-      code: "FORECAST_CONTRACT",
-      severity: "high",
-      message: `${prediction.target} \u7F8E\u5143\u9884\u6D4B\u5FC5\u987B\u4F7F\u7528 ${FORECAST_HORIZON_CALENDAR_DAYS} \u5929\u3001\u6309\u73B0\u4EF7\u6BD4\u8F83\u65B9\u5411\u7684\u5E38\u89C4\u65F6\u6BB5\u9996\u6B21\u89E6\u8FBE\u5408\u540C\u3002`
-    }];
-  });
-}
-function reviewProbabilityBounds(predictions) {
-  return predictions.filter((p) => {
-    if (!Number.isFinite(p.probability)) return true;
-    if (p.forecastQuestion?.status === "resolved_at_issue") {
-      return p.probability !== 100;
-    }
-    return p.probability < 5 || p.probability > 95;
-  }).map((p) => ({
-    code: "PROBABILITY_BOUNDS",
-    severity: "high",
-    message: p.forecastQuestion?.status === "resolved_at_issue" && Number.isFinite(p.probability) ? `P${p.target} \u5728\u7814\u7A76\u8D77\u70B9\u5DF2\u89E6\u8FBE\uFF0C\u6982\u7387\u5FC5\u987B\u4E3A 100%\uFF0C\u5B9E\u9645\u4E3A ${p.probability}%` : Number.isFinite(p.probability) ? `P${p.target} \u6982\u7387 ${p.probability}% \u8D85\u51FA 5%-95% \u8303\u56F4` : `P${p.target} \u6982\u7387\u4E0D\u662F\u6709\u9650\u6570\u503C`
-  }));
-}
-function qualitySeverityToRisk(severity) {
-  if (severity === "critical") return "high";
-  if (severity === "warning") return "medium";
-  return "low";
-}
-function reviewResearchQuality(snapshot) {
-  const issues = [];
-  if (snapshot.analysis.generation?.mode === "deterministic_fallback" && !/market-MockMarketProvider/.test(snapshot.dataVersion)) {
-    issues.push({
-      code: "MODEL_RESEARCH_FALLBACK",
-      severity: "high",
-      message: "\u4E13\u4E1A\u6A21\u578B\u5206\u6790\u672A\u5B8C\u6210\uFF1B\u4FDD\u7559\u4E0A\u4E00\u4EFD\u6709\u6548\u7814\u7A76\uFF0C\u4E0D\u53D1\u5E03\u4EE3\u7801\u6A21\u677F\u751F\u6210\u7684\u65B0\u7ED3\u8BBA\u3002"
-    });
-  }
-  if (!snapshot.calibration || !snapshot.quality) {
-    return [
-      {
-        code: "MISSING_RESEARCH_QUALITY_AUDIT",
-        severity: "high",
-        message: "\u7F3A\u5C11\u6821\u51C6\u62A5\u544A\u6216\u7814\u7A76\u8D28\u91CF\u62A5\u544A\uFF0C\u4E0D\u80FD\u53D1\u5E03\u3002"
-      }
-    ];
-  }
-  for (const finding of snapshot.quality.findings) {
-    issues.push({
-      code: finding.code,
-      severity: qualitySeverityToRisk(finding.severity),
-      message: finding.message
-    });
-  }
-  if (snapshot.quality.overallScore < 70) {
-    issues.push({
-      code: "RESEARCH_QUALITY_SCORE",
-      severity: "high",
-      message: `\u7814\u7A76\u8D28\u91CF ${snapshot.quality.overallScore}/100 \u4F4E\u4E8E\u53D1\u5E03\u9608\u503C\u3002`
-    });
-  } else if (snapshot.quality.overallScore < 85) {
-    issues.push({
-      code: "RESEARCH_QUALITY_SCORE",
-      severity: "medium",
-      message: `\u7814\u7A76\u8D28\u91CF ${snapshot.quality.overallScore}/100 \u504F\u4F4E\uFF0C\u5EFA\u8BAE\u8865\u5145\u8BC1\u636E\u3002`
-    });
-  }
-  if (snapshot.calibration.status === "ready" && snapshot.calibration.brierScore !== null && snapshot.calibration.brierScore > 0.35) {
-    issues.push({
-      code: "CALIBRATION_BRIER_WEAK",
-      severity: "medium",
-      message: `Brier score ${snapshot.calibration.brierScore} \u504F\u9AD8\uFF0C\u9700\u8981\u590D\u6838\u6982\u7387\u6A21\u578B\u3002`
-    });
-  }
-  return issues;
-}
-function reviewSnapshot(snapshot, previousSnapshot, events = []) {
-  const issues = [];
-  issues.push(...reviewBlockedTerms(JSON.stringify(snapshot.analysis)));
-  issues.push(...reviewTargetUniverse(snapshot.predictions));
-  if (snapshot.modelVersion === CURRENT_PROBABILITY_MODEL_VERSION) {
-    issues.push(...reviewForecastContract(snapshot.predictions));
-    if (!hasCurrentForecastQuestionSet(snapshot.predictions)) {
-      issues.push({
-        code: "FORECAST_CONTRACT_SET",
-        severity: "high",
-        message: `${TARGET_PRICES.join("/")} \u7F8E\u5143\u9884\u6D4B\u5FC5\u987B\u5171\u4EAB\u540C\u4E00 90 \u5929\u8D77\u6B62\u65F6\u95F4\u3002`
-      });
-    }
-  }
-  issues.push(...reviewProbabilityOrdering(snapshot.predictions));
-  issues.push(...reviewProbabilityBounds(snapshot.predictions));
-  const dataVersion = snapshot.dataVersion ?? "";
-  const usesMilestoneRuntime = dataVersion.includes(RESEARCH_RUNTIME_VERSION) || dataVersion.includes("official-event-calendar-rolling-v3-xnys") || dataVersion.includes("official-event-calendar-rolling-v2") || dataVersion.includes("official-event-calendar-2026q3-v1") || snapshot.predictions.some((prediction) => prediction.pathForecast !== void 0);
-  issues.push(...usesMilestoneRuntime ? reviewMilestoneForecasts(snapshot) : reviewNearTermForecasts(snapshot.predictions));
-  issues.push(...reviewResearchQuality(snapshot));
-  if (snapshot.analysis.generation?.mode === "model_loop") {
-    for (const target of TARGET_PRICES) {
-      const view = snapshot.analysis.targetViews?.[target];
-      const guidanceCount = view?.guidance?.length ?? 0;
-      const bases = new Set(view?.claimLedger?.map((claim) => claim.basis) ?? []);
-      if (!view?.headline || !view.historicalAnchor || !view.panoramicAnalysis || guidanceCount < 1 || guidanceCount > 3 || !bases.has("historical_precedent") || !bases.has("bounded_inference")) {
-        issues.push({
-          code: "PROFESSIONAL_CONCLUSION_INCOMPLETE",
-          severity: "high",
-          message: `${target} \u7F8E\u5143\u7F3A\u5C11\u4E13\u5BB6\u65AD\u8A00\u3001\u5386\u53F2\u6EAF\u6E90\u3001\u5168\u7EF4\u666F\u5206\u6790\u30011-3 \u6761\u6307\u5BFC\u5EFA\u8BAE\u6216\u5206\u5C42 claim\u3002`
-        });
-        continue;
-      }
-      if (PROFESSIONAL_CONCLUSION_REFUSAL_PATTERN.test(view.headline)) {
-        issues.push({
-          code: "PROFESSIONAL_CONCLUSION_REFUSAL",
-          severity: "high",
-          message: `${target} \u7F8E\u5143\u4E13\u5BB6\u65AD\u8A00\u60AC\u7F6E\u5224\u65AD\u6216\u4F7F\u7528\u63A8\u8BFF\u8868\u8FBE\u3002`
-        });
-      }
-    }
-  }
-  const previousSnapshotMatchesContract = previousSnapshot && previousSnapshot.modelVersion === snapshot.modelVersion && hasCurrentForecastQuestionSet(snapshot.predictions) && hasCurrentForecastQuestionSet(previousSnapshot.predictions);
-  if (previousSnapshotMatchesContract) {
-    for (const prediction of snapshot.predictions) {
-      const previousPrediction = previousSnapshot.predictions.find((p) => p.target === prediction.target);
-      issues.push(...reviewProbabilityJump(
-        prediction,
-        previousPrediction?.probability,
-        events,
-        5,
-        10,
-        previousSnapshot.updatedAt
-      ));
-    }
-  }
-  if (!snapshot.analysis.headline) {
-    issues.push({
-      code: "MISSING_HEADLINE",
-      severity: "medium",
-      message: "\u7F3A\u5C11 headline"
-    });
-  }
-  if (snapshot.analysis.positives.length !== 3) {
-    issues.push({
-      code: "POSITIVES_COUNT",
-      severity: "medium",
-      message: `\u6B63\u9762\u56E0\u7D20\u5E94\u4E3A 3 \u6761\uFF0C\u5B9E\u9645 ${snapshot.analysis.positives.length} \u6761`
-    });
-  }
-  if (snapshot.analysis.negatives.length !== 3) {
-    issues.push({
-      code: "NEGATIVES_COUNT",
-      severity: "medium",
-      message: `\u8D1F\u9762\u56E0\u7D20\u5E94\u4E3A 3 \u6761\uFF0C\u5B9E\u9645 ${snapshot.analysis.negatives.length} \u6761`
-    });
-  }
-  if (snapshot.analysis.watch.length !== 3) {
-    issues.push({
-      code: "WATCH_COUNT",
-      severity: "medium",
-      message: `\u89C2\u5BDF\u70B9\u5E94\u4E3A 3 \u6761\uFF0C\u5B9E\u9645 ${snapshot.analysis.watch.length} \u6761`
-    });
-  }
-  const highSeverity = issues.filter((i) => i.severity === "high");
-  return {
-    approved: highSeverity.length === 0,
-    issues
-  };
-}
-function reviewProbabilityJump(prediction, previousProbability, events, normalLimit = 5, majorEventLimit = 10, previousPublishedAt) {
-  if (previousProbability === void 0) return [];
-  if (prediction.forecastQuestion?.status === "resolved_at_issue" && prediction.probability === 100) return [];
-  const jump = Math.abs(prediction.probability - previousProbability);
-  const previousCutoff = Date.parse(previousPublishedAt ?? "");
-  const hasMajorEvent = events.some(
-    (event) => event.importance >= 8 && event.confidence >= 0.75 && event.affectedTargets.includes(prediction.target) && (!Number.isFinite(previousCutoff) || Date.parse(event.publishedAt ?? "") > previousCutoff)
-  );
-  const limit = hasMajorEvent ? majorEventLimit : normalLimit;
-  if (jump > limit) {
-    return [
-      {
-        code: "PROBABILITY_JUMP",
-        severity: "high",
-        message: `P${prediction.target} \u6982\u7387\u8DF3\u53D8 ${jump.toFixed(1)} pct\uFF0C\u8D85\u8FC7\u9650\u5236 ${limit} pct`
-      }
-    ];
-  }
-  return [];
-}
-function reviewNearTermForecasts(predictions) {
-  const issues = [];
-  for (const prediction of predictions) {
-    const forecast = prediction.nearTermForecast;
-    if (!forecast) {
-      issues.push({
-        code: "MISSING_NEAR_TERM_FORECAST",
-        severity: "high",
-        message: `P${prediction.target} \u7F3A\u5C11\u4E00\u5468\u5927\u80C6\u9884\u6D4B\u7A97\u53E3`
-      });
-      continue;
-    }
-    issues.push(...reviewBlockedTerms(`${forecast.label} ${forecast.thesis} ${forecast.trigger} ${forecast.invalidation}`));
-    const start = Date.parse(`${forecast.windowStart}T00:00:00Z`);
-    const end = Date.parse(`${forecast.windowEnd}T00:00:00Z`);
-    const spanDays = (end - start) / (24 * 60 * 60 * 1e3);
-    if (!Number.isFinite(start) || !Number.isFinite(end) || spanDays !== 6) {
-      issues.push({
-        code: "NEAR_TERM_FORECAST_WINDOW",
-        severity: "high",
-        message: `P${prediction.target} \u5927\u80C6\u9884\u6D4B\u5FC5\u987B\u7CBE\u786E\u4E3A 7 \u5929\u7A97\u53E3`
-      });
-    }
-    if (!forecast.label || !forecast.thesis || !forecast.trigger || !forecast.invalidation) {
-      issues.push({
-        code: "NEAR_TERM_FORECAST_COPY",
-        severity: "medium",
-        message: `P${prediction.target} \u5927\u80C6\u9884\u6D4B\u7F3A\u5C11\u89E3\u91CA\u3001\u89E6\u53D1\u5668\u6216\u5931\u6548\u70B9`
-      });
-    }
-    if (forecast.modelName !== "context-weighted-week-forecast-v0.2" || typeof forecast.contextScore !== "number" || !forecast.evidenceSummary || !forecast.agentDebate) {
-      issues.push({
-        code: "NEAR_TERM_FORECAST_CONTEXT",
-        severity: "high",
-        message: `P${prediction.target} \u5927\u80C6\u9884\u6D4B\u7F3A\u5C11\u4E0A\u4E0B\u6587\u6A21\u578B\u3001\u8BC1\u636E\u6458\u8981\u6216 agent debate`
-      });
-    }
-  }
-  return issues;
-}
-function reviewMilestoneForecasts(snapshot) {
-  const issues = [];
-  const milestones = snapshot.milestones ?? [];
-  if (milestones.length === 0) {
-    return [{
-      code: "MILESTONE_PLAN_MISSING",
-      severity: "high",
-      message: "\u5F53\u524D\u8FD0\u884C\u65F6\u7F3A\u5C11\u672A\u6765 90 \u5929\u4E8B\u4EF6\u91CC\u7A0B\u7891\u8BA1\u5212\u3002"
-    }];
-  }
-  const milestoneIds = /* @__PURE__ */ new Set();
-  const requiredKinds = /* @__PURE__ */ new Set([
-    "earnings",
-    "property_release",
-    "macro_release",
-    "technical_checkpoint",
-    "china_adr_event"
-  ]);
-  const sharedQuestion = snapshot.predictions[0]?.forecastQuestion;
-  const issuedDate = sharedQuestion ? xnysIssueSessionDate(sharedQuestion.issuedAt) : void 0;
-  const horizonDate = sharedQuestion ? xnysMarketDate(sharedQuestion.horizonEnd) : void 0;
-  for (const milestone of milestones) {
-    if (milestoneIds.has(milestone.id)) {
-      issues.push({
-        code: "MILESTONE_TIMING_INVALID",
-        severity: "high",
-        message: `\u91CC\u7A0B\u7891 ${milestone.id} \u91CD\u590D\u3002`
-      });
-    }
-    milestoneIds.add(milestone.id);
-    requiredKinds.delete(milestone.kind);
-    const validRange = /^\d{4}-\d{2}-\d{2}$/.test(milestone.start) && /^\d{4}-\d{2}-\d{2}$/.test(milestone.end) && milestone.start <= milestone.end;
-    if (!validRange || issuedDate && milestone.start < issuedDate || horizonDate && milestone.end > horizonDate) {
-      issues.push({
-        code: "MILESTONE_TIMING_INVALID",
-        severity: "high",
-        message: `\u91CC\u7A0B\u7891 ${milestone.id} \u7684\u65F6\u95F4\u8303\u56F4\u4E0D\u5728\u5F53\u524D 90 \u5929\u7814\u7A76\u7A97\u53E3\u5185\u3002`
-      });
-    }
-    if (!milestone.source || !/^https:\/\//.test(milestone.sourceUrl)) {
-      issues.push({
-        code: "MILESTONE_PROVENANCE_MISSING",
-        severity: "high",
-        message: `\u91CC\u7A0B\u7891 ${milestone.id} \u7F3A\u5C11\u53EF\u6838\u9A8C\u6765\u6E90\u3002`
-      });
-    }
-    if (milestone.certainty === "historical_estimate" && milestone.start === milestone.end) {
-      issues.push({
-        code: "MILESTONE_FALSE_PRECISION",
-        severity: "high",
-        message: `\u6309\u5386\u53F2\u8282\u594F\u5F62\u6210\u7684\u91CC\u7A0B\u7891 ${milestone.id} \u4E0D\u5F97\u4F2A\u88C5\u6210\u5355\u4E00\u786E\u5B9A\u65E5\u671F\u3002`
-      });
-    }
-  }
-  if (requiredKinds.size > 0) {
-    issues.push({
-      code: "MILESTONE_COVERAGE_GAP",
-      severity: "high",
-      message: `\u91CC\u7A0B\u7891\u7F3A\u5C11\u8986\u76D6\uFF1A${[...requiredKinds].join(" / ")}\u3002`
-    });
-  }
-  const paths = snapshot.predictions.map((prediction) => prediction.pathForecast);
-  if (paths.some((path) => !path)) {
-    issues.push({
-      code: "MILESTONE_CONTEXT_MISMATCH",
-      severity: "high",
-      message: "\u81F3\u5C11\u4E00\u4E2A\u76EE\u6807\u7F3A\u5C11\u4E8B\u4EF6\u8DEF\u5F84\u9884\u6D4B\u3002"
-    });
-    return issues;
-  }
-  for (const prediction of snapshot.predictions) {
-    const path = prediction.pathForecast;
-    if (path.schemaVersion !== "milestone-path-v4" || path.modelName !== CURRENT_TIMING_MODEL_VERSION || path.timingBasis !== "multi_event_confluence" || path.target !== prediction.target) {
-      issues.push({
-        code: "MILESTONE_CONTEXT_MISMATCH",
-        severity: "high",
-        message: `P${prediction.target} \u4E8B\u4EF6\u8DEF\u5F84\u6A21\u578B\u6216\u76EE\u6807\u4E0A\u4E0B\u6587\u4E0D\u5339\u914D\u3002`
-      });
-    }
-    if (path.terminalProbability !== prediction.probability) {
-      issues.push({
-        code: "PATH_TERMINAL_MISMATCH",
-        severity: "high",
-        message: `P${prediction.target} \u9A8C\u8BC1\u8DEF\u5F84\u6CA1\u6709\u955C\u50CF\u6743\u5A01 90 \u5929\u6982\u7387 ${prediction.probability}%\u3002`
-      });
-    }
-    const questionStatus = prediction.forecastQuestion?.status;
-    if (path.status !== questionStatus) {
-      issues.push({
-        code: "MILESTONE_CONTEXT_MISMATCH",
-        severity: "high",
-        message: `P${prediction.target} \u9A8C\u8BC1\u8DEF\u5F84\u72B6\u6001\u4E0E\u9996\u6B21\u89E6\u8FBE\u5408\u540C\u4E0D\u4E00\u81F4\u3002`
-      });
-    }
-    if (path.status === "resolved_at_issue") {
-      if (prediction.probability !== 100 || path.terminalProbability !== 100) {
-        issues.push({
-          code: "RESOLVED_PROBABILITY_MISMATCH",
-          severity: "high",
-          message: `P${prediction.target} \u5728\u7814\u7A76\u8D77\u70B9\u5DF2\u89E6\u8FBE\uFF0C\u4F46\u53D1\u5E03\u6982\u7387\u672A\u56FA\u5B9A\u4E3A 100%\u3002`
-        });
-      }
-      if (path.confluenceWindow !== void 0 || path.confluenceRule !== void 0 || path.stages.length > 0 || path.checkpoints.length > 0) {
-        issues.push({
-          code: "RESOLVED_PATH_HAS_FUTURE_WINDOW",
-          severity: "high",
-          message: `P${prediction.target} \u5728\u7814\u7A76\u8D77\u70B9\u5DF2\u89E6\u8FBE\uFF0C\u5374\u4ECD\u88AB\u5206\u914D\u672A\u6765\u9A8C\u8BC1\u7A97\u53E3\u3002`
-        });
-      }
-      if (!prediction.nearTermForecast || prediction.nearTermForecast.modelName !== "event-confluence-forecast-v4.0" || !prediction.nearTermForecast.thesis.includes("\u5DF2\u7ECF")) {
-        issues.push({
-          code: "FORECAST_COPY_ANCHOR_MISMATCH",
-          severity: "high",
-          message: `P${prediction.target} \u7684\u7ED3\u7B97\u6587\u6848\u6CA1\u6709\u8BF4\u660E\u7814\u7A76\u8D77\u70B9\u5DF2\u7ECF\u89E6\u8FBE\u3002`
-        });
-      }
-      continue;
-    }
-    const window = path.confluenceWindow;
-    const rule = path.confluenceRule;
-    const stageIds = path.stages.flatMap((stage) => stage.milestoneIds);
-    if (!window || !rule || window.basisMilestoneIds.length < 2 || path.stages.length !== 3) {
-      issues.push({
-        code: "PATH_ORPHAN_CHECKPOINT",
-        severity: "high",
-        message: `P${prediction.target} \u7F3A\u5C11\u5B8C\u6574\u7684\u591A\u4E8B\u4EF6\u5171\u632F\u6761\u4EF6\u6216\u89C2\u5BDF\u9636\u6BB5\u3002`
-      });
-      continue;
-    }
-    const checkpointMilestones = path.checkpoints.map((checkpoint) => ({
-      checkpoint,
-      milestone: milestones.find((milestone) => milestone.id === checkpoint.milestoneId)
-    }));
-    if (window.basisMilestoneIds.some((id) => !milestoneIds.has(id)) || stageIds.some((id) => !milestoneIds.has(id)) || checkpointMilestones.some(({ milestone }) => !milestone)) {
-      issues.push({
-        code: "PATH_ORPHAN_CHECKPOINT",
-        severity: "high",
-        message: `P${prediction.target} \u9A8C\u8BC1\u8DEF\u5F84\u5F15\u7528\u4E86\u5171\u4EAB\u65E5\u5386\u4E4B\u5916\u7684\u8282\u70B9\u3002`
-      });
-    }
-    for (let index = 0; index < checkpointMilestones.length; index += 1) {
-      const { checkpoint, milestone } = checkpointMilestones[index];
-      const previous = checkpointMilestones[index - 1]?.checkpoint;
-      if (!milestone || checkpoint.start !== milestone.start || checkpoint.end !== milestone.end || checkpoint.start > checkpoint.end || previous && checkpoint.start < previous.start) {
-        issues.push({
-          code: "PATH_TIME_ORDER",
-          severity: "high",
-          message: `P${prediction.target} \u7684\u9A8C\u8BC1\u8282\u70B9\u65E5\u671F\u4E0E\u5171\u4EAB\u65E5\u5386\u4E0D\u4E00\u81F4\u6216\u987A\u5E8F\u9519\u8BEF\u3002`
-        });
-        break;
-      }
-    }
-    const finalMilestoneId = path.checkpoints.at(-1)?.milestoneId;
-    if (!finalMilestoneId?.startsWith("forecast-horizon-")) {
-      issues.push({
-        code: "PATH_HORIZON_MISSING",
-        severity: "high",
-        message: `P${prediction.target} \u9A8C\u8BC1\u8DEF\u5F84\u7F3A\u5C11 90 \u5929\u7ED3\u7B97\u8282\u70B9\u3002`
-      });
-    }
-    const validationStatements = Array.isArray(rule.validationCriteria) ? rule.validationCriteria.map((criterion) => criterion.statement) : [];
-    const peakRiskStatements = Array.isArray(rule.peakRiskRule?.criteria) ? rule.peakRiskRule.criteria.map((criterion) => criterion.statement) : [];
-    if (!prediction.nearTermForecast || prediction.nearTermForecast.modelName !== "event-confluence-forecast-v4.0" || validationStatements.length === 0 || peakRiskStatements.length === 0 || validationStatements.some(
-      (statement) => !prediction.nearTermForecast.trigger.includes(statement)
-    ) || peakRiskStatements.some(
-      (statement) => !prediction.nearTermForecast.invalidation.includes(statement)
-    )) {
-      issues.push({
-        code: "FORECAST_COPY_ANCHOR_MISMATCH",
-        severity: "high",
-        message: `P${prediction.target} \u7684\u65F6\u95F4\u6587\u6848\u6CA1\u6709\u5B8C\u6574\u5448\u73B0\u53EF\u91CF\u5316\u786E\u8BA4\u6761\u4EF6\u6216\u89E6\u8FBE\u540E\u8B66\u62A5\u3002`
-      });
-    }
-  }
-  const contractCodeMap = {
-    invalid_snapshot_shape: "MILESTONE_CONTEXT_MISMATCH",
-    invalid_milestone_shape: "MILESTONE_CONTEXT_MISMATCH",
-    duplicate_milestone_id: "MILESTONE_TIMING_INVALID",
-    invalid_milestone_range: "MILESTONE_TIMING_INVALID",
-    invalid_scheduled_release: "MILESTONE_TIMING_INVALID",
-    missing_path_forecast: "MILESTONE_CONTEXT_MISMATCH",
-    obsolete_path_contract: "MILESTONE_CONTEXT_MISMATCH",
-    path_target_mismatch: "MILESTONE_CONTEXT_MISMATCH",
-    terminal_probability_mismatch: "PATH_TERMINAL_MISMATCH",
-    forecast_status_mismatch: "MILESTONE_CONTEXT_MISMATCH",
-    resolved_probability_mismatch: "RESOLVED_PROBABILITY_MISMATCH",
-    resolved_path_has_future_references: "RESOLVED_PATH_HAS_FUTURE_WINDOW",
-    missing_confluence_window: "MILESTONE_CONTEXT_MISMATCH",
-    missing_confluence_rule: "MILESTONE_CONTEXT_MISMATCH",
-    missing_confluence_stage: "PATH_ORPHAN_CHECKPOINT",
-    insufficient_confluence_signals: "MILESTONE_CONTEXT_MISMATCH",
-    invalid_mandatory_signal: "MILESTONE_CONTEXT_MISMATCH",
-    missing_exhaustion_signals: "MILESTONE_CONTEXT_MISMATCH",
-    missing_validation_criteria: "MILESTONE_CONTEXT_MISMATCH",
-    invalid_validation_criterion: "MILESTONE_CONTEXT_MISMATCH",
-    unknown_criterion_milestone_reference: "PATH_ORPHAN_CHECKPOINT",
-    invalid_peak_risk_rule: "MILESTONE_CONTEXT_MISMATCH",
-    exhaustion_signal_mismatch: "MILESTONE_CONTEXT_MISMATCH",
-    target_policy_mismatch: "MILESTONE_CONTEXT_MISMATCH",
-    stage_signal_mismatch: "MILESTONE_CONTEXT_MISMATCH",
-    unknown_milestone_reference: "PATH_ORPHAN_CHECKPOINT",
-    stage_reference_mismatch: "PATH_ORPHAN_CHECKPOINT",
-    stage_order_violation: "PATH_TIME_ORDER",
-    elapsed_catalyst_reference: "PATH_TIME_ORDER",
-    confluence_window_mismatch: "MILESTONE_CONTEXT_MISMATCH",
-    single_day_tail_window: "MILESTONE_CONTEXT_MISMATCH",
-    checkpoint_range_mismatch: "PATH_TIME_ORDER",
-    checkpoint_order_violation: "PATH_TIME_ORDER",
-    duplicate_checkpoint: "PATH_TIME_ORDER",
-    missing_horizon_checkpoint: "PATH_HORIZON_MISSING",
-    horizon_checkpoint_mismatch: "PATH_HORIZON_MISSING",
-    milestone_outside_forecast_horizon: "PATH_TIME_ORDER"
-  };
-  for (const contractIssue of validateMilestoneContract(snapshot).issues) {
-    const code = contractCodeMap[contractIssue.code];
-    if (issues.some((issue2) => issue2.code === code && issue2.message.includes(contractIssue.message))) {
-      continue;
-    }
-    issues.push({
-      code,
-      severity: "high",
-      message: contractIssue.message
-    });
-  }
-  return issues;
-}
-
 // src/research/subagents/RiskReviewSubagent.ts
 var RiskReviewSubagent = class {
   async run(input) {
@@ -25135,8 +25182,8 @@ async function runBekeHarness(input, context) {
     failRun(conclusionResult.errorMessage);
     return { run: recorder.getRun(run.id) };
   }
-  const analysis = conclusionResult.output;
-  const publishedPredictions = predictions.map((prediction) => {
+  const analysis = scrubPublicResearchStrings(conclusionResult.output);
+  const publishedPredictions = scrubPublicResearchStrings(predictions.map((prediction) => {
     if (prediction.pathForecast) return prediction;
     const view = analysis.targetViews?.[prediction.target];
     if (!view || !prediction.nearTermForecast) return prediction;
@@ -25150,7 +25197,7 @@ async function runBekeHarness(input, context) {
         agentDebate: view.debate
       }
     };
-  });
+  }));
   const publishedMilestoneIds = new Set(
     publishedPredictions.flatMap((prediction) => [
       ...prediction.pathForecast?.confluenceWindow?.basisMilestoneIds ?? [],
